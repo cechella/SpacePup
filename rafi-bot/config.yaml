@@ -1,0 +1,78 @@
+# ============================================================
+# Configurações do Bot RAFI Forex
+# Par: EURUSD | Corretora: XM Ultra Low Standard
+# Atualizar antes de cada sessão de trading
+# ============================================================
+
+# --- Par e corretora ---
+par: "EURUSD"
+corretora: "XM"
+tipo_conta: "Ultra Low Standard"  # spread mais baixo
+
+# --- Capital e alavancagem ---
+capital_inicial: 20.0          # USD — capital de partida
+alavancagem: 1000              # 1:1000 (XM Ultra Low)
+tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
+
+# --- Gestão de risco ---
+risco_por_trade: 0.02          # 2% do capital por operação
+risco_maximo_diario: 0.05      # 5% — bot para ao atingir
+max_trades_simultaneos: 2
+max_perdas_por_dia: 1          # 1 perda = bot para até amanhã
+ratio_risco_retorno: 1.5       # take-profit mínimo = 1.5x o stop
+
+# --- Spread (pips) ---
+spread_pips: 0.8               # spread médio EURUSD XM Ultra Low
+slippage_pips: 0.5             # slippage estimado em pontos
+
+# --- Indicadores ---
+bollinger_periodo: 8
+bollinger_desvios: 2.0
+bollinger_limiar_largura: 0.0010   # largura mínima para considerar "estreita" (em preço)
+bollinger_abertura_minima: 0.0003  # variação mínima de largura para "abrindo"
+
+forca_limiar: 2.50             # RAFI equivalente — limiar de entrada
+forca_exaustao: -2.50          # RAFI equivalente — sinal de exaustão
+
+# Detecção de suporte/resistência
+sr_lookback: 50                # candles para trás na busca de pivôs
+sr_tolerancia: 0.0005          # tolerância em preço para confirmar rompimento (5 pips)
+
+# --- Timeframes ---
+timeframes:
+  - "M5"
+  - "M15"
+  - "H1"
+
+# Tendência em cada TF (médias móveis)
+ma_rapida: 20
+ma_lenta: 50
+
+# --- Sessões (UTC/GMT) — somente operar nas sobreposições ---
+sessoes:
+  toquio_sydney:
+    inicio: "23:00"
+    fim: "01:00"
+  toquio_londres:
+    inicio: "07:00"
+    fim: "08:00"
+  londres_ny:
+    inicio: "12:00"
+    fim: "16:00"
+
+# --- Backtest ---
+backtest:
+  data_inicio: "2022-01-01"
+  data_fim: "2024-12-31"
+  timeframe_base: "M5"
+  incluir_spread: true
+  incluir_slippage: true
+
+# --- Logging ---
+log_nivel: "INFO"              # DEBUG | INFO | WARNING | ERROR
+log_arquivo: "logs/rafi_bot.log"
+
+# --- Meta de capital (fase agressiva $20→$1000) ---
+meta_diaria_multiplicador: 2.0  # dobrar por dia até $1000
+meta_ajuste_capital: 1000.0     # a partir daqui, recalibrar tamanho de lote
+meta_final: 300000.0            # objetivo em 6 meses
