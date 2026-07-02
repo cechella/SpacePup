@@ -7,6 +7,12 @@ no fechamento do candle atual.
 
 Inclui spread real da XM (~0,6–1,6 pips) e slippage estimado.
 
+Estratégia simplificada (versão atual):
+  Filtro 1: Tendência M5 — MA20 vs MA50 define direção
+  Filtro 2: RAFI > +2.50 para compra | RAFI < -2.50 para venda
+  Stop-loss: extremo do candle de sinal (low para compra, high para venda)
+  Take-profit: ratio_risco_retorno × risco
+
 Performance: todos os indicadores são pré-calculados uma única vez (O(n))
 para que o loop principal execute em tempo linear em vez de quadrático.
 
@@ -24,18 +30,8 @@ import numpy as np
 from datetime import datetime, timezone
 from typing import Optional
 
-from src.indicators import (
-    calcular_indice_forca,
-    detectar_pivotos,
-    niveis_sr_ativos,
-    rompimento_ocorreu,
-)
-from src.strategy import (
-    calcular_stops,
-    verificar_saida,
-    em_sessao_ativa,
-    _nivel_mais_proximo,
-)
+from src.indicators import calcular_indice_forca
+from src.strategy import calcular_stops, verificar_saida
 from src.risk_manager import GestorRisco
 
 logger = logging.getLogger(__name__)
@@ -80,46 +76,40 @@ class Backtest:
     # EXECUÇÃO PRINCIPAL (O(n) via pré-cálculo vetorizado)
     # ─────────────────────────────────────────────────────────
 
-    def executar(self, min_candles: int = 100, sr_lookback: int = 50) -> list:
+    def executar(self, min_candles: int = 100) -> list:
         """
-        Itera candle a candle no M5 e simula a estratégia.
+        Itera candle a candle no M5 e simula a estratégia simplificada.
 
-        Todos os indicadores são pré-calculados uma única vez no início
-        para evitar recálculo a cada iteração (que seria O(n²)).
+        Estratégia:
+          1. Tendência M5 por MA20 vs MA50
+          2. RAFI > +2.50 para compra | RAFI < -2.50 para venda
+          Stop-loss no extremo do candle de sinal; TP = risco × ratio_rr
+
+        Todos os indicadores são pré-calculados uma única vez no início.
 
         Retorna lista de dicts com todos os trades executados.
         """
         n = len(self.df_m5)
 
-        # ── Pré-cálculo de indicadores (O(n) — feito uma só vez) ──
-        # Filtros em ordem: Sessão → M5+M15 → S/R → RAFI > 2.50
-        logger.info("Pré-calculando indicadores (RAFI, S/R, MAs M5+M15)...")
+        # ── Pré-cálculo de indicadores (O(n)) ─────────────────
+        logger.info("Pré-calculando indicadores (RAFI, MA20/MA50 M5)...")
 
         forca_serie = calcular_indice_forca(self.df_m5)
-        pivotos_m5  = detectar_pivotos(self.df_m5, janela=5)
 
-        # Tendência por MA para M5 e M15 (sem H1 — sincronismo só M5+M15)
-        ma_r = int(self.config.get('ma_rapida', 20))
-        ma_l = int(self.config.get('ma_lenta',  50))
+        # Tendência por médias móveis no M5
+        ma_r  = int(self.config.get('ma_rapida', 20))
+        ma_l  = int(self.config.get('ma_lenta',  50))
+        ma20  = self.df_m5['close'].rolling(ma_r).mean()
+        ma50  = self.df_m5['close'].rolling(ma_l).mean()
+        diff  = ma20 - ma50
+        trend_m5 = pd.Series(0, index=self.df_m5.index, dtype=int)
+        trend_m5[diff >  0.0001] = 1
+        trend_m5[diff < -0.0001] = -1
 
-        def _trend_series(df: pd.DataFrame) -> pd.Series:
-            """Série de tendência: +1=alta, -1=baixa, 0=lateral."""
-            r    = df['close'].rolling(ma_r).mean()
-            l    = df['close'].rolling(ma_l).mean()
-            diff = r - l
-            s    = pd.Series(0, index=df.index, dtype=int)
-            s[diff >  0.0001] = 1
-            s[diff < -0.0001] = -1
-            return s
-
-        trend_m5  = _trend_series(self.df_m5)
-        trend_m15 = _trend_series(self.df_m15)
-
-        # Parâmetros de filtro
-        forca_limiar  = float(self.config.get('forca_limiar',   2.50))
-        forca_exaust  = float(self.config.get('forca_exaustao', -2.50))
-        sr_tol        = float(self.config.get('sr_tolerancia',  0.0005))
-        ratio_rr      = float(self.config.get('ratio_risco_retorno', 1.5))
+        # Parâmetros
+        forca_limiar = float(self.config.get('forca_limiar',   2.50))
+        forca_exaust = float(self.config.get('forca_exaustao', -2.50))
+        ratio_rr     = float(self.config.get('ratio_risco_retorno', 1.5))
 
         posicao_aberta: Optional[dict] = None
         forca_anterior: float = 0.0
@@ -135,7 +125,6 @@ class Backtest:
             forca_val   = forca_serie.iloc[i]
             forca_atual = float(forca_val) if not np.isnan(forca_val) else 0.0
 
-            # Converter índice para datetime Python (necessário para em_sessao_ativa)
             ts_dt = timestamp.to_pydatetime() if hasattr(timestamp, 'to_pydatetime') \
                     else datetime.fromtimestamp(timestamp.timestamp(), tz=timezone.utc)
 
@@ -150,57 +139,37 @@ class Backtest:
             forca_anterior = forca_atual
 
             if posicao_aberta is not None:
-                continue  # já há posição aberta
+                continue
+
+            # Avança a data do gestor de risco (para reset diário correto no backtest)
+            self.gestor.avancar_data(ts_dt.date())
 
             # ── Verificar permissão do gestor de risco ─────────
             pode, _ = self.gestor.pode_operar(self.capital)
             if not pode:
                 continue
 
-            # ── Filtro 1: Sessão ──────────────────────────────
-            if not em_sessao_ativa(ts_dt):
-                continue
-
-            # ── Filtro 2: Sincronismo M5+M15 ─────────────────
+            # ── Filtro 1: Tendência M5 (MA20 vs MA50) ─────────
             t5 = int(trend_m5.iloc[i])
             if t5 == 0:
                 continue
 
-            pos15 = self.df_m15.index.searchsorted(timestamp, side='right') - 1
-            t15   = int(trend_m15.iloc[pos15]) if 0 <= pos15 < len(trend_m15) else 0
+            direcao = 'compra' if t5 == 1 else 'venda'
 
-            if t5 != t15:
+            # ── Filtro 2: RAFI na direção da tendência ─────────
+            if direcao == 'compra' and forca_atual < forca_limiar:
+                continue
+            if direcao == 'venda' and forca_atual > -forca_limiar:
                 continue
 
-            direcao_mercado = 'compra' if t5 == 1 else 'venda'
+            # ── Sinal válido — stop no extremo do candle ───────
+            # Compra: stop abaixo do low do candle de entrada
+            # Venda : stop acima do high do candle de entrada
+            candle_low  = float(self.df_m5['low'].iloc[i])
+            candle_high = float(self.df_m5['high'].iloc[i])
+            nivel_sr    = candle_low if direcao == 'compra' else candle_high
 
-            # ── Filtro 3: Rompimento de S/R ───────────────────
-            ini_sr   = max(0, i - sr_lookback)
-            df5_jan  = self.df_m5.iloc[ini_sr: i + 1]
-            piv_jan  = pivotos_m5.iloc[ini_sr: i + 1]
-            niveis   = niveis_sr_ativos(df5_jan, piv_jan,
-                                         lookback=sr_lookback, tolerancia=sr_tol)
-
-            close_ant    = float(self.df_m5['close'].iloc[i - 1])
-            direcao_romp = rompimento_ocorreu(close_atual, close_ant, niveis, sr_tol)
-
-            if direcao_romp == 'nenhum' or direcao_romp != direcao_mercado:
-                continue
-
-            # ── Filtro 4: Força RAFI > 2.50 ──────────────────
-            if forca_atual < forca_limiar:
-                continue
-
-            # ── Todas as condições satisfeitas — abrir trade ──
-            nivel_sr = _nivel_mais_proximo(close_atual, niveis, direcao_romp)
-            if nivel_sr is None:
-                continue
-
-            sinal_info = {
-                'sinal'   : direcao_romp,
-                'nivel_sr': nivel_sr,
-                'forca'   : forca_atual,
-            }
+            sinal_info = {'sinal': direcao, 'nivel_sr': nivel_sr, 'forca': forca_atual}
             posicao_aberta = self._abrir_posicao(sinal_info, close_atual, ts_dt, ratio_rr)
 
             # Registrar equity curve diária

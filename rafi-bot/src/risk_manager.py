@@ -60,9 +60,8 @@ class GestorRisco:
         Verifica se o bot está autorizado a abrir um novo trade.
 
         Retorna (True, '') ou (False, motivo_do_bloqueio).
+        Em modo live, chamar avancar_data(date.today()) antes de pode_operar.
         """
-        self._resetar_se_novo_dia()
-
         # Verificação 1: bot parado por perda
         if self._parado_hoje:
             return False, f"Bot parado: {self._perdas_dia} perda(s) hoje (limite: {self.max_perdas_dia})"
@@ -169,7 +168,6 @@ class GestorRisco:
           resultado_usd : lucro (positivo) ou prejuízo (negativo) em USD
           capital_atual : capital após o fechamento
         """
-        self._resetar_se_novo_dia()
         self._trades_abertos = max(0, self._trades_abertos - 1)
 
         if resultado_usd < 0:
@@ -206,7 +204,6 @@ class GestorRisco:
 
     def status(self, capital_atual: float) -> dict:
         """Retorna o estado atual do gestor de risco."""
-        self._resetar_se_novo_dia()
         perda_pct = self._perda_total_dia / capital_atual if capital_atual > 0 else 0
         return {
             'pode_operar'      : not self._parado_hoje,
@@ -217,15 +214,23 @@ class GestorRisco:
             'parado_hoje'      : self._parado_hoje,
         }
 
-    def _resetar_se_novo_dia(self) -> None:
+    def avancar_data(self, data: date) -> None:
+        """
+        Avança o calendário interno para a data fornecida.
+        Usado pelo backtest para passar a data simulada do candle atual,
+        evitando que date.today() bloqueie o reset diário.
+        """
+        self._resetar_se_novo_dia(data)
+
+    def _resetar_se_novo_dia(self, data: date = None) -> None:
         """Reseta os contadores ao detectar virada de dia."""
-        hoje = date.today()
+        hoje = data if data is not None else date.today()
         if hoje != self._data_atual:
             logger.info(
                 f"Novo dia ({hoje}). Resetando contadores de risco diário."
             )
-            self._data_atual     = hoje
-            self._perdas_dia     = 0
+            self._data_atual      = hoje
+            self._perdas_dia      = 0
             self._perda_total_dia = 0.0
-            self._parado_hoje    = False
+            self._parado_hoje     = False
             # Não reseta trades abertos — podem continuar do dia anterior
