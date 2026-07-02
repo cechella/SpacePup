@@ -7,12 +7,15 @@ no fechamento do candle atual.
 
 Inclui spread real da XM (~0,6–1,6 pips) e slippage estimado.
 
+Performance: todos os indicadores são pré-calculados uma única vez (O(n))
+para que o loop principal execute em tempo linear em vez de quadrático.
+
 Uso:
   from backtest.engine import Backtest
   bt = Backtest(config, df_m5, df_m15, df_h1)
   trades = bt.executar()
   from backtest.report import gerar_relatorio
-  relatorio = gerar_relatorio(trades, capital_inicial=100.0)
+  relatorio = gerar_relatorio(trades, capital_inicial=20.0)
 """
 
 import logging
@@ -30,10 +33,10 @@ from src.indicators import (
     rompimento_ocorreu,
 )
 from src.strategy import (
-    AnalisadorSinal,
     calcular_stops,
     verificar_saida,
     em_sessao_ativa,
+    _nivel_mais_proximo,
 )
 from src.risk_manager import GestorRisco
 
@@ -66,8 +69,7 @@ class Backtest:
         self.capital   = capital
         self.capital_inicial = capital
 
-        self.analisador = AnalisadorSinal(config)
-        self.gestor     = GestorRisco(config)
+        self.gestor = GestorRisco(config)
 
         # Parâmetros de custo
         self.spread_pips   = float(config.get('spread_pips', 0.8))
@@ -76,20 +78,62 @@ class Backtest:
         self.par           = config.get('par', 'EURUSD')
 
         # Registros
-        self.trades: list[dict]  = []
-        self.equity_curve: list  = [(self.df_m5.index[0], capital)]
+        self.trades: list[dict] = []
+        self.equity_curve: list = [(self.df_m5.index[0], capital)]
 
     # ─────────────────────────────────────────────────────────
-    # EXECUÇÃO PRINCIPAL
+    # EXECUÇÃO PRINCIPAL (O(n) via pré-cálculo vetorizado)
     # ─────────────────────────────────────────────────────────
 
-    def executar(self, min_candles: int = 100) -> list:
+    def executar(self, min_candles: int = 100, sr_lookback: int = 50) -> list:
         """
         Itera candle a candle no M5 e simula a estratégia.
+
+        Todos os indicadores são pré-calculados uma única vez no início
+        para evitar recálculo a cada iteração (que seria O(n²)).
 
         Retorna lista de dicts com todos os trades executados.
         """
         n = len(self.df_m5)
+
+        # ── Pré-cálculo de indicadores M5 (O(n) — feito uma só vez) ──
+        logger.info("Pré-calculando indicadores (RAFI, Bollinger, S/R, MAs)...")
+
+        forca_serie = calcular_indice_forca(self.df_m5)
+        bb          = calcular_bollinger(self.df_m5,
+                                          int(self.config.get('bollinger_periodo', 8)),
+                                          float(self.config.get('bollinger_desvios', 2.0)))
+        bb_abrindo  = bollinger_estreitas_abrindo(
+            bb,
+            limiar_estreita=float(self.config.get('bollinger_limiar_largura', 0.0010)),
+            abertura_minima=float(self.config.get('bollinger_abertura_minima', 0.0003)),
+        )
+        pivotos_m5 = detectar_pivotos(self.df_m5, janela=5)
+
+        # Séries de tendência por MA (vetorizadas) para cada TF
+        ma_r = int(self.config.get('ma_rapida', 20))
+        ma_l = int(self.config.get('ma_lenta',  50))
+
+        def _trend_series(df: pd.DataFrame) -> pd.Series:
+            """Série de tendência: +1=alta, -1=baixa, 0=lateral."""
+            r    = df['close'].rolling(ma_r).mean()
+            l    = df['close'].rolling(ma_l).mean()
+            diff = r - l
+            s    = pd.Series(0, index=df.index, dtype=int)
+            s[diff >  0.0001] = 1
+            s[diff < -0.0001] = -1
+            return s
+
+        trend_m5  = _trend_series(self.df_m5)
+        trend_m15 = _trend_series(self.df_m15)
+        trend_h1  = _trend_series(self.df_h1)
+
+        # Parâmetros de filtro
+        forca_limiar  = float(self.config.get('forca_limiar',   2.50))
+        forca_exaust  = float(self.config.get('forca_exaustao', -2.50))
+        sr_tol        = float(self.config.get('sr_tolerancia',  0.0005))
+        ratio_rr      = float(self.config.get('ratio_risco_retorno', 1.5))
+
         posicao_aberta: Optional[dict] = None
         forca_anterior: float = 0.0
 
@@ -99,54 +143,89 @@ class Backtest:
         )
 
         for i in range(min_candles, n):
-            # Fatia de dados até o candle atual (sem lookahead)
-            df5_slice  = self.df_m5.iloc[:i + 1]
-            timestamp  = df5_slice.index[-1]
+            timestamp   = self.df_m5.index[i]
+            close_atual = float(self.df_m5['close'].iloc[i])
+            forca_val   = forca_serie.iloc[i]
+            forca_atual = float(forca_val) if not np.isnan(forca_val) else 0.0
 
-            # Converter para datetime timezone-aware se necessário
-            if hasattr(timestamp, 'to_pydatetime'):
-                ts_dt = timestamp.to_pydatetime()
-            else:
-                ts_dt = datetime.fromtimestamp(timestamp.timestamp(), tz=timezone.utc)
-
-            # Fatias M15 e H1 sincronizadas ao timestamp atual
-            df15_slice = self._fatiar_por_tempo(self.df_m15, timestamp)
-            df1h_slice = self._fatiar_por_tempo(self.df_h1, timestamp)
-
-            close_atual = float(df5_slice['close'].iloc[-1])
-
-            # Calcular índice de força atual para detecção de exaustão
-            forca_serie  = calcular_indice_forca(df5_slice)
-            forca_atual  = float(forca_serie.iloc[-1]) if not forca_serie.empty else 0.0
+            # Converter índice para datetime Python (necessário para em_sessao_ativa)
+            ts_dt = timestamp.to_pydatetime() if hasattr(timestamp, 'to_pydatetime') \
+                    else datetime.fromtimestamp(timestamp.timestamp(), tz=timezone.utc)
 
             # ── Verificar saída de posição aberta ─────────────
             if posicao_aberta is not None:
                 posicao_aberta['forca_anterior'] = forca_anterior
-                saida = verificar_saida(
-                    close_atual,
-                    posicao_aberta,
-                    forca_atual,
-                    forca_exaustao=float(self.config.get('forca_exaustao', -2.50)),
-                )
+                saida = verificar_saida(close_atual, posicao_aberta, forca_atual, forca_exaust)
                 if saida['fechar']:
                     self._fechar_posicao(posicao_aberta, close_atual, ts_dt, saida['motivo'])
                     posicao_aberta = None
 
-            # ── Verificar sinal de entrada ─────────────────────
-            if posicao_aberta is None and len(df15_slice) >= 50 and len(df1h_slice) >= 50:
-                pode, motivo_bloqueio = self.gestor.pode_operar(self.capital)
-                if pode:
-                    sinal_info = self.analisador.analisar(
-                        df5_slice, df15_slice, df1h_slice, ts_dt
-                    )
-                    if sinal_info['sinal'] != 'nenhum' and sinal_info['nivel_sr'] is not None:
-                        posicao_aberta = self._abrir_posicao(
-                            sinal_info, close_atual, ts_dt
-                        )
-
             forca_anterior = forca_atual
 
-            # Registrar equity curve a cada 288 candles (≈ 1 dia em M5)
+            if posicao_aberta is not None:
+                continue  # já há posição aberta
+
+            # ── Verificar permissão do gestor de risco ─────────
+            pode, _ = self.gestor.pode_operar(self.capital)
+            if not pode:
+                continue
+
+            # ── Filtro 1: Sessão ──────────────────────────────
+            if not em_sessao_ativa(ts_dt):
+                continue
+
+            # ── Filtro 2: Força RAFI ──────────────────────────
+            if forca_atual < forca_limiar:
+                continue
+
+            # ── Filtro 3: Bollinger abrindo ───────────────────
+            bb_val = bb_abrindo.iloc[i]
+            if not (isinstance(bb_val, (bool, np.bool_)) and bb_val) and not bool(bb_val):
+                continue
+
+            # ── Filtro 4: Sincronismo M5+M15+H1 ──────────────
+            t5 = int(trend_m5.iloc[i])
+            if t5 == 0:
+                continue
+
+            # Encontrar o índice M15 e H1 correspondente ao candle atual
+            pos15 = self.df_m15.index.searchsorted(timestamp, side='right') - 1
+            pos1h = self.df_h1.index.searchsorted(timestamp, side='right') - 1
+
+            t15 = int(trend_m15.iloc[pos15]) if 0 <= pos15 < len(trend_m15) else 0
+            t1h = int(trend_h1.iloc[pos1h])  if 0 <= pos1h < len(trend_h1)  else 0
+
+            if not (t5 == t15 == t1h and t5 != 0):
+                continue
+
+            direcao_mercado = 'compra' if t5 == 1 else 'venda'
+
+            # ── Filtro 5: Rompimento de S/R ───────────────────
+            ini_sr   = max(0, i - sr_lookback)
+            df5_jan  = self.df_m5.iloc[ini_sr: i + 1]
+            piv_jan  = pivotos_m5.iloc[ini_sr: i + 1]
+            niveis   = niveis_sr_ativos(df5_jan, piv_jan,
+                                         lookback=sr_lookback, tolerancia=sr_tol)
+
+            close_ant    = float(self.df_m5['close'].iloc[i - 1])
+            direcao_romp = rompimento_ocorreu(close_atual, close_ant, niveis, sr_tol)
+
+            if direcao_romp == 'nenhum' or direcao_romp != direcao_mercado:
+                continue
+
+            # ── Todas as condições satisfeitas — abrir trade ──
+            nivel_sr = _nivel_mais_proximo(close_atual, niveis, direcao_romp)
+            if nivel_sr is None:
+                continue
+
+            sinal_info = {
+                'sinal'   : direcao_romp,
+                'nivel_sr': nivel_sr,
+                'forca'   : forca_atual,
+            }
+            posicao_aberta = self._abrir_posicao(sinal_info, close_atual, ts_dt, ratio_rr)
+
+            # Registrar equity curve diária
             if i % 288 == 0:
                 self.equity_curve.append((timestamp, round(self.capital, 2)))
 
@@ -173,42 +252,34 @@ class Backtest:
     def _abrir_posicao(self,
                         sinal_info: dict,
                         close_atual: float,
-                        timestamp: datetime) -> Optional[dict]:
+                        timestamp: datetime,
+                        ratio_rr: float = 1.5) -> Optional[dict]:
         """Simula a abertura de uma posição com custo de spread/slippage."""
-        sinal     = sinal_info['sinal']
-        nivel_sr  = sinal_info['nivel_sr']
-        ratio_rr  = float(self.config.get('ratio_risco_retorno', 1.5))
+        sinal    = sinal_info['sinal']
+        nivel_sr = sinal_info['nivel_sr']
 
-        # Preço de entrada com spread/slippage
+        # Preço de entrada com custo de spread/slippage
         if sinal == 'compra':
-            preco_entrada = close_atual + self.custo_total  # paga spread no ask
+            preco_entrada = close_atual + self.custo_total
         else:
-            preco_entrada = close_atual - self.custo_total  # vende no bid
+            preco_entrada = close_atual - self.custo_total
 
-        stops = calcular_stops(
-            sinal, preco_entrada, nivel_sr,
-            ratio_rr, self.spread_pips
-        )
+        stops = calcular_stops(sinal, preco_entrada, nivel_sr, ratio_rr, self.spread_pips)
 
         if stops['risco_pips'] <= 0:
-            logger.warning(f"Risco calculado inválido ({stops['risco_pips']}p) — trade ignorado")
+            logger.warning(f"Risco inválido ({stops['risco_pips']}p) — trade ignorado")
             return None
 
-        lote = self.gestor.calcular_lote(
-            self.capital,
-            stops['risco_pips'],
-            incluir_spread=True
-        )
-
+        lote = self.gestor.calcular_lote(self.capital, stops['risco_pips'], incluir_spread=True)
         self.gestor.abrir_trade()
 
         posicao = {
-            'sinal'         : sinal,
-            'preco_entrada' : preco_entrada,
-            'stop_loss'     : stops['stop_loss'],
-            'take_profit'   : stops['take_profit'],
-            'risco_pips'    : stops['risco_pips'],
-            'lote'          : lote,
+            'sinal'            : sinal,
+            'preco_entrada'    : preco_entrada,
+            'stop_loss'        : stops['stop_loss'],
+            'take_profit'      : stops['take_profit'],
+            'risco_pips'       : stops['risco_pips'],
+            'lote'             : lote,
             'timestamp_entrada': timestamp,
             'capital_entrada'  : self.capital,
             'forca_entrada'    : sinal_info.get('forca'),
@@ -216,9 +287,10 @@ class Backtest:
         }
 
         logger.info(
-            f"[{timestamp}] ABERTURA {sinal.upper()} | Lote: {lote} | "
-            f"Entrada: {preco_entrada:.5f} | SL: {stops['stop_loss']:.5f} | "
-            f"TP: {stops['take_profit']:.5f} | Risco: {stops['risco_pips']}p"
+            f"[{timestamp.strftime('%Y-%m-%d %H:%M')}] ABERTURA {sinal.upper()} "
+            f"| Lote: {lote} | Entrada: {preco_entrada:.5f} "
+            f"| SL: {stops['stop_loss']:.5f} | TP: {stops['take_profit']:.5f} "
+            f"| Risco: {stops['risco_pips']}p | Capital: ${self.capital:.2f}"
         )
         return posicao
 
@@ -232,39 +304,31 @@ class Backtest:
         lote          = posicao['lote']
         preco_entrada = posicao['preco_entrada']
 
-        # Preço de saída com custo
         if sinal == 'compra':
-            preco_saida = close_atual - self.custo_total / 2  # saída no bid
-        else:
-            preco_saida = close_atual + self.custo_total / 2
-
-        # P&L: para EURUSD, 1 pip = $10 por lote padrão
-        if sinal == 'compra':
+            preco_saida   = close_atual - self.custo_total / 2
             variacao_pips = (preco_saida - preco_entrada) / 0.0001
         else:
+            preco_saida   = close_atual + self.custo_total / 2
             variacao_pips = (preco_entrada - preco_saida) / 0.0001
 
-        pnl_usd = variacao_pips * lote * 10.0  # $10/pip por lote padrão
-        pnl_usd = round(pnl_usd, 2)
+        # EURUSD: $10/pip por lote padrão (100.000 unidades)
+        pnl_usd = round(variacao_pips * lote * 10.0, 2)
 
         self.capital = round(self.capital + pnl_usd, 2)
         self.gestor.fechar_trade(pnl_usd, self.capital)
 
-        duracao_candles = 0
-        if hasattr(timestamp, '__sub__'):
-            try:
-                delta = timestamp - posicao['timestamp_entrada']
-                duracao_candles = int(delta.total_seconds() / 300)  # M5 = 5 min
-            except Exception:
-                pass
+        try:
+            duracao_candles = int((timestamp - posicao['timestamp_entrada']).total_seconds() / 300)
+        except Exception:
+            duracao_candles = 0
 
-        trade = {
+        self.trades.append({
             'timestamp_entrada': posicao['timestamp_entrada'],
             'timestamp_saida'  : timestamp,
             'sinal'            : sinal,
             'lote'             : lote,
-            'preco_entrada'    : posicao['preco_entrada'],
-            'preco_saida'      : preco_saida,
+            'preco_entrada'    : preco_entrada,
+            'preco_saida'      : round(preco_saida, 5),
             'stop_loss'        : posicao['stop_loss'],
             'take_profit'      : posicao['take_profit'],
             'risco_pips'       : posicao['risco_pips'],
@@ -274,27 +338,14 @@ class Backtest:
             'duracao_candles'  : duracao_candles,
             'motivo_saida'     : motivo,
             'forca_entrada'    : posicao.get('forca_entrada'),
-        }
-        self.trades.append(trade)
+        })
 
-        emoji = "✔" if pnl_usd >= 0 else "✘"
+        simbolo = "+" if pnl_usd >= 0 else ""
         logger.info(
-            f"[{timestamp}] FECHAMENTO {emoji} | {motivo} | "
-            f"Pips: {variacao_pips:+.1f} | P&L: ${pnl_usd:+.2f} | "
-            f"Capital: ${self.capital:.2f}"
+            f"[{timestamp.strftime('%Y-%m-%d %H:%M')}] FECHAMENTO | {motivo} "
+            f"| Pips: {variacao_pips:+.1f} | P&L: {simbolo}${pnl_usd:.2f} "
+            f"| Capital: ${self.capital:.2f}"
         )
-
-    # ─────────────────────────────────────────────────────────
-    # UTILITÁRIOS
-    # ─────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _fatiar_por_tempo(df: pd.DataFrame, ate: object) -> pd.DataFrame:
-        """Retorna o DataFrame filtrado até o timestamp dado (sem lookahead)."""
-        try:
-            return df[df.index <= ate]
-        except Exception:
-            return df
 
 
 class BacktestCSV(Backtest):
@@ -312,14 +363,7 @@ class BacktestCSV(Backtest):
                 caminho_m15: str,
                 caminho_h1: str,
                 capital: float = 20.0) -> 'BacktestCSV':
-        """
-        Cria uma instância do backtest a partir de arquivos CSV.
-
-        Parâmetros:
-          config      : dict de configuração
-          caminho_*   : caminhos para os CSVs de cada timeframe
-          capital     : capital inicial em USD
-        """
+        """Cria uma instância do backtest a partir de arquivos CSV do MT5."""
         df_m5  = cls._carregar_csv(caminho_m5)
         df_m15 = cls._carregar_csv(caminho_m15)
         df_h1  = cls._carregar_csv(caminho_h1)
@@ -333,20 +377,15 @@ class BacktestCSV(Backtest):
     def _carregar_csv(caminho: str) -> pd.DataFrame:
         """
         Carrega e normaliza um CSV exportado do MT5.
-        Suporta tanto o formato com colunas separadas Date/Time
-        quanto o formato com coluna única '<DATE> <TIME>'.
+        Suporta o formato com colunas separadas Date/Time
+        e o formato com coluna única '<DATE> <TIME>'.
         """
         df = pd.read_csv(caminho, sep='\t', header=0)
-
-        # Normalizar nomes de colunas
         df.columns = [c.strip().replace('<', '').replace('>', '').lower()
                       for c in df.columns]
 
-        # Montar índice de datetime
         if 'date' in df.columns and 'time' in df.columns:
-            df['datetime'] = pd.to_datetime(
-                df['date'] + ' ' + df['time'], utc=True
-            )
+            df['datetime'] = pd.to_datetime(df['date'] + ' ' + df['time'], utc=True)
         elif 'datetime' in df.columns:
             df['datetime'] = pd.to_datetime(df['datetime'], utc=True)
         else:
@@ -354,7 +393,6 @@ class BacktestCSV(Backtest):
 
         df = df.set_index('datetime').sort_index()
 
-        # Renomear para padrão interno
         rename = {
             'open': 'open', 'high': 'high', 'low': 'low',
             'close': 'close', 'vol': 'volume', 'volume': 'volume',
@@ -362,7 +400,6 @@ class BacktestCSV(Backtest):
         }
         df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
 
-        # Garantir colunas necessárias
         for col in ['open', 'high', 'low', 'close']:
             if col not in df.columns:
                 raise ValueError(f"Coluna '{col}' ausente em {caminho}")

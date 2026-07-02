@@ -106,15 +106,15 @@ def tendencia_combinada(df: pd.DataFrame,
     tend_ma        = tendencia_por_medias(df, ma_rapida, ma_lenta)
     tend_estrutura = tendencia_por_estrutura(df)
 
-    # Ambos indefinidos/lateral → lateral
-    if tend_estrutura in ('lateral', 'indefinida') or tend_ma == 'lateral':
-        return 'lateral'
-
-    # Ambos concordam
-    if tend_ma == tend_estrutura:
+    # MA é a fonte primária (conforme CLAUDE.md §2.2: "topos/fundos E/OU MAs")
+    if tend_ma in ('alta', 'baixa'):
         return tend_ma
 
-    # Divergência → lateral (não opera)
+    # MA inconclusiva → usar estrutura de topos/fundos como fallback
+    if tend_estrutura in ('alta', 'baixa'):
+        return tend_estrutura
+
+    # Ambas inconclusivas → lateral (não opera)
     return 'lateral'
 
 
