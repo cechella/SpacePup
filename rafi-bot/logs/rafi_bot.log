@@ -1,0 +1,7 @@
+2026-07-02 16:22:35,611 | INFO | === Bot RAFI — Iniciando backtest ===
+2026-07-02 16:22:35,611 | WARNING | Arquivos CSV não fornecidos. Usando dados SINTÉTICOS (apenas para teste de código).
+2026-07-02 16:22:35,624 | INFO | Pré-calculando indicadores (RAFI, S/R, MAs M5+M15)...
+2026-07-02 16:22:35,632 | INFO | Iniciando backtest | Período: 2023-01-02 07:00:00+00:00 → 2023-02-01 06:55:00+00:00 | Candles M5: 8640 | Capital: $20.00
+2026-07-02 16:22:36,609 | INFO | Backtest concluído | Trades: 0 | Capital final: $20.00
+2026-07-02 16:22:36,609 | WARNING | Nenhum trade para analisar
+2026-07-02 16:22:36,609 | WARNING | ✘ Metas de Fase 1A não atingidas — revisar parâmetros
