@@ -12,7 +12,7 @@ para que o loop principal execute em tempo linear em vez de quadrático.
 
 Uso:
   from backtest.engine import Backtest
-  bt = Backtest(config, df_m5, df_m15, df_h1)
+  bt = Backtest(config, df_m5, df_m15)
   trades = bt.executar()
   from backtest.report import gerar_relatorio
   relatorio = gerar_relatorio(trades, capital_inicial=20.0)
@@ -26,8 +26,6 @@ from typing import Optional
 
 from src.indicators import (
     calcular_indice_forca,
-    calcular_bollinger,
-    bollinger_estreitas_abrindo,
     detectar_pivotos,
     niveis_sr_ativos,
     rompimento_ocorreu,
@@ -52,7 +50,6 @@ class Backtest:
       df_m5   : DataFrame M5 com colunas [open, high, low, close, volume]
                 Index deve ser DatetimeTZAware (UTC)
       df_m15  : DataFrame M15 (mesmo período)
-      df_h1   : DataFrame H1 (mesmo período)
       capital : capital inicial em USD
     """
 
@@ -60,12 +57,10 @@ class Backtest:
                  config: dict,
                  df_m5: pd.DataFrame,
                  df_m15: pd.DataFrame,
-                 df_h1: pd.DataFrame,
                  capital: float = 20.0):
         self.config    = config
         self.df_m5     = df_m5.copy()
         self.df_m15    = df_m15.copy()
-        self.df_h1     = df_h1.copy()
         self.capital   = capital
         self.capital_inicial = capital
 
@@ -96,21 +91,14 @@ class Backtest:
         """
         n = len(self.df_m5)
 
-        # ── Pré-cálculo de indicadores M5 (O(n) — feito uma só vez) ──
-        logger.info("Pré-calculando indicadores (RAFI, Bollinger, S/R, MAs)...")
+        # ── Pré-cálculo de indicadores (O(n) — feito uma só vez) ──
+        # Filtros em ordem: Sessão → M5+M15 → S/R → RAFI > 2.50
+        logger.info("Pré-calculando indicadores (RAFI, S/R, MAs M5+M15)...")
 
         forca_serie = calcular_indice_forca(self.df_m5)
-        bb          = calcular_bollinger(self.df_m5,
-                                          int(self.config.get('bollinger_periodo', 8)),
-                                          float(self.config.get('bollinger_desvios', 2.0)))
-        bb_abrindo  = bollinger_estreitas_abrindo(
-            bb,
-            limiar_estreita=float(self.config.get('bollinger_limiar_largura', 0.0010)),
-            abertura_minima=float(self.config.get('bollinger_abertura_minima', 0.0003)),
-        )
-        pivotos_m5 = detectar_pivotos(self.df_m5, janela=5)
+        pivotos_m5  = detectar_pivotos(self.df_m5, janela=5)
 
-        # Séries de tendência por MA (vetorizadas) para cada TF
+        # Tendência por MA para M5 e M15 (sem H1 — sincronismo só M5+M15)
         ma_r = int(self.config.get('ma_rapida', 20))
         ma_l = int(self.config.get('ma_lenta',  50))
 
@@ -126,7 +114,6 @@ class Backtest:
 
         trend_m5  = _trend_series(self.df_m5)
         trend_m15 = _trend_series(self.df_m15)
-        trend_h1  = _trend_series(self.df_h1)
 
         # Parâmetros de filtro
         forca_limiar  = float(self.config.get('forca_limiar',   2.50))
@@ -174,33 +161,20 @@ class Backtest:
             if not em_sessao_ativa(ts_dt):
                 continue
 
-            # ── Filtro 2: Força RAFI ──────────────────────────
-            if forca_atual < forca_limiar:
-                continue
-
-            # ── Filtro 3: Bollinger abrindo ───────────────────
-            bb_val = bb_abrindo.iloc[i]
-            if not (isinstance(bb_val, (bool, np.bool_)) and bb_val) and not bool(bb_val):
-                continue
-
-            # ── Filtro 4: Sincronismo M5+M15+H1 ──────────────
+            # ── Filtro 2: Sincronismo M5+M15 ─────────────────
             t5 = int(trend_m5.iloc[i])
             if t5 == 0:
                 continue
 
-            # Encontrar o índice M15 e H1 correspondente ao candle atual
             pos15 = self.df_m15.index.searchsorted(timestamp, side='right') - 1
-            pos1h = self.df_h1.index.searchsorted(timestamp, side='right') - 1
+            t15   = int(trend_m15.iloc[pos15]) if 0 <= pos15 < len(trend_m15) else 0
 
-            t15 = int(trend_m15.iloc[pos15]) if 0 <= pos15 < len(trend_m15) else 0
-            t1h = int(trend_h1.iloc[pos1h])  if 0 <= pos1h < len(trend_h1)  else 0
-
-            if not (t5 == t15 == t1h and t5 != 0):
+            if t5 != t15:
                 continue
 
             direcao_mercado = 'compra' if t5 == 1 else 'venda'
 
-            # ── Filtro 5: Rompimento de S/R ───────────────────
+            # ── Filtro 3: Rompimento de S/R ───────────────────
             ini_sr   = max(0, i - sr_lookback)
             df5_jan  = self.df_m5.iloc[ini_sr: i + 1]
             piv_jan  = pivotos_m5.iloc[ini_sr: i + 1]
@@ -211,6 +185,10 @@ class Backtest:
             direcao_romp = rompimento_ocorreu(close_atual, close_ant, niveis, sr_tol)
 
             if direcao_romp == 'nenhum' or direcao_romp != direcao_mercado:
+                continue
+
+            # ── Filtro 4: Força RAFI > 2.50 ──────────────────
+            if forca_atual < forca_limiar:
                 continue
 
             # ── Todas as condições satisfeitas — abrir trade ──
@@ -361,17 +339,15 @@ class BacktestCSV(Backtest):
                 config: dict,
                 caminho_m5: str,
                 caminho_m15: str,
-                caminho_h1: str,
                 capital: float = 20.0) -> 'BacktestCSV':
         """Cria uma instância do backtest a partir de arquivos CSV do MT5."""
         df_m5  = cls._carregar_csv(caminho_m5)
         df_m15 = cls._carregar_csv(caminho_m15)
-        df_h1  = cls._carregar_csv(caminho_h1)
 
         logger.info(
-            f"CSV carregado | M5: {len(df_m5)} | M15: {len(df_m15)} | H1: {len(df_h1)}"
+            f"CSV carregado | M5: {len(df_m5)} | M15: {len(df_m15)}"
         )
-        return cls(config, df_m5, df_m15, df_h1, capital)
+        return cls(config, df_m5, df_m15, capital)
 
     @staticmethod
     def _carregar_csv(caminho: str) -> pd.DataFrame:

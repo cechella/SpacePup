@@ -4,7 +4,6 @@ run_backtest.py — Ponto de entrada do backtest (CLI)
 Uso:
   python run_backtest.py --m5 data/EURUSD_M5.csv \\
                          --m15 data/EURUSD_M15.csv \\
-                         --h1 data/EURUSD_H1.csv \\
                          --capital 20 \\
                          --config config.yaml \\
                          --grafico logs/equity.png
@@ -100,7 +99,6 @@ def main() -> None:
     )
     parser.add_argument('--m5',      default=None, help='CSV com dados M5')
     parser.add_argument('--m15',     default=None, help='CSV com dados M15')
-    parser.add_argument('--h1',      default=None, help='CSV com dados H1')
     parser.add_argument('--capital', type=float, default=20.0,
                         help='Capital inicial em USD (padrão: 20)')
     parser.add_argument('--config',  default='config.yaml',
@@ -121,13 +119,12 @@ def main() -> None:
     logger.info("=== Bot RAFI — Iniciando backtest ===")
 
     # ── Carregar ou gerar dados ────────────────────────────────
-    if args.m5 and args.m15 and args.h1:
-        logger.info(f"Carregando dados CSV: M5={args.m5}, M15={args.m15}, H1={args.h1}")
+    if args.m5 and args.m15:
+        logger.info(f"Carregando dados CSV: M5={args.m5}, M15={args.m15}")
         bt = BacktestCSV.de_csv(
             config,
             caminho_m5=args.m5,
             caminho_m15=args.m15,
-            caminho_h1=args.h1,
             capital=args.capital,
         )
     else:
@@ -136,8 +133,7 @@ def main() -> None:
         )
         df_m5  = gerar_dados_sinteticos(n_candles=8640, tf_minutos=5)   # ~30 dias
         df_m15 = reamostrar(df_m5, 15)
-        df_h1  = reamostrar(df_m5, 60)
-        bt = Backtest(config, df_m5, df_m15, df_h1, capital=args.capital)
+        bt = Backtest(config, df_m5, df_m15, capital=args.capital)
 
     # ── Executar ───────────────────────────────────────────────
     trades = bt.executar()

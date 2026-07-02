@@ -47,18 +47,14 @@ class TestSessoes:
         assert not em_sessao_ativa(self._dt(8, 0))
         assert not em_sessao_ativa(self._dt(9, 0))
 
-    def test_sessao_toquio_sydney_cruzando_meia_noite(self):
-        """23:00–01:00 UTC deve estar ativo mesmo cruzando meia-noite."""
-        assert em_sessao_ativa(self._dt(23, 0))
-        assert em_sessao_ativa(self._dt(23, 30))
-        assert em_sessao_ativa(self._dt(0, 30))
-
     def test_fora_de_todas_sessoes(self):
-        """09:00, 18:00, 20:00 devem estar inativos."""
+        """09:00, 18:00, 20:00, 23:00 devem estar inativos (Tokyo+Sydney removida)."""
         assert not em_sessao_ativa(self._dt(9, 0))
         assert not em_sessao_ativa(self._dt(18, 0))
         assert not em_sessao_ativa(self._dt(20, 0))
         assert not em_sessao_ativa(self._dt(5, 0))
+        assert not em_sessao_ativa(self._dt(23, 0))
+        assert not em_sessao_ativa(self._dt(0, 30))
 
 
 # ─────────────────────────────────────────────────────────────

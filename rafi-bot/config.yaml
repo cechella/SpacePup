@@ -26,11 +26,6 @@ spread_pips: 0.8               # spread médio EURUSD XM Ultra Low
 slippage_pips: 0.5             # slippage estimado em pontos
 
 # --- Indicadores ---
-bollinger_periodo: 8
-bollinger_desvios: 2.0
-bollinger_limiar_largura: 0.0010   # largura mínima para considerar "estreita" (em preço)
-bollinger_abertura_minima: 0.0003  # variação mínima de largura para "abrindo"
-
 forca_limiar: 2.50             # RAFI equivalente — limiar de entrada
 forca_exaustao: -2.50          # RAFI equivalente — sinal de exaustão
 
@@ -42,17 +37,13 @@ sr_tolerancia: 0.0005          # tolerância em preço para confirmar rompimento
 timeframes:
   - "M5"
   - "M15"
-  - "H1"
 
 # Tendência em cada TF (médias móveis)
 ma_rapida: 20
 ma_lenta: 50
 
-# --- Sessões (UTC/GMT) — somente operar nas sobreposições ---
+# --- Sessões (UTC/GMT) — somente operar nas sobreposições com maior liquidez ---
 sessoes:
-  toquio_sydney:
-    inicio: "23:00"
-    fim: "01:00"
   toquio_londres:
     inicio: "07:00"
     fim: "08:00"
