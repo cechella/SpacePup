@@ -34,14 +34,14 @@ lote_fixo: 0.01               # lote fixo para backtest ($20, pip=$0,10)
 risco_maximo_diario: 9.0       # 900% — desativado no backtest; limite real em produção
 max_trades_simultaneos: 1      # 1 trade por vez (confirmado S/R antes de abrir outro)
 max_perdas_por_dia: 999        # desativado no backtest — mede desempenho puro da estratégia
-ratio_risco_retorno: 3.0       # TESTE D: R:R=3.0 com swing stop (PF teórico ~1.34 se WR~30%)
+ratio_risco_retorno: 2.5       # TESTE E: R:R=2.5 + forca_limiar=3.0 (WR alvo ~37% → PF ~1.47)
 
 # --- Spread e slippage ---
 spread_pips: 0.8               # spread médio EURUSD# XM Ultra Low
 slippage_pips: 0.5             # slippage estimado em pontos
 
 # --- Indicador RAFI ---
-forca_limiar: 2.50             # RAFI > 2.50 para entrar (compra E venda)
+forca_limiar: 3.00             # TESTE E: RAFI > 3.00 (filtra sinais mais fracos, alvo WR~37%)
 forca_exaustao: -1.0           # desativado: com RAFI absoluto (≥0) nunca dispara; saída só por SL/TP
 
 # --- Suporte e Resistência ---
