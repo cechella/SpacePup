@@ -141,6 +141,12 @@ class Backtest:
         rolling_high = self.df_m5['high'].rolling(sr_lookback).max().shift(1)
         rolling_low  = self.df_m5['low'].rolling(sr_lookback).min().shift(1)
 
+        # Swing stop: fundo/topo recente para colocar o stop na estrutura do mercado
+        # Menor lookback que S/R — captura apenas o movimento imediato antes da entrada
+        swing_stop_lb   = int(self.config.get('swing_stop_lookback', 15))
+        swing_stop_low  = self.df_m5['low'].rolling(swing_stop_lb).min().shift(1)
+        swing_stop_high = self.df_m5['high'].rolling(swing_stop_lb).max().shift(1)
+
         # Parâmetros globais
         forca_limiar = float(self.config.get('forca_limiar',   2.50))
         forca_exaust = float(self.config.get('forca_exaustao', -2.50))
@@ -237,11 +243,20 @@ class Backtest:
             if direcao == 'venda' and close_atual >= rl:
                 continue
 
-            # ── Sinal válido — stop no nível de S/R rompido ───
-            # Stop abaixo da resistência rompida (compra) ou acima do suporte rompido (venda)
+            # ── Sinal válido — stop na estrutura de mercado ───
+            # nivel_sr: nível de S/R rompido (define a entrada)
+            # nivel_stop: swing low/high dos últimos N candles (define o stop)
+            # Stop distante o suficiente para absorver ruído normal do preço
             nivel_sr = rh if direcao == 'compra' else rl
+            nivel_stop = (float(swing_stop_low.iloc[i])  if direcao == 'compra'
+                          else float(swing_stop_high.iloc[i]))
 
-            sinal_info = {'sinal': direcao, 'nivel_sr': nivel_sr, 'forca': forca_atual}
+            sinal_info = {
+                'sinal'     : direcao,
+                'nivel_sr'  : nivel_sr,
+                'nivel_stop': nivel_stop,
+                'forca'     : forca_atual,
+            }
             posicao_aberta = self._abrir_posicao(sinal_info, close_atual, ts_dt, ratio_rr)
 
             # Registrar equity curve diária
@@ -274,8 +289,11 @@ class Backtest:
                         timestamp: datetime,
                         ratio_rr: float = 1.5) -> Optional[dict]:
         """Simula a abertura de uma posição com custo de spread/slippage."""
-        sinal    = sinal_info['sinal']
-        nivel_sr = sinal_info['nivel_sr']
+        sinal = sinal_info['sinal']
+
+        # Stop na estrutura do mercado (swing low/high) — mais robusto que S/R rompido
+        # Fallback para nivel_sr se nivel_stop não estiver disponível
+        nivel_stop = sinal_info.get('nivel_stop', sinal_info['nivel_sr'])
 
         # Preço de entrada com custo de spread/slippage
         if sinal == 'compra':
@@ -283,13 +301,14 @@ class Backtest:
         else:
             preco_entrada = close_atual - self.custo_total
 
-        stops = calcular_stops(sinal, preco_entrada, nivel_sr, ratio_rr, self.spread_pips)
+        stops = calcular_stops(sinal, preco_entrada, nivel_stop, ratio_rr, self.spread_pips)
 
         if stops['risco_pips'] <= 0:
             logger.warning(f"Risco inválido ({stops['risco_pips']}p) — trade ignorado")
             return None
 
         lote = self.gestor.calcular_lote(self.capital, stops['risco_pips'], incluir_spread=True)
+        risco_usd = round(stops['risco_pips'] * lote * 10.0, 2)
         self.gestor.abrir_trade()
 
         posicao = {
@@ -309,7 +328,8 @@ class Backtest:
             f"[{timestamp.strftime('%Y-%m-%d %H:%M')}] ABERTURA {sinal.upper()} "
             f"| Lote: {lote} | Entrada: {preco_entrada:.5f} "
             f"| SL: {stops['stop_loss']:.5f} | TP: {stops['take_profit']:.5f} "
-            f"| Risco: {stops['risco_pips']}p | Capital: ${self.capital:.2f}"
+            f"| Risco: {stops['risco_pips']}p | Risco USD: ${risco_usd:.2f} "
+            f"| Capital: ${self.capital:.2f}"
         )
         return posicao
 

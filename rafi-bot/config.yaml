@@ -46,6 +46,7 @@ forca_exaustao: -2.50          # RAFI < -2.50 = candle amarelo (saída por exaus
 # --- Suporte e Resistência ---
 sr_lookback: 50                # candles para trás para S/R (50 × 5min ≈ 4h)
 sr_tolerancia: 0.0005          # tolerância de 5 pips para confirmar rompimento
+swing_stop_lookback: 15        # candles para swing low/high do stop (15 × 5min = 75min)
 
 # --- Médias Móveis (tendência M5) ---
 ma_rapida: 20                  # MA20
