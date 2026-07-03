@@ -24,16 +24,16 @@ tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
 #   $500  → 2.50 lot → margem ~$286,25 → pip $25,00
 #   $1000 → 5.00 lot → margem ~$572,50 → pip $50,00
 #   $5000 → 25.00 lot → margem ~$2862,50 → pip $250,00
-lote_proporcional: false       # proporcional ativado só quando capital >= $200
-lote_base: 0.01               # lote base conservador
+lote_proporcional: false       # proporcional ativado só quando capital >= $2000
+lote_base: 0.10               # lote base para escala proporcional
 capital_base: 20.0             # capital de referência (USD)
 lote_maximo: 100.0             # limite máximo por trade (XM permite até 100 lotes)
-lote_fixo: 0.01               # lote fixo para fase inicial ($20-$200)
+lote_fixo: 0.10               # lote fixo operacional (usar --capital 2000 no backtest)
 
 # --- Gestão de risco ---
-risco_maximo_diario: 0.50      # 50% do capital — bot para ao atingir
-max_trades_simultaneos: 1      # com capital pequeno, 1 trade por vez
-max_perdas_por_dia: 1          # 1 perda = bot para até amanhã
+risco_maximo_diario: 0.05      # 5% do capital por dia — bot para ao atingir
+max_trades_simultaneos: 1      # 1 trade por vez (confirmado S/R antes de abrir outro)
+max_perdas_por_dia: 3          # 3 perdas = bot para até amanhã
 ratio_risco_retorno: 2.5       # TP = 2.5× o stop (breakout precisa R:R alto)
 
 # --- Spread e slippage ---
@@ -47,7 +47,7 @@ forca_exaustao: 0.80           # RAFI cai abaixo de 0.80 após > 2.50 = candle a
 # --- Suporte e Resistência ---
 sr_lookback: 50                # candles para trás para S/R (50 × 5min ≈ 4h)
 sr_tolerancia: 0.0005          # tolerância de 5 pips para confirmar rompimento
-swing_stop_lookback: 30        # candles para swing low/high do stop (30 × 5min = 2.5h)
+swing_stop_lookback: 75        # candles para swing low/high do stop (75 × 5min = 6.25h)
 
 # --- Médias Móveis (tendência M5) ---
 ma_rapida: 20                  # MA20
