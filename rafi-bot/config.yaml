@@ -42,7 +42,7 @@ slippage_pips: 0.5             # slippage estimado em pontos
 
 # --- Indicador RAFI ---
 forca_limiar: 2.50             # RAFI > 2.50 para entrar (compra E venda)
-forca_exaustao: 0.80           # RAFI cai abaixo de 0.80 após > 2.50 = candle amarelo
+forca_exaustao: -1.0           # desativado: com RAFI absoluto (≥0) nunca dispara; saída só por SL/TP
 
 # --- Suporte e Resistência ---
 sr_lookback: 50                # candles para trás para S/R (50 × 5min ≈ 4h)
