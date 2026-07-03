@@ -152,6 +152,17 @@ class Backtest:
         forca_exaust = float(self.config.get('forca_exaustao', -2.50))
         ratio_rr     = float(self.config.get('ratio_risco_retorno', 1.5))
 
+        # Sessões ativas lidas do config (fallback: London/NY 12-16h)
+        sessoes_config = self.config.get('sessoes', {})
+        sessoes_minutos: list[tuple[int, int]] = []
+        for _, s in sessoes_config.items():
+            ini_h, ini_m = map(int, s['inicio'].split(':'))
+            fim_h, fim_m = map(int, s['fim'].split(':'))
+            sessoes_minutos.append((ini_h * 60 + ini_m, fim_h * 60 + fim_m))
+        if not sessoes_minutos:
+            sessoes_minutos = [(720, 960)]  # 12:00–16:00 UTC
+        logger.info(f"Sessões ativas: {[f'{s//60:02d}:{s%60:02d}–{e//60:02d}:{e%60:02d}' for s, e in sessoes_minutos]}")
+
         posicao_aberta: Optional[dict] = None
         forca_anterior: float = 0.0
 
@@ -193,7 +204,7 @@ class Backtest:
 
             # ── Filtro 0: Sessão ativa ─────────────────────────
             hora_min = ts_dt.hour * 60 + ts_dt.minute
-            em_sessao = (720 <= hora_min < 960)
+            em_sessao = any(ini <= hora_min < fim for ini, fim in sessoes_minutos)
             if not em_sessao:
                 continue
             _d_sessao += 1
