@@ -34,7 +34,7 @@ lote_fixo: 0.0                # 0 = desativado (usando proporcional)
 risco_maximo_diario: 9.0       # 900% — desativado no backtest; limite real em produção
 max_trades_simultaneos: 1      # 1 trade por vez (confirmado S/R antes de abrir outro)
 max_perdas_por_dia: 999        # desativado no backtest — mede desempenho puro da estratégia
-ratio_risco_retorno: 2.0       # TESTE A: TP = 2.0× o stop — esperamos WR↑ e PF↑ com lote proporcional
+ratio_risco_retorno: 2.5       # TESTE B: volta para 2.5 (melhor que 2.0 em backtest)
 
 # --- Spread e slippage ---
 spread_pips: 0.8               # spread médio EURUSD# XM Ultra Low
@@ -47,7 +47,9 @@ forca_exaustao: -1.0           # desativado: com RAFI absoluto (≥0) nunca disp
 # --- Suporte e Resistência ---
 sr_lookback: 50                # candles para trás para S/R (50 × 5min ≈ 4h)
 sr_tolerancia: 0.0005          # tolerância de 5 pips para confirmar rompimento
-swing_stop_lookback: 75        # candles para swing low/high do stop (75 × 5min = 6.25h)
+buffer_stop_pips: 10           # TESTE B: stop 10 pips abaixo/acima do S/R rompido (manual RAFI)
+                               # Antes: swing low/high de 75 candles (6.25h) = stop 30-60 pips = TP 80-120p longe
+                               # Agora: stop no S/R rompido = stop 10-15p = TP 25-40p (fecha no dia)
 
 # --- Médias Móveis (tendência M5) ---
 ma_rapida: 20                  # MA20
