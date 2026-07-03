@@ -1,5 +1,5 @@
 """
-scripts/baixar_dados.py — Baixa histórico EURUSD do MT5 e salva em CSV
+scripts/baixar_dados.py — Baixa histórico EURUSD# do MT5 e salva em CSV
 
 Uso:
   python scripts/baixar_dados.py
@@ -9,7 +9,7 @@ Requisitos:
   - pip install MetaTrader5 pandas
 
 Saída:
-  data/EURUSD_M5.csv   — dados M5 (padrão: 2 anos)
+  data/EURUSD_M5.csv   — dados M5 (de 2023-01-01 até hoje)
 """
 
 import sys
@@ -25,9 +25,10 @@ except ImportError:
     sys.exit(1)
 
 # ── Configuração ─────────────────────────────────────────────
-PAR       = "EURUSD"
-ANOS      = 2          # quantos anos de histórico baixar
-PASTA     = os.path.join(os.path.dirname(__file__), '..', 'data')
+# XM usa EURUSD# com hashtag — NÃO usar "EURUSD" sem hashtag na XM
+PAR        = "EURUSD#"
+DATA_INICIO = datetime(2023, 1, 1, tzinfo=timezone.utc)   # início fixo para ~300+ trades
+PASTA      = os.path.join(os.path.dirname(__file__), '..', 'data')
 ARQUIVO_M5 = os.path.join(PASTA, "EURUSD_M5.csv")
 
 
@@ -42,16 +43,15 @@ def inicializar_mt5() -> bool:
     return True
 
 
-def baixar_timeframe(par: str, timeframe, nome: str, arquivo: str, anos: int) -> bool:
+def baixar_timeframe(par: str, timeframe, nome: str, arquivo: str,
+                     data_inicio: datetime) -> bool:
     """
     Baixa dados históricos do MT5 e salva em CSV no formato esperado pelo backtest.
 
     Formato de saída (tab-separated):
       Date\tTime\tOpen\tHigh\tLow\tClose\tVolume
     """
-    data_fim    = datetime.now(tz=timezone.utc)
-    data_inicio = datetime(data_fim.year - anos, data_fim.month, data_fim.day,
-                           tzinfo=timezone.utc)
+    data_fim = datetime.now(tz=timezone.utc)
 
     print(f"Baixando {par} {nome}: {data_inicio.date()} → {data_fim.date()} ...")
 
@@ -101,8 +101,8 @@ def main():
     if not info_par.visible:
         mt5.symbol_select(PAR, True)
 
-    # Baixar M5
-    ok = baixar_timeframe(PAR, mt5.TIMEFRAME_M5, "M5", ARQUIVO_M5, ANOS)
+    # Baixar M5 — início fixo em 2023-01-01 para cobrir ~300+ trades no backtest
+    ok = baixar_timeframe(PAR, mt5.TIMEFRAME_M5, "M5", ARQUIVO_M5, DATA_INICIO)
 
     mt5.shutdown()
 
