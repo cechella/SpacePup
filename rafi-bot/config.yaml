@@ -33,7 +33,7 @@ lote_maximo: 100.0             # limite máximo por trade (XM permite até 100 l
 risco_maximo_diario: 0.50      # 50% do capital — bot para ao atingir
 max_trades_simultaneos: 1      # com capital pequeno, 1 trade por vez
 max_perdas_por_dia: 1          # 1 perda = bot para até amanhã
-ratio_risco_retorno: 1.5       # TP mínimo = 1.5× o stop
+ratio_risco_retorno: 2.5       # TP = 2.5× o stop (breakout precisa R:R alto)
 
 # --- Spread e slippage ---
 spread_pips: 0.8               # spread médio EURUSD# XM Ultra Low
@@ -46,7 +46,7 @@ forca_exaustao: 0.80           # RAFI cai abaixo de 0.80 após > 2.50 = candle a
 # --- Suporte e Resistência ---
 sr_lookback: 50                # candles para trás para S/R (50 × 5min ≈ 4h)
 sr_tolerancia: 0.0005          # tolerância de 5 pips para confirmar rompimento
-swing_stop_lookback: 15        # candles para swing low/high do stop (15 × 5min = 75min)
+swing_stop_lookback: 30        # candles para swing low/high do stop (30 × 5min = 2.5h)
 
 # --- Médias Móveis (tendência M5) ---
 ma_rapida: 20                  # MA20
