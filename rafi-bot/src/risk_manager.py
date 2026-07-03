@@ -43,7 +43,12 @@ class GestorRisco:
         self.lote_minimo          = float(config.get('tamanho_lote_minimo', 0.01))
         self.ratio_rr             = float(config.get('ratio_risco_retorno', 1.5))
         self.par                  = config.get('par', 'EURUSD')
-        # Lote fixo: quando > 0, ignora o cálculo por % e usa sempre este valor
+        # Lote proporcional ao capital: escala o lote conforme o capital cresce
+        self.lote_proporcional    = bool(config.get('lote_proporcional', False))
+        self.lote_base            = float(config.get('lote_base', 0.10))
+        self.capital_base         = float(config.get('capital_base', 20.0))
+        self.lote_maximo          = float(config.get('lote_maximo', 100.0))
+        # Lote fixo (legado): quando > 0 e proporcional=false, usa sempre este valor
         self.lote_fixo            = float(config.get('lote_fixo', 0.0))
 
         # Estado diário — resetado a cada novo dia
@@ -109,7 +114,20 @@ class GestorRisco:
         Retorna:
           float — tamanho do lote arredondado para 2 casas decimais
         """
-        # Lote fixo configurado: usa sempre o mesmo valor independente do capital
+        # Modo proporcional: escala o lote conforme o capital cresce
+        # Fórmula: lote = (capital_atual / capital_base) × lote_base
+        if self.lote_proporcional:
+            lote = (capital_atual / self.capital_base) * self.lote_base
+            lote = max(self.lote_minimo, min(lote, self.lote_maximo))
+            lote = round(lote, 2)
+            margem_aprox = lote * 114.50  # ~$114.50 de margem por lote no EURUSD XM 1:1000
+            logger.info(
+                f"Lote proporcional: {lote} | Capital: ${capital_atual:.2f} "
+                f"| Pip value: ${lote * 10:.2f}/pip | Margem aprox: ${margem_aprox:.2f}"
+            )
+            return lote
+
+        # Modo lote fixo (legado)
         if self.lote_fixo > 0:
             logger.info(f"Lote fixo: {self.lote_fixo} | Pip value: ${self.lote_fixo * 10:.2f}/pip")
             return self.lote_fixo
