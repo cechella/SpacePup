@@ -155,6 +155,9 @@ class Backtest:
         posicao_aberta: Optional[dict] = None
         forca_anterior: float = 0.0
 
+        # Contadores de diagnóstico — apagados após o primeiro backtest saudável
+        _d_total = _d_sessao = _d_risco = _d_trend = _d_rafi = _d_cor = _d_sr = 0
+
         logger.info(
             f"Iniciando backtest | Período: {self.df_m5.index[0]} → {self.df_m5.index[-1]} "
             f"| Candles M5: {n} | Capital: ${self.capital:.2f}"
@@ -183,53 +186,46 @@ class Backtest:
             if posicao_aberta is not None:
                 continue
 
+            _d_total += 1
+
             # Avança a data do gestor de risco (para reset diário correto no backtest)
             self.gestor.avancar_data(ts_dt.date())
 
             # ── Filtro 0: Sessão ativa ─────────────────────────
-            # Somente sobreposição Londres/NY (12–16 UTC) — maior liquidez e direcionalidade
-            # Removida abertura de Londres (07–09 UTC) por excesso de falsos rompimentos
-            # (London sweep: preço varre stops antes de reverter na direção real)
             hora_min = ts_dt.hour * 60 + ts_dt.minute
             em_sessao = (720 <= hora_min < 960)
             if not em_sessao:
                 continue
+            _d_sessao += 1
 
             # ── Verificar permissão do gestor de risco ─────────
             pode, _ = self.gestor.pode_operar(self.capital)
             if not pode:
                 continue
+            _d_risco += 1
 
             # ── Filtro 1: Tendência M5 (MA20 vs MA50) ──────────
             t5 = int(trend_m5.iloc[i])
             if t5 == 0:
-                continue  # M5 lateral — não operar
+                continue
+            _d_trend += 1
 
             direcao = 'compra' if t5 == 1 else 'venda'
 
             # ── Filtro 2: RAFI > +2.50 confirma força ──────────
-            # RAFI mede FORÇA, não direção — sempre positivo (0 a +5).
-            # > +2.50 é válido para COMPRA e VENDA.
-            # A direção é confirmada pela cor do candle (filtro 2b) e pelo
-            # rompimento de resistência (compra) ou suporte (venda).
-            # O rompimento de S/R (filtro 3) já garante que o sinal é fresco —
-            # o preço acaba de cruzar um nível estrutural relevante.
             if forca_atual < forca_limiar:
                 continue
+            _d_rafi += 1
 
             # ── Filtro 2b: Cor do candle confirma direção ──────
-            # Compra → candle verde (fechamento > abertura): preço subiu
-            # Venda  → candle vermelho (fechamento < abertura): preço caiu
-            # Nunca comprar em candle vermelho com RAFI alto (sinal invertido)
             candle_verde = close_atual > open_atual
             if direcao == 'compra' and not candle_verde:
                 continue
             if direcao == 'venda' and candle_verde:
                 continue
+            _d_cor += 1
 
             # ── Filtro 3: Rompimento de S/R dinâmico ──────────
-            # Compra: close supera o máximo dos últimos sr_lookback candles
-            # Venda : close cai abaixo do mínimo dos últimos sr_lookback candles
             rh = rolling_high.iloc[i]
             rl = rolling_low.iloc[i]
             if pd.isna(rh) or pd.isna(rl):
@@ -238,6 +234,7 @@ class Backtest:
                 continue
             if direcao == 'venda' and close_atual >= rl:
                 continue
+            _d_sr += 1
 
             # ── Sinal válido — stop na estrutura de mercado ───
             # nivel_sr: nível de S/R rompido (define a entrada)
@@ -269,6 +266,12 @@ class Backtest:
 
         self.equity_curve.append((self.df_m5.index[-1], round(self.capital, 2)))
 
+        logger.info(
+            f"[DIAGNÓSTICO] Candles sem posição: {_d_total} "
+            f"→ sessão: {_d_sessao} → risco ok: {_d_risco} "
+            f"→ trend: {_d_trend} → RAFI>2.5: {_d_rafi} "
+            f"→ cor ok: {_d_cor} → S/R rompido: {_d_sr} → trades: {len(self.trades)}"
+        )
         logger.info(
             f"Backtest concluído | Trades: {len(self.trades)} | "
             f"Capital final: ${self.capital:.2f}"
