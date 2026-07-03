@@ -135,6 +135,18 @@ class Backtest:
         trend_m5[diff_m5 >  ma_threshold] = 1
         trend_m5[diff_m5 < -ma_threshold] = -1
 
+        # Tendência M15: resamplar M5→M15 e calcular MA20/MA50
+        # Filtro genuíno multi-timeframe: M5 e M15 devem apontar a mesma direção.
+        # Cada candle M15 cobre 3 candles M5; forward-fill mapeia o valor para todos os M5.
+        df_m15_calc = self._resample_para_m15(self.df_m5)
+        ma20_m15 = df_m15_calc['close'].rolling(ma_r).mean()
+        ma50_m15 = df_m15_calc['close'].rolling(ma_l).mean()
+        diff_m15  = ma20_m15 - ma50_m15
+        trend_m15_series = pd.Series(0, index=df_m15_calc.index, dtype=int)
+        trend_m15_series[diff_m15 >  ma_threshold] = 1
+        trend_m15_series[diff_m15 < -ma_threshold] = -1
+        trend_m15 = trend_m15_series.reindex(self.df_m5.index, method='ffill').fillna(0).astype(int)
+
         # S/R dinâmico: máximo e mínimo dos últimos sr_lookback candles (shift=1 evita lookahead)
         # Usar sr_lookback do config (padrão 50 = 250 min ≈ 4h de histórico local)
         sr_lookback  = int(self.config.get('sr_lookback', 50))
@@ -180,8 +192,11 @@ class Backtest:
         posicao_aberta: Optional[dict] = None
         forca_anterior: float = 0.0
 
+        # Parâmetro de saída por tempo (0 = desativado)
+        max_duracao_horas = int(self.config.get('max_duracao_horas', 0))
+
         # Contadores de diagnóstico
-        _d_total = _d_sessao = _d_risco = _d_trend = _d_rafi = _d_bb = _d_cor = _d_sr = 0
+        _d_total = _d_sessao = _d_risco = _d_trend = _d_trend15 = _d_rafi = _d_bb = _d_cor = _d_sr = 0
 
         logger.info(
             f"Iniciando backtest | Período: {self.df_m5.index[0]} → {self.df_m5.index[-1]} "
@@ -199,6 +214,17 @@ class Backtest:
                     else datetime.fromtimestamp(timestamp.timestamp(), tz=timezone.utc)
 
             # ── Verificar saída de posição aberta ─────────────
+            if posicao_aberta is not None:
+                # Saída por tempo: se max_duracao_horas > 0 e limite atingido, fecha a mercado
+                if max_duracao_horas > 0:
+                    horas_abertas = (ts_dt - posicao_aberta['timestamp_entrada']).total_seconds() / 3600
+                    if horas_abertas >= max_duracao_horas:
+                        self._fechar_posicao(
+                            posicao_aberta, close_atual, ts_dt,
+                            f"Tempo limite {max_duracao_horas}h atingido"
+                        )
+                        posicao_aberta = None
+
             if posicao_aberta is not None:
                 posicao_aberta['forca_anterior'] = forca_anterior
                 saida = verificar_saida(close_atual, posicao_aberta, forca_atual, forca_exaust)
@@ -236,6 +262,14 @@ class Backtest:
             _d_trend += 1
 
             direcao = 'compra' if t5 == 1 else 'venda'
+
+            # ── Filtro 1b: M15 deve confirmar a mesma direção ──
+            # Multi-timeframe genuíno: MA20>MA50 em M5 E em M15.
+            # Reduz entradas em pullbacks de M5 contra tendência M15.
+            t15 = int(trend_m15.iloc[i])
+            if t15 != t5:
+                continue
+            _d_trend15 += 1
 
             # ── Filtro 2: RAFI > +2.50 confirma força ──────────
             if forca_atual < forca_limiar:
@@ -301,7 +335,7 @@ class Backtest:
         logger.info(
             f"[DIAGNÓSTICO] Candles sem posição: {_d_total} "
             f"→ sessão: {_d_sessao} → risco ok: {_d_risco} "
-            f"→ trend: {_d_trend} → RAFI>2.5: {_d_rafi} "
+            f"→ trend M5: {_d_trend} → trend M15: {_d_trend15} → RAFI>{forca_limiar}: {_d_rafi} "
             f"→ BB abrindo: {_d_bb} → cor ok: {_d_cor} → S/R rompido: {_d_sr} → trades: {len(self.trades)}"
         )
         logger.info(
