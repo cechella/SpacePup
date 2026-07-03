@@ -141,9 +141,12 @@ class Backtest:
         rolling_high = self.df_m5['high'].rolling(sr_lookback).max().shift(1)
         rolling_low  = self.df_m5['low'].rolling(sr_lookback).min().shift(1)
 
-        # Buffer para stop logo abaixo/acima do S/R rompido (conforme manual RAFI:
-        # "stop abaixo do suporte rompido"). Muito mais curto que swing de 6h.
-        buffer_stop = float(self.config.get('buffer_stop_pips', 10)) * 0.0001
+        # Swing stop: fundo/topo recente para colocar o stop na estrutura do mercado.
+        # Testado: stop no S/R rompido (5-10p) deu WR menor porque o preço retesta
+        # naturalmente o nível rompido. Swing stop de 75c dá "room to breathe".
+        swing_stop_lb   = int(self.config.get('swing_stop_lookback', 75))
+        swing_stop_low  = self.df_m5['low'].rolling(swing_stop_lb).min().shift(1)
+        swing_stop_high = self.df_m5['high'].rolling(swing_stop_lb).max().shift(1)
 
         # Bandas de Bollinger — timing de entrada (squeeze + abertura)
         bb = calcular_bollinger(
@@ -264,16 +267,14 @@ class Backtest:
                 continue
             _d_sr += 1
 
-            # ── Sinal válido — stop no S/R rompido (manual RAFI) ───
-            # nivel_sr: nível de S/R rompido (agora suporte/resistência invertida)
-            # nivel_stop: logo abaixo/acima do S/R rompido (buffer configurável)
-            # Para compra: stop abaixo da resistência agora virada suporte
-            # Para venda: stop acima do suporte agora virado resistência
+            # ── Sinal válido — stop no swing low/high de mercado ───
+            # nivel_sr: nível de S/R rompido (referência para logging)
+            # nivel_stop: fundo/topo dos últimos swing_stop_lookback candles M5
+            # Testado: stop no S/R rompido aumenta falsos stopouts (preço retesta
+            # naturalmente o nível rompido); swing stop de 75 candles dá mais espaço.
             nivel_sr = rh if direcao == 'compra' else rl
-            if direcao == 'compra':
-                nivel_stop = float(nivel_sr) - buffer_stop
-            else:
-                nivel_stop = float(nivel_sr) + buffer_stop
+            nivel_stop = (float(swing_stop_low.iloc[i])  if direcao == 'compra'
+                          else float(swing_stop_high.iloc[i]))
 
             sinal_info = {
                 'sinal'     : direcao,
