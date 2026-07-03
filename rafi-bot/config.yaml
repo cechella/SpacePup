@@ -47,9 +47,9 @@ forca_exaustao: -1.0           # desativado: com RAFI absoluto (≥0) nunca disp
 # --- Suporte e Resistência ---
 sr_lookback: 50                # candles para trás para S/R (50 × 5min ≈ 4h)
 sr_tolerancia: 0.0005          # tolerância de 5 pips para confirmar rompimento
-buffer_stop_pips: 10           # TESTE B: stop 10 pips abaixo/acima do S/R rompido (manual RAFI)
-                               # Antes: swing low/high de 75 candles (6.25h) = stop 30-60 pips = TP 80-120p longe
-                               # Agora: stop no S/R rompido = stop 10-15p = TP 25-40p (fecha no dia)
+buffer_stop_pips: 5            # TESTE C: stop 5p abaixo/acima do S/R rompido
+                               # TESTE B (10p): WR=27.8%, PF=0.911, faltou 0.8% para break-even (28.6%)
+                               # TESTE C (5p):  stop ~8p, TP ~20p → WR esperado 33-37% → PF alvo ~1.2-1.4
 
 # --- Médias Móveis (tendência M5) ---
 ma_rapida: 20                  # MA20
