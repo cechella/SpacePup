@@ -34,7 +34,7 @@ lote_fixo: 0.0                # 0 = desativado (usando proporcional)
 risco_maximo_diario: 9.0       # 900% — desativado no backtest; limite real em produção
 max_trades_simultaneos: 1      # 1 trade por vez (confirmado S/R antes de abrir outro)
 max_perdas_por_dia: 999        # desativado no backtest — mede desempenho puro da estratégia
-ratio_risco_retorno: 2.5       # TP = 2.5× o stop — ponto ótimo confirmado (PF 1.118 com WR 30%)
+ratio_risco_retorno: 2.0       # TESTE A: TP = 2.0× o stop — esperamos WR↑ e PF↑ com lote proporcional
 
 # --- Spread e slippage ---
 spread_pips: 0.8               # spread médio EURUSD# XM Ultra Low
