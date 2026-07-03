@@ -119,17 +119,21 @@ def main() -> None:
     logger.info("=== Bot RAFI — Iniciando backtest ===")
 
     # ── Carregar ou gerar dados ────────────────────────────────
-    if args.m5 and args.m15:
-        logger.info(f"Carregando dados CSV: M5={args.m5}, M15={args.m15}")
+    if args.m5:
+        # M15 é opcional — se não fornecido, reamostrado do M5 (não usado na estratégia atual)
+        if args.m15:
+            logger.info(f"Carregando dados CSV: M5={args.m5}, M15={args.m15}")
+        else:
+            logger.info(f"Carregando dados CSV: M5={args.m5} (M15 será gerado do M5)")
         bt = BacktestCSV.de_csv(
             config,
             caminho_m5=args.m5,
-            caminho_m15=args.m15,
+            caminho_m15=args.m15 if args.m15 else args.m5,
             capital=args.capital,
         )
     else:
         logger.warning(
-            "Arquivos CSV não fornecidos. Usando dados SINTÉTICOS (apenas para teste de código)."
+            "Arquivo CSV não fornecido. Usando dados SINTÉTICOS (apenas para teste de código)."
         )
         df_m5  = gerar_dados_sinteticos(n_candles=8640, tf_minutos=5)   # ~30 dias
         df_m15 = reamostrar(df_m5, 15)
