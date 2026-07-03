@@ -31,9 +31,9 @@ lote_maximo: 100.0             # limite máximo por trade (XM permite até 100 l
 lote_fixo: 0.10               # lote fixo operacional (usar --capital 2000 no backtest)
 
 # --- Gestão de risco ---
-risco_maximo_diario: 0.05      # 5% do capital por dia — bot para ao atingir
+risco_maximo_diario: 9.0       # 900% — desativado no backtest; limite real em produção
 max_trades_simultaneos: 1      # 1 trade por vez (confirmado S/R antes de abrir outro)
-max_perdas_por_dia: 3          # 3 perdas = bot para até amanhã
+max_perdas_por_dia: 999        # desativado no backtest — mede desempenho puro da estratégia
 ratio_risco_retorno: 2.5       # TP = 2.5× o stop (breakout precisa R:R alto)
 
 # --- Spread e slippage ---
