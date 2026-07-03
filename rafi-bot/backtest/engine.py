@@ -207,22 +207,18 @@ class Backtest:
 
             direcao = 'compra' if t5 == 1 else 'venda'
 
-            # ── Filtro 2: RAFI confirma força na direção correta ───
-            # Nossa aproximação RAFI é direcional:
-            #   COMPRA: barras sobem → RAFI > +2.50
-            #   VENDA : barras descem → RAFI < -2.50
-            # Momentum negativo + corpo vermelho grande = RAFI fortemente negativo.
-            if direcao == 'compra' and forca_atual < forca_limiar:
-                continue
-            if direcao == 'venda'  and forca_atual > -forca_limiar:
+            # ── Filtro 2: RAFI > +2.50 confirma força ──────────
+            # RAFI mede FORÇA, não direção — sempre positivo (0 a +5).
+            # > +2.50 é válido para COMPRA e VENDA.
+            # A direção é confirmada pela cor do candle (filtro 2b) e pelo
+            # rompimento de resistência (compra) ou suporte (venda).
+            if forca_atual < forca_limiar:
                 continue
 
             # ── Filtro 2a: Sinal FRESCO (cruzamento recente do limiar) ──
-            # Só entra quando o RAFI ACABOU de cruzar o limiar.
-            # Candle anterior já no extremo = movimento sobreextendido → não entrar.
-            if direcao == 'compra' and forca_anterior >= forca_limiar:
-                continue
-            if direcao == 'venda'  and forca_anterior <= -forca_limiar:
+            # Só entra quando o RAFI ACABOU de cruzar +2.50.
+            # Candle anterior já acima do limiar = movimento sobreextendido → pular.
+            if forca_anterior >= forca_limiar:
                 continue
 
             # ── Filtro 2b: Cor do candle confirma direção ──────

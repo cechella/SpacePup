@@ -40,8 +40,8 @@ spread_pips: 0.8               # spread médio EURUSD# XM Ultra Low
 slippage_pips: 0.5             # slippage estimado em pontos
 
 # --- Indicador RAFI ---
-forca_limiar: 2.50             # RAFI > 2.50 para entrar
-forca_exaustao: -2.50          # RAFI < -2.50 = candle amarelo (saída por exaustão)
+forca_limiar: 2.50             # RAFI > 2.50 para entrar (compra E venda)
+forca_exaustao: 0.80           # RAFI cai abaixo de 0.80 após > 2.50 = candle amarelo
 
 # --- Suporte e Resistência ---
 sr_lookback: 50                # candles para trás para S/R (50 × 5min ≈ 4h)

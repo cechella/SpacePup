@@ -50,11 +50,13 @@ def calcular_indice_forca(df: pd.DataFrame, periodo: int = 14) -> pd.Series:
     momentum_norm = (retorno - retorno_medio) / retorno_std  # z-score
 
     # --- Componente 2: Amplitude do candle vs. média ---
-    # Corpo real do candle (fechamento - abertura) em proporção ao range médio
+    # Corpo real do candle em proporção ao range médio.
+    # abs() porque RAFI mede FORÇA, não direção — candle vermelho grande
+    # tem a mesma força que candle verde grande.
     corpo = close - open_
     range_candle = (high - low).replace(0, np.nan)
     range_medio  = range_candle.rolling(periodo).mean().replace(0, np.nan)
-    amplitude_norm = corpo / range_medio
+    amplitude_norm = corpo.abs() / range_medio  # sempre positivo
 
     # --- Componente 3: Volume relativo ---
     # Volume atual em relação ao volume médio; bots sem volume usam 1.0
@@ -67,8 +69,10 @@ def calcular_indice_forca(df: pd.DataFrame, periodo: int = 14) -> pd.Series:
         volume_rel = pd.Series(0.0, index=df.index)
 
     # --- Composição final (pesos calibrados para escala RAFI original) ---
-    # Pesos: momentum tem maior peso, amplitude e volume são complementares
-    indice = (1.5 * momentum_norm + 1.0 * amplitude_norm + 0.5 * volume_rel)
+    # momentum.abs() + amplitude.abs() = RAFI sempre positivo (0 a +5)
+    # > +2.50 significa movimento FORTE em qualquer direção (compra OU venda)
+    # A direção é determinada pelo filtro de cor do candle e rompimento de S/R
+    indice = (1.5 * momentum_norm.abs() + 1.0 * amplitude_norm + 0.5 * volume_rel)
 
     # Limitar ao range de leitura do RAFI original (aprox. -5 a +5)
     indice = indice.clip(-5.0, 5.0)
