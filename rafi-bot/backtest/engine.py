@@ -7,13 +7,12 @@ no fechamento do candle atual.
 
 Inclui spread real da XM (~0,6–1,6 pips) e slippage estimado.
 
-Estratégia implementada (conforme manuais RAFI Módulos 1 e 2):
+Estratégia implementada (manuais RAFI — modo M5 agressivo):
   Filtro 0: Sessão ativa (07–09h ou 12–16h UTC)
-  Filtro 1: M5 + M15 apontam a mesma direção (MA20 vs MA50, limiar 3 pips)
+  Filtro 1: M5 — MA20 vs MA50 define direção (limiar 3 pips)
   Filtro 2: RAFI > +2.50 confirma força do movimento
   Filtro 2b: Cor do candle confirma direção (verde=compra, vermelho=venda)
-  Filtro 3: Bandas de Bollinger estavam estreitas e estão abrindo (timing)
-  Filtro 4: Rompimento de S/R dinâmico (último 50 candles M5)
+  Filtro 3: Rompimento de S/R dinâmico (máximo/mínimo dos últimos 50 candles M5)
   Stop-loss: nível de S/R rompido
   Take-profit: ratio_risco_retorno × risco
 
@@ -104,13 +103,12 @@ class Backtest:
         """
         Itera candle a candle no M5 e simula a estratégia RAFI completa.
 
-        Filtros em ordem (conforme manuais RAFI Módulos 1 e 2):
+        Filtros em ordem (modo M5 agressivo — sem M15, sem Bollinger):
           0. Sessão ativa: 07–09h ou 12–16h UTC
-          1. M5 + M15 alinhados: MA20 > MA50 (+3p threshold) define direção
+          1. M5: MA20 vs MA50 com threshold de 3 pips define direção
           2. RAFI > +2.50: confirma força do movimento
           2b. Cor do candle: verde para compra, vermelho para venda
-          3. Bollinger (8,2) estava estreita e está abrindo: timing de entrada
-          4. Rompimento de S/R: close cruza máximo ou mínimo dos últimos 50 candles
+          3. Rompimento de S/R: close cruza máximo ou mínimo dos últimos 50 candles
 
         Todos os indicadores são pré-calculados uma única vez no início.
 
@@ -118,16 +116,8 @@ class Backtest:
         """
         n = len(self.df_m5)
 
-        # ── Preparar M15 (reamostrar de M5 se necessário) ─────
-        # Se df_m15 tem o mesmo comprimento que df_m5, é uma cópia do M5
-        if len(self.df_m15) >= len(self.df_m5) * 0.9:
-            logger.info("df_m15 parece ser M5 — reamostrando automaticamente para 15min...")
-            df_m15_calc = self._resample_para_m15(self.df_m5)
-        else:
-            df_m15_calc = self.df_m15
-
         # ── Pré-cálculo de indicadores (O(n)) ─────────────────
-        logger.info("Pré-calculando indicadores (RAFI, MA20/50 M5+M15, Bollinger, S/R)...")
+        logger.info("Pré-calculando indicadores (RAFI, MA20/50 M5, S/R)...")
 
         # Índice de força RAFI no M5
         forca_serie = calcular_indice_forca(self.df_m5)
@@ -145,33 +135,6 @@ class Backtest:
         trend_m5[diff_m5 >  0.0003] = 1
         trend_m5[diff_m5 < -0.0003] = -1
 
-        # Tendência M15: MA20 vs MA50 com threshold de 3 pips
-        # Reamostrado + reindexado para o índice M5 via forward-fill
-        ma20_m15 = df_m15_calc['close'].rolling(ma_r).mean()
-        ma50_m15 = df_m15_calc['close'].rolling(ma_l).mean()
-        diff_m15 = ma20_m15 - ma50_m15
-        trend_m15_raw = pd.Series(0, index=df_m15_calc.index, dtype=int)
-        trend_m15_raw[diff_m15 >  0.0003] = 1
-        trend_m15_raw[diff_m15 < -0.0003] = -1
-        # Reindexar para o índice M5 (cada candle M5 herda tendência M15 mais recente)
-        trend_m15 = trend_m15_raw.reindex(
-            self.df_m5.index, method='ffill'
-        ).fillna(0).astype(int)
-
-        # Bandas de Bollinger M5 (8 períodos, 2 desvios — padrão RAFI)
-        bb_periodo = 8
-        bb_std    = self.df_m5['close'].rolling(bb_periodo).std()
-        bb_largura = 4.0 * bb_std  # 2 desvios em cada lado = 4x desvio padrão
-        bb_limiar_estreita = float(self.config.get('bb_limiar_estreita', 0.0010))  # 10 pips
-        bb_abertura_minima = float(self.config.get('bb_abertura_minima', 0.0003))  # 3 pips
-        bb_lookback        = int(self.config.get('bb_lookback', 3))
-        # Bollinger estreita abrindo: largura mínima recente ≤ limiar E largura atual > mínimo + abertura
-        bb_min_recente = bb_largura.shift(1).rolling(bb_lookback).min()
-        bb_estreita_abrindo = (
-            (bb_min_recente <= bb_limiar_estreita) &
-            (bb_largura > bb_min_recente + bb_abertura_minima)
-        )
-
         # S/R dinâmico: máximo e mínimo dos últimos sr_lookback candles (shift=1 evita lookahead)
         # Usar sr_lookback do config (padrão 50 = 250 min ≈ 4h de histórico local)
         sr_lookback  = int(self.config.get('sr_lookback', 50))
@@ -188,7 +151,7 @@ class Backtest:
 
         logger.info(
             f"Iniciando backtest | Período: {self.df_m5.index[0]} → {self.df_m5.index[-1]} "
-            f"| Candles M5: {n} | M15 (após resample): {len(df_m15_calc)} | Capital: ${self.capital:.2f}"
+            f"| Candles M5: {n} | Capital: ${self.capital:.2f}"
         )
 
         for i in range(min_candles, n):
@@ -230,14 +193,10 @@ class Backtest:
             if not pode:
                 continue
 
-            # ── Filtro 1: M5 + M15 alinhados na mesma direção ──
-            # Módulo 2 RAFI: quando M15 não confirma M5, o sinal falha com frequência alta
-            t5  = int(trend_m5.iloc[i])
-            t15 = int(trend_m15.iloc[i])
-            if t5 == 0 or t15 == 0:
-                continue  # um dos TFs está lateral — não operar
-            if t5 != t15:
-                continue  # TFs conflitantes — não operar
+            # ── Filtro 1: Tendência M5 (MA20 vs MA50) ──────────
+            t5 = int(trend_m5.iloc[i])
+            if t5 == 0:
+                continue  # M5 lateral — não operar
 
             direcao = 'compra' if t5 == 1 else 'venda'
 
@@ -258,13 +217,7 @@ class Backtest:
             if direcao == 'venda' and candle_verde:
                 continue
 
-            # ── Filtro 3: Bollinger estreitas → abrindo ────────
-            # Bollinger abrindo confirma o timing da entrada (volatilidade saindo de compressão)
-            # Se as bandas já estão largas, o movimento pode estar no fim
-            if not bb_estreita_abrindo.iloc[i]:
-                continue
-
-            # ── Filtro 4: Rompimento de S/R dinâmico ──────────
+            # ── Filtro 3: Rompimento de S/R dinâmico ──────────
             # Compra: close supera o máximo dos últimos sr_lookback candles
             # Venda : close cai abaixo do mínimo dos últimos sr_lookback candles
             rh = rolling_high.iloc[i]

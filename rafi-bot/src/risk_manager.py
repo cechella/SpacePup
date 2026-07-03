@@ -35,7 +35,7 @@ class GestorRisco:
     def __init__(self, config: dict):
         self.risco_por_trade      = float(config.get('risco_por_trade', 0.02))
         self.risco_maximo_diario  = float(config.get('risco_maximo_diario', 0.05))
-        self.max_trades_simult    = int(config.get('max_trades_simultaneos', 2))
+        self.max_trades_simult    = int(config.get('max_trades_simultaneos', 1))
         self.max_perdas_dia       = int(config.get('max_perdas_por_dia', 1))
         self.alavancagem          = int(config.get('alavancagem', 1000))
         self.spread_pips          = float(config.get('spread_pips', 0.8))
@@ -43,6 +43,8 @@ class GestorRisco:
         self.lote_minimo          = float(config.get('tamanho_lote_minimo', 0.01))
         self.ratio_rr             = float(config.get('ratio_risco_retorno', 1.5))
         self.par                  = config.get('par', 'EURUSD')
+        # Lote fixo: quando > 0, ignora o cálculo por % e usa sempre este valor
+        self.lote_fixo            = float(config.get('lote_fixo', 0.0))
 
         # Estado diário — resetado a cada novo dia
         self._data_atual: date     = date.today()
@@ -107,6 +109,11 @@ class GestorRisco:
         Retorna:
           float — tamanho do lote arredondado para 2 casas decimais
         """
+        # Lote fixo configurado: usa sempre o mesmo valor independente do capital
+        if self.lote_fixo > 0:
+            logger.info(f"Lote fixo: {self.lote_fixo} | Pip value: ${self.lote_fixo * 10:.2f}/pip")
+            return self.lote_fixo
+
         if risco_pips <= 0 or capital_atual <= 0:
             logger.warning("Parâmetros inválidos para cálculo de lote")
             return self.lote_minimo

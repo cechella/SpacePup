@@ -1,69 +1,74 @@
 # ============================================================
 # Configurações do Bot RAFI Forex
-# Par: EURUSD | Corretora: XM Ultra Low Standard
-# Atualizar antes de cada sessão de trading
+# Par: EURUSD# | Corretora: XM Ultra Low Standard
 # ============================================================
 
 # --- Par e corretora ---
-par: "EURUSD"
+par: "EURUSD#"                 # XM usa EURUSD# com hashtag
 corretora: "XM"
-tipo_conta: "Ultra Low Standard"  # spread mais baixo
+tipo_conta: "Ultra Low Standard"
 
 # --- Capital e alavancagem ---
 capital_inicial: 20.0          # USD — capital de partida
 alavancagem: 1000              # 1:1000 (XM Ultra Low)
 tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
 
-# --- Gestão de risco ---
-risco_por_trade: 0.02          # 2% do capital por operação
-risco_maximo_diario: 0.05      # 5% — bot para ao atingir
-max_trades_simultaneos: 2
-max_perdas_por_dia: 1          # 1 perda = bot para até amanhã
-ratio_risco_retorno: 1.5       # take-profit mínimo = 1.5x o stop
+# --- Lote fixo (modo agressivo $20 → $300k) ---
+# 0.10 lote na XM com alavancagem 1:1000:
+#   Margem bloqueada por trade: ~$11.45 (calculadora XM)
+#   Valor do pip: $1.00 por pip
+#   Stop de 10 pips = risco $10 (50% do capital de $20)
+#   TP de 15 pips (1.5×) = ganho $15
+lote_fixo: 0.10                # 0.0 = desativado (usa cálculo por % do capital)
 
-# --- Spread (pips) ---
-spread_pips: 0.8               # spread médio EURUSD XM Ultra Low
+# --- Gestão de risco ---
+risco_por_trade: 0.10          # usado apenas se lote_fixo = 0.0
+risco_maximo_diario: 0.50      # 50% do capital — bot para ao atingir
+max_trades_simultaneos: 1      # com $20 só há margem para 1 trade por vez
+max_perdas_por_dia: 1          # 1 perda = bot para até amanhã
+ratio_risco_retorno: 1.5       # TP mínimo = 1.5× o stop
+
+# --- Spread e slippage ---
+spread_pips: 0.8               # spread médio EURUSD# XM Ultra Low
 slippage_pips: 0.5             # slippage estimado em pontos
 
-# --- Indicadores ---
-forca_limiar: 2.50             # RAFI equivalente — limiar de entrada
-forca_exaustao: -2.50          # RAFI equivalente — sinal de exaustão
+# --- Indicador RAFI ---
+forca_limiar: 2.50             # RAFI > 2.50 para entrar
+forca_exaustao: -2.50          # RAFI < -2.50 = candle amarelo (saída por exaustão)
 
-# Detecção de suporte/resistência
-sr_lookback: 50                # candles para trás na busca de pivôs
-sr_tolerancia: 0.0005          # tolerância em preço para confirmar rompimento (5 pips)
+# --- Suporte e Resistência ---
+sr_lookback: 50                # candles para trás para S/R (50 × 5min ≈ 4h)
+sr_tolerancia: 0.0005          # tolerância de 5 pips para confirmar rompimento
+
+# --- Médias Móveis (tendência M5) ---
+ma_rapida: 20                  # MA20
+ma_lenta: 50                   # MA50
 
 # --- Timeframes ---
 timeframes:
-  - "M5"
-  - "M15"
+  - "M5"                       # apenas M5 ativo
 
-# Tendência em cada TF (médias móveis)
-ma_rapida: 20
-ma_lenta: 50
-
-# --- Sessões (UTC/GMT) — somente operar nas sobreposições com maior liquidez ---
+# --- Sessões ativas (UTC/GMT) ---
 sessoes:
   toquio_londres:
     inicio: "07:00"
-    fim: "08:00"
+    fim: "09:00"               # abertura de Londres
   londres_ny:
     inicio: "12:00"
-    fim: "16:00"
+    fim: "16:00"               # sobreposição Londres/Nova York
 
 # --- Backtest ---
 backtest:
-  data_inicio: "2022-01-01"
-  data_fim: "2024-12-31"
+  data_inicio: "2025-02-28"
+  data_fim: "2026-07-03"
   timeframe_base: "M5"
   incluir_spread: true
   incluir_slippage: true
 
 # --- Logging ---
-log_nivel: "INFO"              # DEBUG | INFO | WARNING | ERROR
+log_nivel: "INFO"
 log_arquivo: "logs/rafi_bot.log"
 
-# --- Meta de capital (fase agressiva $20→$1000) ---
-meta_diaria_multiplicador: 2.0  # dobrar por dia até $1000
-meta_ajuste_capital: 1000.0     # a partir daqui, recalibrar tamanho de lote
-meta_final: 300000.0            # objetivo em 6 meses
+# --- Meta de capital ($20 → $300.000 em 6 meses) ---
+meta_ajuste_capital: 1000.0    # a partir de $1000 recalibrar lote
+meta_final: 300000.0
