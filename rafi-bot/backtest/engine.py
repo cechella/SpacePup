@@ -241,12 +241,11 @@ class Backtest:
                 continue
             _d_rafi += 1
 
-            # ── Filtro 2b: Bollinger Bands abrindo após squeeze ─
-            # Timing de entrada: mercado estava consolidado e começa a expandir
-            # Breakouts de squeeze têm maior probabilidade de continuação
-            if not bool(bb_abrindo.iloc[i]):
-                continue
-            _d_bb += 1
+            # ── Filtro 2b: Bollinger Bands abrindo após squeeze (opcional) ─
+            if self.config.get('bb_filtro_ativo', False):
+                if not bool(bb_abrindo.iloc[i]):
+                    continue
+                _d_bb += 1
 
             # ── Filtro 2c: Cor do candle confirma direção ──────
             candle_verde = close_atual > open_atual

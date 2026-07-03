@@ -55,6 +55,7 @@ ma_lenta: 50                   # MA50
 ma_threshold: 0.0003           # 3 pips de diferença MA20-MA50 para confirmar tendência
 
 # --- Bandas de Bollinger (timing de entrada) ---
+bb_filtro_ativo: false         # false = desativado (testado: piora PF 1.118→0.963)
 bb_periodo: 8                  # período do BB (estratégia RAFI usa 8)
 bb_desvios: 2.0                # desvios padrão
 bb_limiar_estreita: 0.0020     # BB estreita se largura < 20 pips (squeeze)
