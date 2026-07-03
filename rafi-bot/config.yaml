@@ -52,7 +52,14 @@ swing_stop_lookback: 75        # candles para swing low/high do stop (75 × 5min
 # --- Médias Móveis (tendência M5) ---
 ma_rapida: 20                  # MA20
 ma_lenta: 50                   # MA50
-ma_threshold: 0.0001           # 1 pip de diferença MA20-MA50 para confirmar tendência
+ma_threshold: 0.0003           # 3 pips de diferença MA20-MA50 para confirmar tendência
+
+# --- Bandas de Bollinger (timing de entrada) ---
+bb_periodo: 8                  # período do BB (estratégia RAFI usa 8)
+bb_desvios: 2.0                # desvios padrão
+bb_limiar_estreita: 0.0020     # BB estreita se largura < 20 pips (squeeze)
+bb_abertura_minima: 0.0003     # BB deve abrir ≥ 3 pips acima do mínimo recente
+bb_lookback: 3                 # candles de lookback para detectar squeeze
 
 # --- Timeframes ---
 timeframes:

@@ -33,7 +33,7 @@ import numpy as np
 from datetime import datetime, timezone
 from typing import Optional
 
-from src.indicators import calcular_indice_forca
+from src.indicators import calcular_indice_forca, calcular_bollinger, bollinger_estreitas_abrindo
 from src.strategy import calcular_stops, verificar_saida
 from src.risk_manager import GestorRisco
 
@@ -126,9 +126,8 @@ class Backtest:
         ma_r = int(self.config.get('ma_rapida', 20))
         ma_l = int(self.config.get('ma_lenta',  50))
 
-        # Tendência M5: MA20 vs MA50 com threshold de 1 pip
-        # Threshold reduzido de 3p para 1p — mais sinais em tendências suaves
-        ma_threshold = float(self.config.get('ma_threshold', 0.0001))
+        # Tendência M5: MA20 vs MA50 com threshold configurável
+        ma_threshold = float(self.config.get('ma_threshold', 0.0003))
         ma20_m5 = self.df_m5['close'].rolling(ma_r).mean()
         ma50_m5 = self.df_m5['close'].rolling(ma_l).mean()
         diff_m5 = ma20_m5 - ma50_m5
@@ -147,6 +146,19 @@ class Backtest:
         swing_stop_lb   = int(self.config.get('swing_stop_lookback', 15))
         swing_stop_low  = self.df_m5['low'].rolling(swing_stop_lb).min().shift(1)
         swing_stop_high = self.df_m5['high'].rolling(swing_stop_lb).max().shift(1)
+
+        # Bandas de Bollinger — timing de entrada (squeeze + abertura)
+        bb = calcular_bollinger(
+            self.df_m5,
+            periodo=int(self.config.get('bb_periodo', 8)),
+            desvios=float(self.config.get('bb_desvios', 2.0)),
+        )
+        bb_abrindo = bollinger_estreitas_abrindo(
+            bb,
+            limiar_estreita=float(self.config.get('bb_limiar_estreita', 0.0020)),
+            abertura_minima=float(self.config.get('bb_abertura_minima', 0.0003)),
+            lookback=int(self.config.get('bb_lookback', 3)),
+        )
 
         # Parâmetros globais
         forca_limiar = float(self.config.get('forca_limiar',   2.50))
@@ -167,8 +179,8 @@ class Backtest:
         posicao_aberta: Optional[dict] = None
         forca_anterior: float = 0.0
 
-        # Contadores de diagnóstico — apagados após o primeiro backtest saudável
-        _d_total = _d_sessao = _d_risco = _d_trend = _d_rafi = _d_cor = _d_sr = 0
+        # Contadores de diagnóstico
+        _d_total = _d_sessao = _d_risco = _d_trend = _d_rafi = _d_bb = _d_cor = _d_sr = 0
 
         logger.info(
             f"Iniciando backtest | Período: {self.df_m5.index[0]} → {self.df_m5.index[-1]} "
@@ -229,7 +241,14 @@ class Backtest:
                 continue
             _d_rafi += 1
 
-            # ── Filtro 2b: Cor do candle confirma direção ──────
+            # ── Filtro 2b: Bollinger Bands abrindo após squeeze ─
+            # Timing de entrada: mercado estava consolidado e começa a expandir
+            # Breakouts de squeeze têm maior probabilidade de continuação
+            if not bool(bb_abrindo.iloc[i]):
+                continue
+            _d_bb += 1
+
+            # ── Filtro 2c: Cor do candle confirma direção ──────
             candle_verde = close_atual > open_atual
             if direcao == 'compra' and not candle_verde:
                 continue
@@ -282,7 +301,7 @@ class Backtest:
             f"[DIAGNÓSTICO] Candles sem posição: {_d_total} "
             f"→ sessão: {_d_sessao} → risco ok: {_d_risco} "
             f"→ trend: {_d_trend} → RAFI>2.5: {_d_rafi} "
-            f"→ cor ok: {_d_cor} → S/R rompido: {_d_sr} → trades: {len(self.trades)}"
+            f"→ BB abrindo: {_d_bb} → cor ok: {_d_cor} → S/R rompido: {_d_sr} → trades: {len(self.trades)}"
         )
         logger.info(
             f"Backtest concluído | Trades: {len(self.trades)} | "
