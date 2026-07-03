@@ -81,9 +81,10 @@ class Backtest:
         Itera candle a candle no M5 e simula a estratégia simplificada.
 
         Estratégia:
-          1. Tendência M5 por MA20 vs MA50
-          2. RAFI > +2.50 para compra | RAFI < -2.50 para venda
-          Stop-loss no extremo do candle de sinal; TP = risco × ratio_rr
+          1. Sessão ativa: somente 07:00–09:00 e 12:00–16:00 UTC
+          2. Tendência M5 por MA20 vs MA50 (diff > 3 pips)
+          3. Rompimento de S/R dinâmico: close > máximo dos últimos 20 candles (compra)
+          4. RAFI > +2.50 confirma força do rompimento
 
         Todos os indicadores são pré-calculados uma única vez no início.
 
@@ -92,19 +93,25 @@ class Backtest:
         n = len(self.df_m5)
 
         # ── Pré-cálculo de indicadores (O(n)) ─────────────────
-        logger.info("Pré-calculando indicadores (RAFI, MA20/MA50 M5)...")
+        logger.info("Pré-calculando indicadores (RAFI, MA20/MA50, S/R dinâmico M5)...")
 
         forca_serie = calcular_indice_forca(self.df_m5)
 
         # Tendência por médias móveis no M5
+        # Threshold de 3 pips (0.0003) evita sinais em mercado lateral sem tendência
         ma_r  = int(self.config.get('ma_rapida', 20))
         ma_l  = int(self.config.get('ma_lenta',  50))
         ma20  = self.df_m5['close'].rolling(ma_r).mean()
         ma50  = self.df_m5['close'].rolling(ma_l).mean()
         diff  = ma20 - ma50
         trend_m5 = pd.Series(0, index=self.df_m5.index, dtype=int)
-        trend_m5[diff >  0.0001] = 1
-        trend_m5[diff < -0.0001] = -1
+        trend_m5[diff >  0.0003] = 1
+        trend_m5[diff < -0.0003] = -1
+
+        # S/R dinâmico: máximo e mínimo das últimas 20 velas (shift=1 evita lookahead)
+        # 20 candles M5 = 100 minutos de histórico de preços para definir S/R local
+        rolling_high = self.df_m5['high'].rolling(20).max().shift(1)
+        rolling_low  = self.df_m5['low'].rolling(20).min().shift(1)
 
         # Parâmetros
         forca_limiar = float(self.config.get('forca_limiar',   2.50))
@@ -144,12 +151,20 @@ class Backtest:
             # Avança a data do gestor de risco (para reset diário correto no backtest)
             self.gestor.avancar_data(ts_dt.date())
 
+            # ── Filtro 0: Sessão ativa ─────────────────────────
+            # Somente Londres abertura (07–09 UTC) e sobreposição Londres/NY (12–16 UTC)
+            # Evita a sessão asiática de baixa liquidez e volatilidade errática
+            hora_min = ts_dt.hour * 60 + ts_dt.minute
+            em_sessao = (420 <= hora_min < 540) or (720 <= hora_min < 960)
+            if not em_sessao:
+                continue
+
             # ── Verificar permissão do gestor de risco ─────────
             pode, _ = self.gestor.pode_operar(self.capital)
             if not pode:
                 continue
 
-            # ── Filtro 1: Tendência M5 (MA20 vs MA50) ─────────
+            # ── Filtro 1: Tendência M5 (MA20 vs MA50, limiar 3 pips) ──
             t5 = int(trend_m5.iloc[i])
             if t5 == 0:
                 continue
@@ -162,12 +177,22 @@ class Backtest:
             if direcao == 'venda' and forca_atual > -forca_limiar:
                 continue
 
-            # ── Sinal válido — stop no extremo do candle ───────
-            # Compra: stop abaixo do low do candle de entrada
-            # Venda : stop acima do high do candle de entrada
-            candle_low  = float(self.df_m5['low'].iloc[i])
-            candle_high = float(self.df_m5['high'].iloc[i])
-            nivel_sr    = candle_low if direcao == 'compra' else candle_high
+            # ── Filtro 3: Rompimento de S/R dinâmico ──────────
+            # Compra: close supera o máximo das últimas 20 velas
+            # Venda : close cai abaixo do mínimo das últimas 20 velas
+            rh = rolling_high.iloc[i]
+            rl = rolling_low.iloc[i]
+            if pd.isna(rh) or pd.isna(rl):
+                continue
+            if direcao == 'compra' and close_atual <= rh:
+                continue
+            if direcao == 'venda' and close_atual >= rl:
+                continue
+
+            # ── Sinal válido — stop no nível de S/R rompido ───
+            # Compra: stop abaixo do máximo anterior (nível de resistência rompido)
+            # Venda : stop acima do mínimo anterior (nível de suporte rompido)
+            nivel_sr = rh if direcao == 'compra' else rl
 
             sinal_info = {'sinal': direcao, 'nivel_sr': nivel_sr, 'forca': forca_atual}
             posicao_aberta = self._abrir_posicao(sinal_info, close_atual, ts_dt, ratio_rr)
