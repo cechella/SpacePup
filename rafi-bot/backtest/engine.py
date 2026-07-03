@@ -7,10 +7,14 @@ no fechamento do candle atual.
 
 Inclui spread real da XM (~0,6–1,6 pips) e slippage estimado.
 
-Estratégia simplificada (versão atual):
-  Filtro 1: Tendência M5 — MA20 vs MA50 define direção
-  Filtro 2: RAFI > +2.50 para compra | RAFI < -2.50 para venda
-  Stop-loss: extremo do candle de sinal (low para compra, high para venda)
+Estratégia implementada (conforme manuais RAFI Módulos 1 e 2):
+  Filtro 0: Sessão ativa (07–09h ou 12–16h UTC)
+  Filtro 1: M5 + M15 apontam a mesma direção (MA20 vs MA50, limiar 3 pips)
+  Filtro 2: RAFI > +2.50 confirma força do movimento
+  Filtro 2b: Cor do candle confirma direção (verde=compra, vermelho=venda)
+  Filtro 3: Bandas de Bollinger estavam estreitas e estão abrindo (timing)
+  Filtro 4: Rompimento de S/R dinâmico (último 50 candles M5)
+  Stop-loss: nível de S/R rompido
   Take-profit: ratio_risco_retorno × risco
 
 Performance: todos os indicadores são pré-calculados uma única vez (O(n))
@@ -45,7 +49,7 @@ class Backtest:
       config  : dict de configuração (config.yaml)
       df_m5   : DataFrame M5 com colunas [open, high, low, close, volume]
                 Index deve ser DatetimeTZAware (UTC)
-      df_m15  : DataFrame M15 (mesmo período)
+      df_m15  : DataFrame M15 (mesmo período — reamostrado automaticamente de M5 se necessário)
       capital : capital inicial em USD
     """
 
@@ -73,18 +77,40 @@ class Backtest:
         self.equity_curve: list = [(self.df_m5.index[0], capital)]
 
     # ─────────────────────────────────────────────────────────
+    # UTILITÁRIOS
+    # ─────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _resample_para_m15(df_m5: pd.DataFrame) -> pd.DataFrame:
+        """
+        Reamostara dados M5 para M15 via agregação OHLCV.
+
+        Usado quando df_m15 não é fornecido separadamente — o backtest pode
+        funcionar com apenas o CSV M5, reamostrado internamente para M15.
+        """
+        return df_m5.resample('15min').agg({
+            'open'  : 'first',
+            'high'  : 'max',
+            'low'   : 'min',
+            'close' : 'last',
+            'volume': 'sum',
+        }).dropna()
+
+    # ─────────────────────────────────────────────────────────
     # EXECUÇÃO PRINCIPAL (O(n) via pré-cálculo vetorizado)
     # ─────────────────────────────────────────────────────────
 
     def executar(self, min_candles: int = 100) -> list:
         """
-        Itera candle a candle no M5 e simula a estratégia simplificada.
+        Itera candle a candle no M5 e simula a estratégia RAFI completa.
 
-        Estratégia:
-          1. Sessão ativa: somente 07:00–09:00 e 12:00–16:00 UTC
-          2. Tendência M5 por MA20 vs MA50 (diff > 3 pips)
-          3. Rompimento de S/R dinâmico: close > máximo dos últimos 20 candles (compra)
-          4. RAFI > +2.50 confirma força do rompimento
+        Filtros em ordem (conforme manuais RAFI Módulos 1 e 2):
+          0. Sessão ativa: 07–09h ou 12–16h UTC
+          1. M5 + M15 alinhados: MA20 > MA50 (+3p threshold) define direção
+          2. RAFI > +2.50: confirma força do movimento
+          2b. Cor do candle: verde para compra, vermelho para venda
+          3. Bollinger (8,2) estava estreita e está abrindo: timing de entrada
+          4. Rompimento de S/R: close cruza máximo ou mínimo dos últimos 50 candles
 
         Todos os indicadores são pré-calculados uma única vez no início.
 
@@ -92,28 +118,67 @@ class Backtest:
         """
         n = len(self.df_m5)
 
-        # ── Pré-cálculo de indicadores (O(n)) ─────────────────
-        logger.info("Pré-calculando indicadores (RAFI, MA20/MA50, S/R dinâmico M5)...")
+        # ── Preparar M15 (reamostrar de M5 se necessário) ─────
+        # Se df_m15 tem o mesmo comprimento que df_m5, é uma cópia do M5
+        if len(self.df_m15) >= len(self.df_m5) * 0.9:
+            logger.info("df_m15 parece ser M5 — reamostrando automaticamente para 15min...")
+            df_m15_calc = self._resample_para_m15(self.df_m5)
+        else:
+            df_m15_calc = self.df_m15
 
+        # ── Pré-cálculo de indicadores (O(n)) ─────────────────
+        logger.info("Pré-calculando indicadores (RAFI, MA20/50 M5+M15, Bollinger, S/R)...")
+
+        # Índice de força RAFI no M5
         forca_serie = calcular_indice_forca(self.df_m5)
 
-        # Tendência por médias móveis no M5
-        # Threshold de 3 pips (0.0003) evita sinais em mercado lateral sem tendência
-        ma_r  = int(self.config.get('ma_rapida', 20))
-        ma_l  = int(self.config.get('ma_lenta',  50))
-        ma20  = self.df_m5['close'].rolling(ma_r).mean()
-        ma50  = self.df_m5['close'].rolling(ma_l).mean()
-        diff  = ma20 - ma50
+        # Parâmetros de médias móveis
+        ma_r = int(self.config.get('ma_rapida', 20))
+        ma_l = int(self.config.get('ma_lenta',  50))
+
+        # Tendência M5: MA20 vs MA50 com threshold de 3 pips
+        # Threshold evita sinais em mercado lateral (diff insignificante)
+        ma20_m5 = self.df_m5['close'].rolling(ma_r).mean()
+        ma50_m5 = self.df_m5['close'].rolling(ma_l).mean()
+        diff_m5 = ma20_m5 - ma50_m5
         trend_m5 = pd.Series(0, index=self.df_m5.index, dtype=int)
-        trend_m5[diff >  0.0003] = 1
-        trend_m5[diff < -0.0003] = -1
+        trend_m5[diff_m5 >  0.0003] = 1
+        trend_m5[diff_m5 < -0.0003] = -1
 
-        # S/R dinâmico: máximo e mínimo das últimas 20 velas (shift=1 evita lookahead)
-        # 20 candles M5 = 100 minutos de histórico de preços para definir S/R local
-        rolling_high = self.df_m5['high'].rolling(20).max().shift(1)
-        rolling_low  = self.df_m5['low'].rolling(20).min().shift(1)
+        # Tendência M15: MA20 vs MA50 com threshold de 3 pips
+        # Reamostrado + reindexado para o índice M5 via forward-fill
+        ma20_m15 = df_m15_calc['close'].rolling(ma_r).mean()
+        ma50_m15 = df_m15_calc['close'].rolling(ma_l).mean()
+        diff_m15 = ma20_m15 - ma50_m15
+        trend_m15_raw = pd.Series(0, index=df_m15_calc.index, dtype=int)
+        trend_m15_raw[diff_m15 >  0.0003] = 1
+        trend_m15_raw[diff_m15 < -0.0003] = -1
+        # Reindexar para o índice M5 (cada candle M5 herda tendência M15 mais recente)
+        trend_m15 = trend_m15_raw.reindex(
+            self.df_m5.index, method='ffill'
+        ).fillna(0).astype(int)
 
-        # Parâmetros
+        # Bandas de Bollinger M5 (8 períodos, 2 desvios — padrão RAFI)
+        bb_periodo = 8
+        bb_std    = self.df_m5['close'].rolling(bb_periodo).std()
+        bb_largura = 4.0 * bb_std  # 2 desvios em cada lado = 4x desvio padrão
+        bb_limiar_estreita = float(self.config.get('bb_limiar_estreita', 0.0010))  # 10 pips
+        bb_abertura_minima = float(self.config.get('bb_abertura_minima', 0.0003))  # 3 pips
+        bb_lookback        = int(self.config.get('bb_lookback', 3))
+        # Bollinger estreita abrindo: largura mínima recente ≤ limiar E largura atual > mínimo + abertura
+        bb_min_recente = bb_largura.shift(1).rolling(bb_lookback).min()
+        bb_estreita_abrindo = (
+            (bb_min_recente <= bb_limiar_estreita) &
+            (bb_largura > bb_min_recente + bb_abertura_minima)
+        )
+
+        # S/R dinâmico: máximo e mínimo dos últimos sr_lookback candles (shift=1 evita lookahead)
+        # Usar sr_lookback do config (padrão 50 = 250 min ≈ 4h de histórico local)
+        sr_lookback  = int(self.config.get('sr_lookback', 50))
+        rolling_high = self.df_m5['high'].rolling(sr_lookback).max().shift(1)
+        rolling_low  = self.df_m5['low'].rolling(sr_lookback).min().shift(1)
+
+        # Parâmetros globais
         forca_limiar = float(self.config.get('forca_limiar',   2.50))
         forca_exaust = float(self.config.get('forca_exaustao', -2.50))
         ratio_rr     = float(self.config.get('ratio_risco_retorno', 1.5))
@@ -123,12 +188,13 @@ class Backtest:
 
         logger.info(
             f"Iniciando backtest | Período: {self.df_m5.index[0]} → {self.df_m5.index[-1]} "
-            f"| Candles M5: {n} | Capital: ${self.capital:.2f}"
+            f"| Candles M5: {n} | M15 (após resample): {len(df_m15_calc)} | Capital: ${self.capital:.2f}"
         )
 
         for i in range(min_candles, n):
             timestamp   = self.df_m5.index[i]
             close_atual = float(self.df_m5['close'].iloc[i])
+            open_atual  = float(self.df_m5['open'].iloc[i])
             forca_val   = forca_serie.iloc[i]
             forca_atual = float(forca_val) if not np.isnan(forca_val) else 0.0
 
@@ -152,7 +218,7 @@ class Backtest:
             self.gestor.avancar_data(ts_dt.date())
 
             # ── Filtro 0: Sessão ativa ─────────────────────────
-            # Somente Londres abertura (07–09 UTC) e sobreposição Londres/NY (12–16 UTC)
+            # Somente abertura de Londres (07–09 UTC) e sobreposição Londres/NY (12–16 UTC)
             # Evita a sessão asiática de baixa liquidez e volatilidade errática
             hora_min = ts_dt.hour * 60 + ts_dt.minute
             em_sessao = (420 <= hora_min < 540) or (720 <= hora_min < 960)
@@ -164,22 +230,43 @@ class Backtest:
             if not pode:
                 continue
 
-            # ── Filtro 1: Tendência M5 (MA20 vs MA50, limiar 3 pips) ──
-            t5 = int(trend_m5.iloc[i])
-            if t5 == 0:
-                continue
+            # ── Filtro 1: M5 + M15 alinhados na mesma direção ──
+            # Módulo 2 RAFI: quando M15 não confirma M5, o sinal falha com frequência alta
+            t5  = int(trend_m5.iloc[i])
+            t15 = int(trend_m15.iloc[i])
+            if t5 == 0 or t15 == 0:
+                continue  # um dos TFs está lateral — não operar
+            if t5 != t15:
+                continue  # TFs conflitantes — não operar
 
             direcao = 'compra' if t5 == 1 else 'venda'
 
-            # ── Filtro 2: RAFI na direção da tendência ─────────
-            if direcao == 'compra' and forca_atual < forca_limiar:
-                continue
-            if direcao == 'venda' and forca_atual > -forca_limiar:
+            # ── Filtro 2: RAFI > +2.50 confirma força ──────────
+            # Regra fundamental RAFI: o histograma deve estar ACIMA de +2.50
+            # Isso se aplica tanto a compras quanto a vendas — o RAFI mede força,
+            # não direção. A direção é confirmada pela cor do candle (filtro 2b).
+            if forca_atual < forca_limiar:
                 continue
 
-            # ── Filtro 3: Rompimento de S/R dinâmico ──────────
-            # Compra: close supera o máximo das últimas 20 velas
-            # Venda : close cai abaixo do mínimo das últimas 20 velas
+            # ── Filtro 2b: Cor do candle confirma direção ──────
+            # Compra → candle verde (fechamento > abertura): preço subiu
+            # Venda  → candle vermelho (fechamento < abertura): preço caiu
+            # Nunca comprar em candle vermelho com RAFI alto (sinal invertido)
+            candle_verde = close_atual > open_atual
+            if direcao == 'compra' and not candle_verde:
+                continue
+            if direcao == 'venda' and candle_verde:
+                continue
+
+            # ── Filtro 3: Bollinger estreitas → abrindo ────────
+            # Bollinger abrindo confirma o timing da entrada (volatilidade saindo de compressão)
+            # Se as bandas já estão largas, o movimento pode estar no fim
+            if not bb_estreita_abrindo.iloc[i]:
+                continue
+
+            # ── Filtro 4: Rompimento de S/R dinâmico ──────────
+            # Compra: close supera o máximo dos últimos sr_lookback candles
+            # Venda : close cai abaixo do mínimo dos últimos sr_lookback candles
             rh = rolling_high.iloc[i]
             rl = rolling_low.iloc[i]
             if pd.isna(rh) or pd.isna(rl):
@@ -190,8 +277,7 @@ class Backtest:
                 continue
 
             # ── Sinal válido — stop no nível de S/R rompido ───
-            # Compra: stop abaixo do máximo anterior (nível de resistência rompido)
-            # Venda : stop acima do mínimo anterior (nível de suporte rompido)
+            # Stop abaixo da resistência rompida (compra) ou acima do suporte rompido (venda)
             nivel_sr = rh if direcao == 'compra' else rl
 
             sinal_info = {'sinal': direcao, 'nivel_sr': nivel_sr, 'forca': forca_atual}
