@@ -24,11 +24,11 @@ tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
 #   $500  → 2.50 lot → margem ~$286,25 → pip $25,00
 #   $1000 → 5.00 lot → margem ~$572,50 → pip $50,00
 #   $5000 → 25.00 lot → margem ~$2862,50 → pip $250,00
-lote_proporcional: false       # proporcional ativado só quando capital >= $2000
-lote_base: 0.10               # lote base para escala proporcional
+lote_proporcional: true        # ATIVO: lote cresce junto com o capital (composição exponencial)
+lote_base: 0.10               # lote base — com $20 usa 0.10; com $200 usa 1.00; com $2000 usa 10.00
 capital_base: 20.0             # capital de referência (USD)
 lote_maximo: 100.0             # limite máximo por trade (XM permite até 100 lotes)
-lote_fixo: 0.10               # lote fixo operacional (usar --capital 2000 no backtest)
+lote_fixo: 0.0                # 0 = desativado (usando proporcional)
 
 # --- Gestão de risco ---
 risco_maximo_diario: 9.0       # 900% — desativado no backtest; limite real em produção
