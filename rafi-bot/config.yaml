@@ -77,7 +77,7 @@ sessoes:
 
 # --- Backtest ---
 backtest:
-  data_inicio: "2025-02-28"
+  data_inicio: "2023-01-01"
   data_fim: "2026-07-03"
   timeframe_base: "M5"
   incluir_spread: true
