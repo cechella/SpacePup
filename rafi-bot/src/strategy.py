@@ -180,23 +180,29 @@ def calcular_stops(sinal: str,
                    preco_entrada: float,
                    nivel_sr: float,
                    ratio_rr: float = 1.5,
-                   spread_pips: float = 0.8) -> dict:
+                   spread_pips: float = 0.8,
+                   buffer_pips: float = 5.0) -> dict:
     """
     Calcula stop-loss e take-profit baseados no nível S/R rompido.
 
     COMPRA: stop abaixo do nível | TP = entrada + risco * ratio_rr
     VENDA : stop acima do nível  | TP = entrada - risco * ratio_rr
 
+    O buffer_pips (padrão 5p) garante que o stop fica suficientemente
+    abaixo/acima do S/R para absorver ruído de mercado sem ser atingido
+    imediatamente por spread/slippage.
+
     Retorna dict com: 'stop_loss', 'take_profit', 'risco_pips', 'tp_pips'
     """
     spread = spread_pips * 0.0001
+    buffer = buffer_pips * 0.0001  # distância mínima extra abaixo/acima do S/R
 
     if sinal == 'compra':
-        stop_loss   = nivel_sr - spread
+        stop_loss   = nivel_sr - spread - buffer
         risco       = preco_entrada - stop_loss
         take_profit = preco_entrada + risco * ratio_rr
     else:
-        stop_loss   = nivel_sr + spread
+        stop_loss   = nivel_sr + spread + buffer
         risco       = stop_loss - preco_entrada
         take_profit = preco_entrada - risco * ratio_rr
 

@@ -181,10 +181,11 @@ class Backtest:
             self.gestor.avancar_data(ts_dt.date())
 
             # ── Filtro 0: Sessão ativa ─────────────────────────
-            # Somente abertura de Londres (07–09 UTC) e sobreposição Londres/NY (12–16 UTC)
-            # Evita a sessão asiática de baixa liquidez e volatilidade errática
+            # Somente sobreposição Londres/NY (12–16 UTC) — maior liquidez e direcionalidade
+            # Removida abertura de Londres (07–09 UTC) por excesso de falsos rompimentos
+            # (London sweep: preço varre stops antes de reverter na direção real)
             hora_min = ts_dt.hour * 60 + ts_dt.minute
-            em_sessao = (420 <= hora_min < 540) or (720 <= hora_min < 960)
+            em_sessao = (720 <= hora_min < 960)
             if not em_sessao:
                 continue
 
@@ -205,6 +206,13 @@ class Backtest:
             # Isso se aplica tanto a compras quanto a vendas — o RAFI mede força,
             # não direção. A direção é confirmada pela cor do candle (filtro 2b).
             if forca_atual < forca_limiar:
+                continue
+
+            # ── Filtro 2a: Sinal FRESCO (cruzamento recente do limiar) ──
+            # Só entra quando o RAFI ACABOU de cruzar o limiar para cima.
+            # Se o candle anterior já tinha RAFI alto, o movimento está sobreextendido
+            # e a probabilidade de reversão é maior — não entrar.
+            if forca_anterior >= forca_limiar:
                 continue
 
             # ── Filtro 2b: Cor do candle confirma direção ──────
