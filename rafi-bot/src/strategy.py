@@ -241,9 +241,13 @@ def verificar_saida(close_atual: float,
     if sinal == 'venda'  and close_atual <= take_profit:
         return {'fechar': True, 'motivo': f"Take-profit atingido @ {close_atual:.5f}"}
 
-    # Candle amarelo: força forte → exaustão no candle seguinte
-    if forca_ant > 2.50 and indice_forca < forca_exaustao:
-        return {'fechar': True, 'motivo': "Exaustão detectada (candle amarelo)"}
+    # Candle amarelo COMPRA: RAFI era > +2.50, agora < -2.50 → exaustão de alta
+    if sinal == 'compra' and forca_ant > 2.50 and indice_forca < forca_exaustao:
+        return {'fechar': True, 'motivo': "Exaustão detectada (candle amarelo alta)"}
+
+    # Candle amarelo VENDA: RAFI era < -2.50, agora > +2.50 → exaustão de baixa
+    if sinal == 'venda' and forca_ant < forca_exaustao and indice_forca > 2.50:
+        return {'fechar': True, 'motivo': "Exaustão detectada (candle amarelo baixa)"}
 
     return {'fechar': False, 'motivo': ''}
 

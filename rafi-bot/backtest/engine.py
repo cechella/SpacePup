@@ -207,18 +207,22 @@ class Backtest:
 
             direcao = 'compra' if t5 == 1 else 'venda'
 
-            # ── Filtro 2: RAFI > +2.50 confirma força ──────────
-            # Regra fundamental RAFI: o histograma deve estar ACIMA de +2.50
-            # Isso se aplica tanto a compras quanto a vendas — o RAFI mede força,
-            # não direção. A direção é confirmada pela cor do candle (filtro 2b).
-            if forca_atual < forca_limiar:
+            # ── Filtro 2: RAFI confirma força na direção correta ───
+            # Nossa aproximação RAFI é direcional:
+            #   COMPRA: barras sobem → RAFI > +2.50
+            #   VENDA : barras descem → RAFI < -2.50
+            # Momentum negativo + corpo vermelho grande = RAFI fortemente negativo.
+            if direcao == 'compra' and forca_atual < forca_limiar:
+                continue
+            if direcao == 'venda'  and forca_atual > -forca_limiar:
                 continue
 
             # ── Filtro 2a: Sinal FRESCO (cruzamento recente do limiar) ──
-            # Só entra quando o RAFI ACABOU de cruzar o limiar para cima.
-            # Se o candle anterior já tinha RAFI alto, o movimento está sobreextendido
-            # e a probabilidade de reversão é maior — não entrar.
-            if forca_anterior >= forca_limiar:
+            # Só entra quando o RAFI ACABOU de cruzar o limiar.
+            # Candle anterior já no extremo = movimento sobreextendido → não entrar.
+            if direcao == 'compra' and forca_anterior >= forca_limiar:
+                continue
+            if direcao == 'venda'  and forca_anterior <= -forca_limiar:
                 continue
 
             # ── Filtro 2b: Cor do candle confirma direção ──────
