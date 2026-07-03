@@ -126,14 +126,15 @@ class Backtest:
         ma_r = int(self.config.get('ma_rapida', 20))
         ma_l = int(self.config.get('ma_lenta',  50))
 
-        # Tendência M5: MA20 vs MA50 com threshold de 3 pips
-        # Threshold evita sinais em mercado lateral (diff insignificante)
+        # Tendência M5: MA20 vs MA50 com threshold de 1 pip
+        # Threshold reduzido de 3p para 1p — mais sinais em tendências suaves
+        ma_threshold = float(self.config.get('ma_threshold', 0.0001))
         ma20_m5 = self.df_m5['close'].rolling(ma_r).mean()
         ma50_m5 = self.df_m5['close'].rolling(ma_l).mean()
         diff_m5 = ma20_m5 - ma50_m5
         trend_m5 = pd.Series(0, index=self.df_m5.index, dtype=int)
-        trend_m5[diff_m5 >  0.0003] = 1
-        trend_m5[diff_m5 < -0.0003] = -1
+        trend_m5[diff_m5 >  ma_threshold] = 1
+        trend_m5[diff_m5 < -ma_threshold] = -1
 
         # S/R dinâmico: máximo e mínimo dos últimos sr_lookback candles (shift=1 evita lookahead)
         # Usar sr_lookback do config (padrão 50 = 250 min ≈ 4h de histórico local)

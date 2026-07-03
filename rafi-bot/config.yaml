@@ -34,7 +34,7 @@ lote_fixo: 0.10               # lote fixo operacional (usar --capital 2000 no ba
 risco_maximo_diario: 9.0       # 900% — desativado no backtest; limite real em produção
 max_trades_simultaneos: 1      # 1 trade por vez (confirmado S/R antes de abrir outro)
 max_perdas_por_dia: 999        # desativado no backtest — mede desempenho puro da estratégia
-ratio_risco_retorno: 3.0       # TP = 3.0× o stop — melhora PF estimado para 1.29 com WR 30%
+ratio_risco_retorno: 2.5       # TP = 2.5× o stop — ponto ótimo confirmado (PF 1.118 com WR 30%)
 
 # --- Spread e slippage ---
 spread_pips: 0.8               # spread médio EURUSD# XM Ultra Low
@@ -52,6 +52,7 @@ swing_stop_lookback: 75        # candles para swing low/high do stop (75 × 5min
 # --- Médias Móveis (tendência M5) ---
 ma_rapida: 20                  # MA20
 ma_lenta: 50                   # MA50
+ma_threshold: 0.0001           # 1 pip de diferença MA20-MA50 para confirmar tendência
 
 # --- Timeframes ---
 timeframes:
