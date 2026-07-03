@@ -212,13 +212,9 @@ class Backtest:
             # > +2.50 é válido para COMPRA e VENDA.
             # A direção é confirmada pela cor do candle (filtro 2b) e pelo
             # rompimento de resistência (compra) ou suporte (venda).
+            # O rompimento de S/R (filtro 3) já garante que o sinal é fresco —
+            # o preço acaba de cruzar um nível estrutural relevante.
             if forca_atual < forca_limiar:
-                continue
-
-            # ── Filtro 2a: Sinal FRESCO (cruzamento recente do limiar) ──
-            # Só entra quando o RAFI ACABOU de cruzar +2.50.
-            # Candle anterior já acima do limiar = movimento sobreextendido → pular.
-            if forca_anterior >= forca_limiar:
                 continue
 
             # ── Filtro 2b: Cor do candle confirma direção ──────
