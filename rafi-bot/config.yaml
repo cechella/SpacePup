@@ -35,7 +35,7 @@ risco_maximo_diario: 9.0       # 900% — desativado no backtest; limite real em
 max_trades_simultaneos: 1      # 1 trade por vez (confirmado S/R antes de abrir outro)
 max_perdas_por_dia: 999        # desativado no backtest — mede desempenho puro da estratégia
 ratio_risco_retorno: 2.5       # R:R fixo 2.5 (break-even WR=28.6%)
-candle_corpo_minimo: 0.50      # TESTE K: corpo do candle deve ser ≥50% do range (filtra dojis/indecisão)
+candle_corpo_minimo: 0.0       # 0.0 = desativado (corpo≥50% removeu ganhadores — TESTE K)
 
 # --- Spread e slippage ---
 spread_pips: 0.8               # spread médio EURUSD# XM Ultra Low
@@ -48,11 +48,10 @@ forca_exaustao: -1.0           # desativado: com RAFI absoluto (≥0) nunca disp
 # --- Suporte e Resistência ---
 sr_lookback: 50                # candles para trás para S/R (50 × 5min ≈ 4h)
 sr_tolerancia: 0.0005          # tolerância de 5 pips para confirmar rompimento
-swing_stop_lookback: 75        # candles para swing stop (75×5min = 6.25h de fundo/topo recente)
-                               # TESTE A: RR=2.5, 2 sessões → WR=31.9%, PF=1.118 (116 trades)
-                               # TESTE I: +D1 filter → WR=26.2%, PF=0.943 — D1 prejudica
-                               # TESTE J: só Londres/NY → WR=27.3%, PF=0.939 — Tokyo-Londres era melhor!
-                               # TESTE K: restaura Tokyo-Londres + filtro corpo≥50% — alvo PF>1.3
+swing_stop_lookback: 30        # TESTE L: 30 candles = 2.5h (era 75=6.25h) — stop menor → TP menor → mais alcançável
+                               # TESTE A: 75c, 2 sessões → WR=31.9%, PF=1.118 (116 trades)
+                               # TESTE K: 75c + corpo≥50% → WR=30.0%, PF=1.044 — filtro corpo removeu ganhadores
+                               # TESTE L: 30c, 2 sessões, sem filtro corpo — alvo: TP mais curto eleva WR
 
 # --- Médias Móveis (tendência M5) ---
 ma_rapida: 20                  # MA20
@@ -72,8 +71,7 @@ timeframes:
   - "M5"                       # apenas M5 ativo
 
 # --- Sessões ativas (UTC/GMT) ---
-# TESTE K: restaura Tokyo-Londres (07-09h) + mantém Londres/NY (12-16h)
-# Tokyo-Londres = abertura London que deu trades melhores que esperado (TESTE J confirmou)
+# TESTE L: 2 sessões (Tokyo-Londres + Londres/NY) — Tokyo-Londres confirmada melhor que esperado
 sessoes:
   toquio_londres:
     inicio: "07:00"
