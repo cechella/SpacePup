@@ -24,8 +24,8 @@ tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
 #   $500  → 2.50 lot → margem ~$286,25 → pip $25,00
 #   $1000 → 5.00 lot → margem ~$572,50 → pip $50,00
 #   $5000 → 25.00 lot → margem ~$2862,50 → pip $250,00
-lote_proporcional: true        # ATIVADO: PF=1.800 confirmado no grid search — hora de compostar
-lote_base: 0.10               # lote base: $200 → 0.10 lot | $20 → 0.01 lot | $2000 → 1.00 lot
+lote_proporcional: true        # ATIVADO — com lote_base conservador (5% risco vs 25% anterior)
+lote_base: 0.02               # 5% risco/trade: $200→0.02lot | $2000→0.20lot (era 0.10 = blow-up em 2026-05)
 capital_base: 200.0            # base de referência para escala proporcional
 lote_maximo: 100.0             # limite máximo por trade (XM permite até 100 lotes)
 lote_fixo: 0.01               # lote fixo 0.01 ($20, pip=$0,10) para medir PF puro
