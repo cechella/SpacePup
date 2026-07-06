@@ -13,28 +13,34 @@ capital_inicial: 20.0          # USD — capital de partida
 alavancagem: 1000              # 1:1000 (XM Ultra Low)
 tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
 
-# --- Lote proporcional ao capital (escala com crescimento) ---
-# Fórmula: lote = (capital_atual / capital_base) × lote_base
+# --- Sizing pelo Kelly % real (lote ajustado ao SL dinâmico) ---
+# Fórmula: lote = (capital × risco_por_trade) / (risco_pips × 10)
+# Vantagem: auto-corrige após perdas → previne blow-up; escala com capital
 #
-# Exemplos com capital_base=20 e lote_base=0.10:
-#   $20   → 0.10 lot → margem ~$11,45 → pip $1,00
-#   $40   → 0.20 lot → margem ~$22,90 → pip $2,00
-#   $100  → 0.50 lot → margem ~$57,25 → pip $5,00
-#   $200  → 1.00 lot → margem ~$114,50 → pip $10,00
-#   $500  → 2.50 lot → margem ~$286,25 → pip $25,00
-#   $1000 → 5.00 lot → margem ~$572,50 → pip $50,00
-#   $5000 → 25.00 lot → margem ~$2862,50 → pip $250,00
-lote_proporcional: true        # ATIVADO — testando escalonamento agressivo para compor mais rápido
-lote_base: 0.10               # 25% risco/trade: $200→0.10lot (testando swing=150 vs blow-up anterior com swing=75)
-capital_base: 200.0            # base de referência para escala proporcional
+# TESTE N — Kelly agressivo 25% com R:R=3.5, all-hours, forca=2.0:
+#   WR esperado ≈35% | Kelly_ótimo ≈ 21% | 25% = 1.2×Kelly
+#   Crescimento geométrico esperado ≈ 5-6%/trade
+#   Exemplo com SL=40p: $20→0.01lot | $200→0.12lot | $1000→0.62lot
+#
+#   Histórico de testes:
+#   TESTE A-J: lote fixo 0.01 → PF=0.871~1.118
+#   TESTE K:   filtro corpo ativo → WR cai, PF piora
+#   TESTE L:   sr_lookback menor → piora
+#   GRID:      swing=150 → PF=1.800 (melhor), forca=2.5, sr=50
+#   TESTE M:   proporcional 25% (lote_base=0.10) → DD=96.5% blow-up 2026-06
+#   TESTE N:   Kelly % real 25% + all-hours + R:R=3.5 + max 3 perdas/dia ← ATUAL
+lote_proporcional: false       # Kelly % real (foi: true com blow-up em Jun/26)
+risco_por_trade: 0.25          # 25% risco por trade — Kelly agressivo para R:R=3.5
+lote_base: 0.10               # não usado com proporcional=false; mantido p/ referência
+capital_base: 200.0            # não usado com proporcional=false; mantido p/ referência
 lote_maximo: 100.0             # limite máximo por trade (XM permite até 100 lotes)
-lote_fixo: 0.01               # lote fixo 0.01 ($20, pip=$0,10) para medir PF puro
+lote_fixo: 0.00               # 0 = desativado (usa risco_por_trade acima)
 
 # --- Gestão de risco ---
 risco_maximo_diario: 9.0       # 900% — desativado no backtest; limite real em produção
 max_trades_simultaneos: 1      # 1 trade por vez (confirmado S/R antes de abrir outro)
-max_perdas_por_dia: 999        # desativado no backtest — mede desempenho puro da estratégia
-ratio_risco_retorno: 2.5       # R:R=2.5 — com WR=37.5% dá PF=1.800 (grid search #1)
+max_perdas_por_dia: 3          # 3 perdas/dia → para; previne meses catastróficos (era 999)
+ratio_risco_retorno: 3.5       # R:R=3.5 — WR=35% dá PF=1.88; Kelly_ótimo=21% (era 2.5)
 candle_corpo_minimo: 0.0       # 0.0 = desativado (corpo≥50% removeu ganhadores — TESTE K)
 
 # --- Spread e slippage ---
@@ -42,7 +48,7 @@ spread_pips: 0.8               # spread médio EURUSD# XM Ultra Low
 slippage_pips: 0.5             # slippage estimado em pontos
 
 # --- Indicador RAFI ---
-forca_limiar: 2.50             # RAFI > 2.50 para entrar (voltou ao padrão; M15 é o novo filtro)
+forca_limiar: 2.00             # RAFI > 2.00 — ligeiramente mais sinais que 2.50 (era 2.50)
 forca_exaustao: -1.0           # desativado: com RAFI absoluto (≥0) nunca dispara; saída só por SL/TP
 
 # --- Suporte e Resistência ---
@@ -70,14 +76,13 @@ timeframes:
   - "M5"                       # apenas M5 ativo
 
 # --- Sessões ativas (UTC/GMT) ---
-# TESTE L: 2 sessões (Tokyo-Londres + Londres/NY) — Tokyo-Londres confirmada melhor que esperado
+# TESTE N: todas as horas — maximiza número de trades para compor mais rápido
+# TESTE anterior (L/M): 2 sessões (07-09h + 12-16h) davam ~64 trades em 3.5 anos
+# All-hours esperado: ~200-256 trades em 3.5 anos (4× mais sinais)
 sessoes:
-  toquio_londres:
-    inicio: "07:00"
-    fim: "09:00"               # abertura Londres / Tokyo-Londres (alta volatilidade)
-  londres_ny:
-    inicio: "12:00"
-    fim: "16:00"               # sobreposição Londres/Nova York (maior liquidez EURUSD)
+  tudo:
+    inicio: "00:00"
+    fim: "23:59"               # 24h — sem filtro de sessão; busca máximo de trades
 
 # --- Backtest ---
 backtest:
