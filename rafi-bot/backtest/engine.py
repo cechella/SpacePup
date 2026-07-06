@@ -194,11 +194,47 @@ class Backtest:
             epm_sl_low  = self.df_m5['low'].rolling(epm_pb_lb).min().shift(1)
             epm_sl_high = self.df_m5['high'].rolling(epm_pb_lb).max().shift(1)
         else:
-            # Valores dummy para não quebrar referências abaixo no modo RAFI
+            # Valores dummy para não quebrar referências abaixo no modo RAFI/SCALP
             ema_fast = ema_slow = ema_slope = None
             pb_depth_buy = pb_depth_sell = epm_sl_low = epm_sl_high = None
             epm_threshold = epm_slope_min = epm_pb_min = epm_rec_buf = 0.0
             epm_pb_lb = 15
+
+        # ─── Pré-cálculo SCALP (alta frequência com TP/SL fixos) ──────────
+        # EMA9/21/50 para alinhamento + ATR(14) para filtro de tamanho + RSI(7)
+        if modo == 'scalp':
+            scalp_ema_c_p   = int(self.config.get('scalp_ema_curta',    9))
+            scalp_ema_m_p   = int(self.config.get('scalp_ema_media',   21))
+            scalp_ema_l_p   = int(self.config.get('scalp_ema_longa',   50))
+            scalp_rsi_p     = int(self.config.get('scalp_rsi_periodo',  7))
+            scalp_atr_p     = int(self.config.get('scalp_atr_periodo', 14))
+            scalp_tp_pips   = float(self.config.get('scalp_tp_pips',  10.0))
+            scalp_sl_pips   = float(self.config.get('scalp_sl_pips',  10.0))
+            scalp_atr_min   = float(self.config.get('scalp_atr_min',   0.3))
+            scalp_rsi_filtro = bool(self.config.get('scalp_rsi_filtro', True))
+
+            ema_c = self.df_m5['close'].ewm(span=scalp_ema_c_p, adjust=False).mean()
+            ema_m = self.df_m5['close'].ewm(span=scalp_ema_m_p, adjust=False).mean()
+            ema_l = self.df_m5['close'].ewm(span=scalp_ema_l_p, adjust=False).mean()
+
+            # True Range e ATR (suavização de Wilder)
+            tr = pd.concat([
+                self.df_m5['high'] - self.df_m5['low'],
+                (self.df_m5['high'] - self.df_m5['close'].shift(1)).abs(),
+                (self.df_m5['low']  - self.df_m5['close'].shift(1)).abs(),
+            ], axis=1).max(axis=1)
+            atr_serie = tr.ewm(span=scalp_atr_p, adjust=False).mean()
+
+            # RSI(7) via Wilder smoothing
+            delta      = self.df_m5['close'].diff()
+            gain       = delta.clip(lower=0).ewm(span=scalp_rsi_p, adjust=False).mean()
+            loss_sr    = (-delta.clip(upper=0)).ewm(span=scalp_rsi_p, adjust=False).mean()
+            rsi_serie  = (100 - 100 / (1 + gain / loss_sr.replace(0, np.nan))).fillna(50.0)
+        else:
+            ema_c = ema_m = ema_l = atr_serie = rsi_serie = None
+            scalp_tp_pips = scalp_sl_pips = scalp_atr_min = 0.0
+            scalp_rsi_filtro = False
+            scalp_ema_l_p = scalp_atr_p = 0
 
         # Parâmetros globais
         forca_limiar       = float(self.config.get('forca_limiar',         2.50))
@@ -218,7 +254,8 @@ class Backtest:
 
         # Garante que o loop começa após todos os indicadores estarem válidos
         # (rolling(N) precisa de N candles; shift(1) adiciona 1 extra)
-        min_candles = max(min_candles, ma_l, sr_lookback, swing_stop_lb) + 5
+        min_candles = max(min_candles, ma_l, sr_lookback, swing_stop_lb,
+                          scalp_ema_l_p, scalp_atr_p) + 5
 
         # Sessões ativas lidas do config (fallback: London/NY 12-16h)
         sessoes_config = self.config.get('sessoes', {})
@@ -411,6 +448,92 @@ class Backtest:
                 if nova_posicao is not None:
                     posicoes_abertas.append(nova_posicao)
 
+            elif modo == 'scalp':
+                # ── SCALP: alta frequência EMA9/21/50 + ATR + RSI ──
+                ema_c_val = float(ema_c.iloc[i])
+                ema_m_val = float(ema_m.iloc[i])
+                ema_l_val = float(ema_l.iloc[i])
+
+                # Filtro 1: Alinhamento EMA21 vs EMA50 define a macro-tendência
+                if ema_m_val > ema_l_val:
+                    direcao = 'compra'
+                elif ema_m_val < ema_l_val:
+                    direcao = 'venda'
+                else:
+                    continue
+                _d_trend += 1
+
+                # Filtro 2: Preço acima/abaixo da EMA9 (micro-tendência alinhada)
+                if direcao == 'compra' and close_atual <= ema_c_val:
+                    continue
+                if direcao == 'venda' and close_atual >= ema_c_val:
+                    continue
+                _d_rafi += 1
+
+                # Filtro 3: Cor do candle confirma a direção do trade
+                candle_verde = close_atual > open_atual
+                if direcao == 'compra' and not candle_verde:
+                    continue
+                if direcao == 'venda' and candle_verde:
+                    continue
+                _d_bb += 1
+
+                # Filtro 4: Corpo do candle >= scalp_atr_min × ATR (filtra micro-ruído)
+                atr_val    = float(atr_serie.iloc[i]) if not np.isnan(atr_serie.iloc[i]) else 0.0
+                corpo_size = abs(close_atual - open_atual)
+                if scalp_atr_min > 0 and atr_val > 0 and corpo_size < scalp_atr_min * atr_val:
+                    continue
+                _d_cor += 1
+
+                # Filtro 5: RSI(7) confirma momentum (opcional)
+                if scalp_rsi_filtro:
+                    rsi_val = float(rsi_serie.iloc[i]) if not np.isnan(rsi_serie.iloc[i]) else 50.0
+                    if direcao == 'compra' and rsi_val <= 50.0:
+                        continue
+                    if direcao == 'venda' and rsi_val >= 50.0:
+                        continue
+                _d_corpo += 1
+                _d_sr    += 1
+
+                # TP e SL fixos em pips — sem dependência de estrutura de mercado
+                pip = 0.0001
+                if direcao == 'compra':
+                    preco_entrada_s = close_atual + self.custo_total
+                    stop_loss_s     = preco_entrada_s - scalp_sl_pips * pip
+                    take_profit_s   = preco_entrada_s + scalp_tp_pips * pip
+                else:
+                    preco_entrada_s = close_atual - self.custo_total
+                    stop_loss_s     = preco_entrada_s + scalp_sl_pips * pip
+                    take_profit_s   = preco_entrada_s - scalp_tp_pips * pip
+
+                lote = self.gestor.calcular_lote(self.capital, scalp_sl_pips, incluir_spread=True)
+                if lote <= 0:
+                    continue
+                risco_usd = round(scalp_sl_pips * lote * 10.0, 2)
+                self.gestor.abrir_trade()
+
+                posicao = {
+                    'sinal'            : direcao,
+                    'preco_entrada'    : preco_entrada_s,
+                    'stop_loss'        : stop_loss_s,
+                    'take_profit'      : take_profit_s,
+                    'risco_pips'       : scalp_sl_pips,
+                    'lote'             : lote,
+                    'timestamp_entrada': ts_dt,
+                    'capital_entrada'  : self.capital,
+                    'forca_entrada'    : corpo_size / atr_val if atr_val > 0 else 0.0,
+                    'forca_anterior'   : 0.0,
+                    'indice_entrada'   : i,
+                }
+                posicoes_abertas.append(posicao)
+                logger.info(
+                    f"[{ts_dt.strftime('%Y-%m-%d %H:%M')}] SCALP {direcao.upper()} "
+                    f"| Lote: {lote} | Entrada: {preco_entrada_s:.5f} "
+                    f"| SL: {stop_loss_s:.5f} | TP: {take_profit_s:.5f} "
+                    f"| Risco: {scalp_sl_pips}p | Risco USD: ${risco_usd:.2f} "
+                    f"| Capital: ${self.capital:.2f}"
+                )
+
             else:
                 # ── RAFI Filtro 1: Tendência M5 (MA20 vs MA50) ────
                 t5 = int(trend_m5.iloc[i])
@@ -490,6 +613,14 @@ class Backtest:
                 f"→ trend EMA: {_d_trend} → slope ok: {_d_rafi} "
                 f"→ pullback: {_d_bb} → recuperação: {_d_cor} "
                 f"→ cruzamento: {_d_corpo} → cor ok: {_d_sr} → trades: {len(self.trades)}"
+            )
+        elif modo == 'scalp':
+            logger.info(
+                f"[DIAGNÓSTICO SCALP] Candles sem posição: {_d_total} "
+                f"→ sessão: {_d_sessao} → risco ok: {_d_risco} "
+                f"→ EMA21>50: {_d_trend} → close>EMA9: {_d_rafi} "
+                f"→ cor certa: {_d_bb} → ATR min: {_d_cor} "
+                f"→ RSI ok: {_d_corpo} → trades: {len(self.trades)}"
             )
         else:
             logger.info(

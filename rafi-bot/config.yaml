@@ -2,6 +2,9 @@
 # Configurações do Bot RAFI Forex
 # Par: EURUSD# | Corretora: XM Ultra Low Standard
 # ============================================================
+# TESTE AB: SCALP R:R=1:1 — EMA9/21/50 + ATR + RSI
+# Meta: 10-20 trades/dia, WR>58% (break-even com spread 1.3p = 10/(10+10) corrigido)
+# ============================================================
 
 # --- Par e corretora ---
 par: "EURUSD#"                 # XM usa EURUSD# com hashtag
@@ -37,7 +40,8 @@ tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
 #   TESTE Y:   EPM v1 — pullback_lookback=15 → WR=21.6%, PF=0.613 (dead-cat bounces)
 #   TESTE Z:   EPM v2 — pullback fresco i-1/i-2 + SL candle anterior → WR=29.9%, PF=0.484 (pior!)
 #              Diagnóstico EPM: cruzamento EMA21 em M5 é ruído — 22.714 candles → 77 trades, WR<30%
-#   TESTE AA:  RAFI de volta — swing_stop=150 (grid-best), 1 posição (sem correlação) ← ATUAL
+#   TESTE AA:  RAFI de volta — swing_stop=150 (grid-best), 1 posição (sem correlação)
+#   TESTE AB:  SCALP R:R=1:1 — EMA9/21/50 + ATR + RSI, TP=SL=10p, 3 posições ← ATUAL
 lote_proporcional: false       # Kelly % real
 risco_por_trade: 0.10          # 10% por trade — com $100 e SL ~50p → lote=0.02
 lote_base: 0.10               # não usado com proporcional=false; mantido p/ referência
@@ -47,9 +51,9 @@ lote_fixo: 0.00               # 0 = desativado (usa risco_por_trade acima)
 
 # --- Gestão de risco ---
 risco_maximo_diario: 9.0       # 900% — desativado no backtest; limite real em produção
-max_trades_simultaneos: 1      # 1 posição — elimina correlação EURUSD (3 posições = todas caem juntas)
+max_trades_simultaneos: 3      # 3 posições — necessário para atingir 10-20 trades/dia
 max_perdas_por_dia: 3          # 3 perdas/dia → para
-ratio_risco_retorno: 2.5       # R:R=2.5 — melhor equilíbrio com WR=37% do RAFI
+ratio_risco_retorno: 1.0       # R:R=1:1 — scalp simétrico (TP=SL=10 pips)
 
 # --- Controle de duração e tamanho do stop ---
 max_stop_pips: 0               # 0 = desativado — stop natural pelo pullback
@@ -70,9 +74,10 @@ spread_pips: 0.8               # spread médio EURUSD# XM Ultra Low
 slippage_pips: 0.5             # slippage estimado em pontos
 
 # --- Estratégia ativa ---
-# 'rafi' = rompimento de S/R com índice de força (padrão)
-# 'epm'  = EMA Pullback Momentum (nova estratégia exclusiva — TESTE Y)
-estrategia_modo: "rafi"
+# 'rafi'  = rompimento de S/R com índice de força (padrão)
+# 'epm'   = EMA Pullback Momentum (TESTE Y/Z — abandonado)
+# 'scalp' = alta frequência EMA9/21/50 + ATR + RSI, TP/SL fixos (TESTE AB)
+estrategia_modo: "scalp"
 
 # --- Parâmetros EPM (EMA Pullback Momentum) ---
 # Lógica: EMA21 acima de EMA55 (tendência de alta) → preço recua até tocar
@@ -86,6 +91,20 @@ epm_slope_minimo: 0.00005      # slope mínimo da EMA21 — 0.5 pip/5 candles; f
 pullback_lookback: 3           # lookback de SL legado (não usado no v2 — SL agora = low do candle anterior)
 pullback_minimo: 0.0002        # profundidade mínima do pullback: 2 pips abaixo/acima da EMA21
 recovery_buffer: 0.0001        # buffer de recuperação: 1 pip acima da EMA21 para confirmar retorno
+
+# --- Parâmetros SCALP (EMA9/21/50 + ATR + RSI — usado no modo 'scalp') ---
+# Lógica: EMA21 > EMA50 (macro-tendência) + close > EMA9 (micro-tendência)
+#         + candle na direção + corpo >= ATR×mínimo + RSI alinhado
+# TP e SL fixos em pips (R:R=1:1 → ratio_risco_retorno=1.0 acima)
+scalp_ema_curta: 9             # EMA rápida — micro-tendência (5×9=45min)
+scalp_ema_media: 21            # EMA média — tendência intraday
+scalp_ema_longa: 50            # EMA longa — macro-tendência swing
+scalp_rsi_periodo: 7           # RSI curto — momentum imediato
+scalp_atr_periodo: 14          # ATR para tamanho mínimo do candle
+scalp_tp_pips: 10.0            # take profit fixo em pips
+scalp_sl_pips: 10.0            # stop loss fixo em pips
+scalp_atr_min: 0.3             # corpo mínimo = 30% do ATR (filtra micro-ruído)
+scalp_rsi_filtro: true         # exige RSI>50 (buy) ou RSI<50 (sell)
 
 # --- Indicador RAFI (usado apenas no modo 'rafi') ---
 forca_limiar: 0.00             # 0 = desativado no modo epm; RAFI aprox. é INVERTIDO em limiar alto
