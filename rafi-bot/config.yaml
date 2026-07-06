@@ -34,9 +34,9 @@ tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
 #   TESTE V:   drawdown 40% + capital_min=$16 → só 4 trades (guard bloqueou tudo após 1ª perda)
 #   TESTE W:   capital=$100, drawdown 50%, capital_min=$20 → só 30 trades (proteção travou frequência!)
 #   TESTE X:   capital=$100 SEM proteção, risco=10% → Kelly funciona, frequência máxima
-#   TESTE Y:   EPM (EMA Pullback Momentum) — nova estratégia exclusiva ← ATUAL
-#              EMA21 > EMA55 + pullback real à EMA21 + recuperação com candle verde
-#              WR esperado: 50-55% (vs 33-37% RAFI), R:R=2.0, Kelly≈28%
+#   TESTE Y:   EPM v1 — pullback_lookback=15 (janela velha) → WR=21.6%, PF=0.613 (sinais velhos!)
+#   TESTE Z:   EPM v2 — pullback fresco (i-1 ou i-2), SL no candle anterior ← ATUAL
+#              Correção: cruzamento exige candle i-1 abaixo da EMA21 → sinal limpo
 lote_proporcional: false       # Kelly % real
 risco_por_trade: 0.10          # 10% por trade — com $100 e SL ~50p → lote=0.02
 lote_base: 0.10               # não usado com proporcional=false; mantido p/ referência
@@ -81,10 +81,10 @@ epm_ema_rapida: 21             # EMA rápida (tendência intraday — padrão un
 epm_ema_lenta: 55              # EMA lenta (tendência swing — Fibonacci)
 epm_slope_periodo: 5           # candles para calcular slope da EMA21 (5 × 5min = 25min)
 epm_threshold: 0.0005          # separação mínima EMA21-EMA55 (5 pips) para confirmar tendência
-epm_slope_minimo: 0.00002      # slope mínimo da EMA21 (tendência acelerando, não lateralizando)
-pullback_lookback: 15          # janela do pullback: 15 × 5min = 75 min
-pullback_minimo: 0.0003        # profundidade mínima do pullback (3 pips abaixo da EMA21)
-recovery_buffer: 0.0001        # buffer de recuperação (1 pip acima da EMA21 para confirmar retorno)
+epm_slope_minimo: 0.00005      # slope mínimo da EMA21 — 0.5 pip/5 candles; filtra lateralização
+pullback_lookback: 3           # lookback de SL legado (não usado no v2 — SL agora = low do candle anterior)
+pullback_minimo: 0.0002        # profundidade mínima do pullback: 2 pips abaixo/acima da EMA21
+recovery_buffer: 0.0001        # buffer de recuperação: 1 pip acima da EMA21 para confirmar retorno
 
 # --- Indicador RAFI (usado apenas no modo 'rafi') ---
 forca_limiar: 0.00             # 0 = desativado no modo epm; RAFI aprox. é INVERTIDO em limiar alto

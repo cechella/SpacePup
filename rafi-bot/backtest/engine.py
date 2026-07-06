@@ -350,14 +350,22 @@ class Backtest:
                     continue
                 _d_rafi += 1
 
-                # ── EPM Filtro 3: Pullback real à EMA21 na janela ─
+                # ── EPM Filtro 3: Pullback FRESCO — candle i-1 ou i-2 cruzou a EMA21 ─
+                # Evita "sinais velhos": o pullback deve ter acontecido nos últimos 2 candles (10 min),
+                # não em algum momento nos últimos 15 (75 min) — que gera dead-cat bounces.
+                prev1_c = float(self.df_m5['close'].values[i - 1])
+                prev1_e = float(ema_fast.values[i - 1])
+                prev2_c = float(self.df_m5['close'].values[i - 2])
+                prev2_e = float(ema_fast.values[i - 2])
                 if direcao == 'compra':
-                    pd_val = float(pb_depth_buy.iloc[i])
-                    if pd.isna(pd_val) or pd_val > -epm_pb_min:
+                    pb1 = (prev1_c - prev1_e) < -epm_pb_min
+                    pb2 = (prev2_c - prev2_e) < -epm_pb_min
+                    if not pb1 and not pb2:
                         continue
                 else:
-                    pd_val = float(pb_depth_sell.iloc[i])
-                    if pd.isna(pd_val) or pd_val < epm_pb_min:
+                    pb1 = (prev1_c - prev1_e) > epm_pb_min
+                    pb2 = (prev2_c - prev2_e) > epm_pb_min
+                    if not pb1 and not pb2:
                         continue
                 _d_bb += 1
 
@@ -368,16 +376,15 @@ class Backtest:
                     continue
                 _d_cor += 1
 
-                # ── EPM Filtro 5: Cruzamento confirmado nos últimos 5 candles ─
-                lookback_fresh = min(5, i)
-                closes_rec = self.df_m5['close'].values[i - lookback_fresh:i]
-                ema_rec    = ema_fast.values[i - lookback_fresh:i]
-                if direcao == 'compra':
-                    if not any(c < e for c, e in zip(closes_rec, ema_rec)):
-                        continue
-                else:
-                    if not any(c > e for c, e in zip(closes_rec, ema_rec)):
-                        continue
+                # ── EPM Filtro 5: Candle anterior confirma cruzamento limpo ──
+                # O candle imediatamente anterior (i-1) deve estar do lado oposto da EMA21:
+                # confirma que houve uma travessia real, não apenas oscilação em torno da EMA.
+                prev_c = float(self.df_m5['close'].values[i - 1])
+                prev_e = float(ema_fast.values[i - 1])
+                if direcao == 'compra' and prev_c >= prev_e:
+                    continue
+                if direcao == 'venda' and prev_c <= prev_e:
+                    continue
                 _d_corpo += 1
 
                 # ── EPM Filtro 6: Cor do candle confirma direção ──
@@ -388,13 +395,10 @@ class Backtest:
                     continue
                 _d_sr += 1
 
-                # SL no fundo/topo do pullback recente
-                sl_val_raw = (float(epm_sl_low.iloc[i])  if direcao == 'compra'
-                              else float(epm_sl_high.iloc[i]))
-                if pd.isna(sl_val_raw):
-                    continue
+                # SL no low/high do candle de pullback (candle anterior) — stop apertado e preciso
                 nivel_sr   = ema_f
-                nivel_stop = sl_val_raw
+                nivel_stop = (float(self.df_m5['low'].values[i - 1])  if direcao == 'compra'
+                              else float(self.df_m5['high'].values[i - 1]))
 
                 sinal_info = {
                     'sinal'         : direcao,
