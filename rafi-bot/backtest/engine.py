@@ -168,10 +168,12 @@ class Backtest:
         )
 
         # Parâmetros globais
-        forca_limiar   = float(self.config.get('forca_limiar',       2.50))
-        forca_exaust   = float(self.config.get('forca_exaustao',    -2.50))
-        ratio_rr       = float(self.config.get('ratio_risco_retorno', 1.5))
-        corpo_minimo   = float(self.config.get('candle_corpo_minimo', 0.0))
+        forca_limiar       = float(self.config.get('forca_limiar',         2.50))
+        forca_exaust       = float(self.config.get('forca_exaustao',      -2.50))
+        ratio_rr           = float(self.config.get('ratio_risco_retorno',   1.5))
+        corpo_minimo       = float(self.config.get('candle_corpo_minimo',   0.0))
+        max_stop_pips      = float(self.config.get('max_stop_pips',         0.0))
+        max_duracao_candles = int(self.config.get('max_duracao_candles',    0))
 
         # Garante que o loop começa após todos os indicadores estarem válidos
         # (rolling(N) precisa de N candles; shift(1) adiciona 1 extra)
@@ -211,6 +213,18 @@ class Backtest:
 
             # ── Verificar saída de posição aberta ─────────────
             if posicao_aberta is not None:
+                # Saída por duração máxima (evita trades multi-semanas com TP inalcançável)
+                if max_duracao_candles > 0:
+                    duracao = i - posicao_aberta.get('indice_entrada', i)
+                    if duracao >= max_duracao_candles:
+                        self._fechar_posicao(
+                            posicao_aberta, close_atual, ts_dt,
+                            f"Duração máxima ({max_duracao_candles}c/{max_duracao_candles*5//60}h) atingida"
+                        )
+                        posicao_aberta = None
+                        forca_anterior = forca_atual
+                        continue
+
                 posicao_aberta['forca_anterior'] = forca_anterior
                 saida = verificar_saida(close_atual, posicao_aberta, forca_atual, forca_exaust)
                 if saida['fechar']:
@@ -295,12 +309,13 @@ class Backtest:
                           else float(swing_stop_high.iloc[i]))
 
             sinal_info = {
-                'sinal'     : direcao,
-                'nivel_sr'  : nivel_sr,
-                'nivel_stop': nivel_stop,
-                'forca'     : forca_atual,
+                'sinal'        : direcao,
+                'nivel_sr'     : nivel_sr,
+                'nivel_stop'   : nivel_stop,
+                'forca'        : forca_atual,
+                'indice_entrada': i,
             }
-            posicao_aberta = self._abrir_posicao(sinal_info, close_atual, ts_dt, ratio_rr)
+            posicao_aberta = self._abrir_posicao(sinal_info, close_atual, ts_dt, ratio_rr, max_stop_pips)
 
             # Registrar equity curve diária
             if i % 288 == 0:
@@ -337,7 +352,8 @@ class Backtest:
                         sinal_info: dict,
                         close_atual: float,
                         timestamp: datetime,
-                        ratio_rr: float = 1.5) -> Optional[dict]:
+                        ratio_rr: float = 1.5,
+                        max_stop_pips: float = 0.0) -> Optional[dict]:
         """Simula a abertura de uma posição com custo de spread/slippage."""
         sinal = sinal_info['sinal']
 
@@ -357,7 +373,7 @@ class Backtest:
             logger.debug("nivel_stop NaN — trade ignorado (lookback insuficiente)")
             return None
 
-        stops = calcular_stops(sinal, preco_entrada, nivel_stop, ratio_rr, self.spread_pips)
+        stops = calcular_stops(sinal, preco_entrada, nivel_stop, ratio_rr, self.spread_pips, max_stop_pips)
 
         if stops['risco_pips'] <= 0 or np.isnan(stops['risco_pips']):
             logger.warning(f"Risco inválido ({stops['risco_pips']}p) — trade ignorado")
@@ -378,6 +394,7 @@ class Backtest:
             'capital_entrada'  : self.capital,
             'forca_entrada'    : sinal_info.get('forca'),
             'forca_anterior'   : 0.0,
+            'indice_entrada'   : sinal_info.get('indice_entrada', 0),
         }
 
         logger.info(

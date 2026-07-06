@@ -17,20 +17,20 @@ tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
 # Fórmula: lote = (capital × risco_por_trade) / (risco_pips × 10)
 # Vantagem: auto-corrige após perdas → previne blow-up; escala com capital
 #
-# TESTE N — Kelly agressivo 25% com R:R=3.5, all-hours, forca=2.0:
-#   WR esperado ≈35% | Kelly_ótimo ≈ 21% | 25% = 1.2×Kelly
-#   Crescimento geométrico esperado ≈ 5-6%/trade
-#   Exemplo com SL=40p: $20→0.01lot | $200→0.12lot | $1000→0.62lot
-#
 #   Histórico de testes:
 #   TESTE A-J: lote fixo 0.01 → PF=0.871~1.118
 #   TESTE K:   filtro corpo ativo → WR cai, PF piora
 #   TESTE L:   sr_lookback menor → piora
 #   GRID:      swing=150 → PF=1.800 (melhor), forca=2.5, sr=50
-#   TESTE M:   proporcional 25% (lote_base=0.10) → DD=96.5% blow-up 2026-06
-#   TESTE N:   Kelly % real 25% + all-hours + R:R=3.5 + max 3 perdas/dia ← ATUAL
-lote_proporcional: false       # Kelly % real (foi: true com blow-up em Jun/26)
-risco_por_trade: 0.25          # 25% risco por trade — Kelly agressivo para R:R=3.5
+#   TESTE M:   proporcional 25% → DD=96.5% blow-up 2026-06
+#   TESTE N:   Kelly % + R:R=3.5 + all-hours → 4 trades (TP de 975p nunca atingido!)
+#   TESTE O:   max_stop=50p + max_dur=500c + R:R=2.5 ← ATUAL
+#
+#   TESTE O: Kelly 25% + caps para alta frequência:
+#   max_stop_pips=50 → TP=125p (atingível em 1-5 dias) → 3-7 trades/semana
+#   max_duracao=500c → sai em 41h se SL/TP não atingidos → sem trades travados
+lote_proporcional: false       # Kelly % real
+risco_por_trade: 0.25          # 25% risco por trade — Kelly 2× para R:R=2.5
 lote_base: 0.10               # não usado com proporcional=false; mantido p/ referência
 capital_base: 200.0            # não usado com proporcional=false; mantido p/ referência
 lote_maximo: 100.0             # limite máximo por trade (XM permite até 100 lotes)
@@ -39,8 +39,12 @@ lote_fixo: 0.00               # 0 = desativado (usa risco_por_trade acima)
 # --- Gestão de risco ---
 risco_maximo_diario: 9.0       # 900% — desativado no backtest; limite real em produção
 max_trades_simultaneos: 1      # 1 trade por vez (confirmado S/R antes de abrir outro)
-max_perdas_por_dia: 3          # 3 perdas/dia → para; previne meses catastróficos (era 999)
-ratio_risco_retorno: 3.5       # R:R=3.5 — WR=35% dá PF=1.88; Kelly_ótimo=21% (era 2.5)
+max_perdas_por_dia: 3          # 3 perdas/dia → para; previne meses catastróficos
+ratio_risco_retorno: 2.5       # R:R=2.5 — WR=37.5% dá PF=1.800 (comprovado no grid)
+
+# --- Controle de duração e tamanho do stop ---
+max_stop_pips: 50              # SL máximo 50 pips — previne TPs inalcançáveis (teste N: SL=278p, TP=975p!)
+max_duracao_candles: 500       # fecha trade após 500 candles (~41h) se SL/TP não atingidos
 candle_corpo_minimo: 0.0       # 0.0 = desativado (corpo≥50% removeu ganhadores — TESTE K)
 
 # --- Spread e slippage ---

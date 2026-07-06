@@ -180,28 +180,35 @@ def calcular_stops(sinal: str,
                    preco_entrada: float,
                    nivel_stop: float,
                    ratio_rr: float = 1.5,
-                   spread_pips: float = 0.8) -> dict:
+                   spread_pips: float = 0.8,
+                   max_stop_pips: float = 0.0) -> dict:
     """
     Calcula stop-loss e take-profit baseados no swing low/high de mercado.
 
     COMPRA: stop abaixo do swing low recente (fundo dos últimos N candles M5)
     VENDA : stop acima do swing high recente (topo dos últimos N candles M5)
 
-    Esta abordagem coloca o stop na estrutura real do mercado — se o preço
-    volta abaixo do fundo mais recente, o movimento foi invalidado.
-    Risco em USD = risco_pips × lote × $10/pip (exibido no log de abertura).
+    max_stop_pips: se > 0, limita o SL a no máximo N pips da entrada.
+    Evita stops monstruosos (ex: 278p) que criam TPs inalcançáveis (ex: 975p).
 
     Retorna dict com: 'stop_loss', 'take_profit', 'risco_pips', 'tp_pips'
     """
     spread = spread_pips * 0.0001
 
     if sinal == 'compra':
-        stop_loss   = nivel_stop - spread   # just below swing low
-        risco       = preco_entrada - stop_loss
+        stop_loss = nivel_stop - spread   # just below swing low
+        risco     = preco_entrada - stop_loss
+        # Cap: se SL está mais longe que max_stop_pips, aproxima ele
+        if max_stop_pips > 0:
+            risco = min(risco, max_stop_pips * 0.0001)
+            stop_loss = preco_entrada - risco
         take_profit = preco_entrada + risco * ratio_rr
     else:
-        stop_loss   = nivel_stop + spread   # just above swing high
-        risco       = stop_loss - preco_entrada
+        stop_loss = nivel_stop + spread   # just above swing high
+        risco     = stop_loss - preco_entrada
+        if max_stop_pips > 0:
+            risco = min(risco, max_stop_pips * 0.0001)
+            stop_loss = preco_entrada + risco
         take_profit = preco_entrada - risco * ratio_rr
 
     return {
