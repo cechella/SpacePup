@@ -353,7 +353,8 @@ class Backtest:
                         close_atual: float,
                         timestamp: datetime,
                         ratio_rr: float = 1.5,
-                        max_stop_pips: float = 0.0) -> Optional[dict]:
+                        max_stop_pips: float = 0.0,
+                        ) -> Optional[dict]:
         """Simula a abertura de uma posição com custo de spread/slippage."""
         sinal = sinal_info['sinal']
 
@@ -367,16 +368,23 @@ class Backtest:
         else:
             preco_entrada = close_atual - self.custo_total
 
-        # Rejeita se nivel_stop for NaN (rolling ainda não aqueceu — nunca deveria
-        # chegar aqui após a correção do min_candles, mas mantemos como guarda extra)
+        # Rejeita se nivel_stop for NaN (rolling ainda não aqueceu)
         if nivel_stop is None or np.isnan(nivel_stop):
             logger.debug("nivel_stop NaN — trade ignorado (lookback insuficiente)")
             return None
 
-        stops = calcular_stops(sinal, preco_entrada, nivel_stop, ratio_rr, self.spread_pips, max_stop_pips)
+        stops = calcular_stops(sinal, preco_entrada, nivel_stop, ratio_rr, self.spread_pips)
 
         if stops['risco_pips'] <= 0 or np.isnan(stops['risco_pips']):
             logger.warning(f"Risco inválido ({stops['risco_pips']}p) — trade ignorado")
+            return None
+
+        # Filtro de compressão: skip se SL > max_stop_pips (não clampar — respeitar estrutura)
+        # Só entra quando mercado está comprimido → breakouts de compressão têm WR melhor
+        if max_stop_pips > 0 and stops['risco_pips'] > max_stop_pips:
+            logger.debug(
+                f"SL muito largo ({stops['risco_pips']:.0f}p > {max_stop_pips:.0f}p) — skip"
+            )
             return None
 
         lote = self.gestor.calcular_lote(self.capital, stops['risco_pips'], incluir_spread=True)

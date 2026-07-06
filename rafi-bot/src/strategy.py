@@ -196,19 +196,12 @@ def calcular_stops(sinal: str,
     spread = spread_pips * 0.0001
 
     if sinal == 'compra':
-        stop_loss = nivel_stop - spread   # just below swing low
-        risco     = preco_entrada - stop_loss
-        # Cap: se SL está mais longe que max_stop_pips, aproxima ele
-        if max_stop_pips > 0:
-            risco = min(risco, max_stop_pips * 0.0001)
-            stop_loss = preco_entrada - risco
+        stop_loss   = nivel_stop - spread   # just below swing low
+        risco       = preco_entrada - stop_loss
         take_profit = preco_entrada + risco * ratio_rr
     else:
-        stop_loss = nivel_stop + spread   # just above swing high
-        risco     = stop_loss - preco_entrada
-        if max_stop_pips > 0:
-            risco = min(risco, max_stop_pips * 0.0001)
-            stop_loss = preco_entrada + risco
+        stop_loss   = nivel_stop + spread   # just above swing high
+        risco       = stop_loss - preco_entrada
         take_profit = preco_entrada - risco * ratio_rr
 
     return {

@@ -69,6 +69,12 @@ class GestorRisco:
         Retorna (True, '') ou (False, motivo_do_bloqueio).
         Em modo live, chamar avancar_data(date.today()) antes de pode_operar.
         """
+        # Verificação 0: capital insuficiente para o lote mínimo
+        # Previne trades com capital negativo (que geram warnings de lote inválido)
+        custo_min = self.lote_minimo * 10.0  # margem mínima estimada para 1 pip de movimento
+        if capital_atual <= custo_min:
+            return False, f"Capital insuficiente (${capital_atual:.2f}) — mínimo ${custo_min:.2f}"
+
         # Verificação 1: bot parado por perda
         if self._parado_hoje:
             return False, f"Bot parado: {self._perdas_dia} perda(s) hoje (limite: {self.max_perdas_dia})"
