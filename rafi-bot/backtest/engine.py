@@ -167,6 +167,39 @@ class Backtest:
             lookback=int(self.config.get('bb_lookback', 3)),
         )
 
+        # ─── Pré-cálculo EPM (EMA Pullback Momentum) ──────────
+        # Estratégia alternativa: entra na recuperação após pullback à EMA21
+        # WR esperado: 50-55% (vs 33-37% do RAFI S/R breakout)
+        modo = self.config.get('estrategia_modo', 'rafi')
+        if modo == 'epm':
+            epm_ema_r   = int(self.config.get('epm_ema_rapida',    21))
+            epm_ema_l   = int(self.config.get('epm_ema_lenta',     55))
+            epm_slope_p = int(self.config.get('epm_slope_periodo',  5))
+            epm_pb_lb   = int(self.config.get('pullback_lookback',  15))
+            epm_threshold = float(self.config.get('epm_threshold',    0.0005))
+            epm_slope_min = float(self.config.get('epm_slope_minimo', 0.00002))
+            epm_pb_min    = float(self.config.get('pullback_minimo',  0.0003))
+            epm_rec_buf   = float(self.config.get('recovery_buffer',  0.0001))
+
+            ema_fast  = self.df_m5['close'].ewm(span=epm_ema_r, adjust=False).mean()
+            ema_slow  = self.df_m5['close'].ewm(span=epm_ema_l, adjust=False).mean()
+            ema_slope = ema_fast.diff(epm_slope_p)
+
+            # Quanto o close ficou abaixo (buy) ou acima (sell) da EMA21 na janela
+            close_vs_ema  = self.df_m5['close'] - ema_fast
+            pb_depth_buy  = close_vs_ema.rolling(epm_pb_lb).min().shift(1)   # negativo = abaixo da EMA
+            pb_depth_sell = close_vs_ema.rolling(epm_pb_lb).max().shift(1)   # positivo = acima da EMA
+
+            # SL no fundo/topo do pullback (mais apertado que swing_stop=150)
+            epm_sl_low  = self.df_m5['low'].rolling(epm_pb_lb).min().shift(1)
+            epm_sl_high = self.df_m5['high'].rolling(epm_pb_lb).max().shift(1)
+        else:
+            # Valores dummy para não quebrar referências abaixo no modo RAFI
+            ema_fast = ema_slow = ema_slope = None
+            pb_depth_buy = pb_depth_sell = epm_sl_low = epm_sl_high = None
+            epm_threshold = epm_slope_min = epm_pb_min = epm_rec_buf = 0.0
+            epm_pb_lb = 15
+
         # Parâmetros globais
         forca_limiar       = float(self.config.get('forca_limiar',         2.50))
         forca_exaust       = float(self.config.get('forca_exaustao',      -2.50))
@@ -298,70 +331,141 @@ class Backtest:
             if capital_minimo_op > 0 and self.capital < capital_minimo_op:
                 continue
 
-            # ── Filtro 1: Tendência M5 (MA20 vs MA50) ──────────
-            t5 = int(trend_m5.iloc[i])
-            if t5 == 0:
-                continue
-            _d_trend += 1
-
-            direcao = 'compra' if t5 == 1 else 'venda'
-
-            # ── Filtro 2: RAFI > +2.50 confirma força ──────────
-            if forca_atual < forca_limiar:
-                continue
-            _d_rafi += 1
-
-            # ── Filtro 2b: Bollinger Bands abrindo após squeeze (opcional) ─
-            if self.config.get('bb_filtro_ativo', False):
-                if not bool(bb_abrindo.iloc[i]):
+            # ── Geração de sinal: EPM ou RAFI ─────────────────
+            if modo == 'epm':
+                # ── EPM Filtro 1: Tendência EMA21 > EMA55 ─────────
+                ema_f = float(ema_fast.iloc[i])
+                ema_s = float(ema_slow.iloc[i])
+                ema_gap_val = ema_f - ema_s
+                if abs(ema_gap_val) < epm_threshold:
                     continue
+                direcao = 'compra' if ema_gap_val > 0 else 'venda'
+                _d_trend += 1
+
+                # ── EPM Filtro 2: Slope da EMA21 positivo/negativo ─
+                slope_val = float(ema_slope.iloc[i]) if not np.isnan(ema_slope.iloc[i]) else 0.0
+                if direcao == 'compra' and slope_val <= epm_slope_min:
+                    continue
+                if direcao == 'venda' and slope_val >= -epm_slope_min:
+                    continue
+                _d_rafi += 1
+
+                # ── EPM Filtro 3: Pullback real à EMA21 na janela ─
+                if direcao == 'compra':
+                    pd_val = float(pb_depth_buy.iloc[i])
+                    if pd.isna(pd_val) or pd_val > -epm_pb_min:
+                        continue
+                else:
+                    pd_val = float(pb_depth_sell.iloc[i])
+                    if pd.isna(pd_val) or pd_val < epm_pb_min:
+                        continue
                 _d_bb += 1
 
-            # ── Filtro 2c: Cor do candle confirma direção ──────
-            candle_verde = close_atual > open_atual
-            if direcao == 'compra' and not candle_verde:
-                continue
-            if direcao == 'venda' and candle_verde:
-                continue
-            _d_cor += 1
-
-            # ── Filtro 2d: Corpo do candle ≥ mínimo (sem dojis/pinos) ─
-            # Breakout genuíno tem corpo dominante — candle de indecisão indica reversão provável
-            if corpo_minimo > 0:
-                if float(corpo_ratio.iloc[i]) < corpo_minimo:
-                    _d_corpo += 1
+                # ── EPM Filtro 4: Recuperação acima da EMA21 ──────
+                if direcao == 'compra' and close_atual < ema_f + epm_rec_buf:
                     continue
+                if direcao == 'venda' and close_atual > ema_f - epm_rec_buf:
+                    continue
+                _d_cor += 1
 
-            # ── Filtro 3: Rompimento de S/R dinâmico ──────────
-            rh = rolling_high.iloc[i]
-            rl = rolling_low.iloc[i]
-            if pd.isna(rh) or pd.isna(rl):
-                continue
-            if direcao == 'compra' and close_atual <= rh:
-                continue
-            if direcao == 'venda' and close_atual >= rl:
-                continue
-            _d_sr += 1
+                # ── EPM Filtro 5: Cruzamento confirmado nos últimos 5 candles ─
+                lookback_fresh = min(5, i)
+                closes_rec = self.df_m5['close'].values[i - lookback_fresh:i]
+                ema_rec    = ema_fast.values[i - lookback_fresh:i]
+                if direcao == 'compra':
+                    if not any(c < e for c, e in zip(closes_rec, ema_rec)):
+                        continue
+                else:
+                    if not any(c > e for c, e in zip(closes_rec, ema_rec)):
+                        continue
+                _d_corpo += 1
 
-            # ── Sinal válido — stop no swing low/high de mercado ───
-            # nivel_sr: nível de S/R rompido (referência para logging)
-            # nivel_stop: fundo/topo dos últimos swing_stop_lookback candles M5
-            # Testado: stop no S/R rompido aumenta falsos stopouts (preço retesta
-            # naturalmente o nível rompido); swing stop de 75 candles dá mais espaço.
-            nivel_sr = rh if direcao == 'compra' else rl
-            nivel_stop = (float(swing_stop_low.iloc[i])  if direcao == 'compra'
-                          else float(swing_stop_high.iloc[i]))
+                # ── EPM Filtro 6: Cor do candle confirma direção ──
+                candle_verde = close_atual > open_atual
+                if direcao == 'compra' and not candle_verde:
+                    continue
+                if direcao == 'venda' and candle_verde:
+                    continue
+                _d_sr += 1
 
-            sinal_info = {
-                'sinal'        : direcao,
-                'nivel_sr'     : nivel_sr,
-                'nivel_stop'   : nivel_stop,
-                'forca'        : forca_atual,
-                'indice_entrada': i,
-            }
-            nova_posicao = self._abrir_posicao(sinal_info, close_atual, ts_dt, ratio_rr, max_stop_pips)
-            if nova_posicao is not None:
-                posicoes_abertas.append(nova_posicao)
+                # SL no fundo/topo do pullback recente
+                sl_val_raw = (float(epm_sl_low.iloc[i])  if direcao == 'compra'
+                              else float(epm_sl_high.iloc[i]))
+                if pd.isna(sl_val_raw):
+                    continue
+                nivel_sr   = ema_f
+                nivel_stop = sl_val_raw
+
+                sinal_info = {
+                    'sinal'         : direcao,
+                    'nivel_sr'      : nivel_sr,
+                    'nivel_stop'    : nivel_stop,
+                    'forca'         : slope_val,
+                    'indice_entrada': i,
+                }
+                nova_posicao = self._abrir_posicao(sinal_info, close_atual, ts_dt, ratio_rr, max_stop_pips)
+                if nova_posicao is not None:
+                    posicoes_abertas.append(nova_posicao)
+
+            else:
+                # ── RAFI Filtro 1: Tendência M5 (MA20 vs MA50) ────
+                t5 = int(trend_m5.iloc[i])
+                if t5 == 0:
+                    continue
+                _d_trend += 1
+
+                direcao = 'compra' if t5 == 1 else 'venda'
+
+                # ── RAFI Filtro 2: RAFI > limiar confirma força ───
+                if forca_atual < forca_limiar:
+                    continue
+                _d_rafi += 1
+
+                # ── RAFI Filtro 2b: Bollinger abrindo (opcional) ──
+                if self.config.get('bb_filtro_ativo', False):
+                    if not bool(bb_abrindo.iloc[i]):
+                        continue
+                    _d_bb += 1
+
+                # ── RAFI Filtro 2c: Cor do candle confirma direção ─
+                candle_verde = close_atual > open_atual
+                if direcao == 'compra' and not candle_verde:
+                    continue
+                if direcao == 'venda' and candle_verde:
+                    continue
+                _d_cor += 1
+
+                # ── RAFI Filtro 2d: Corpo ≥ mínimo (sem dojis/pinos) ─
+                if corpo_minimo > 0:
+                    if float(corpo_ratio.iloc[i]) < corpo_minimo:
+                        _d_corpo += 1
+                        continue
+
+                # ── RAFI Filtro 3: Rompimento de S/R dinâmico ─────
+                rh = rolling_high.iloc[i]
+                rl = rolling_low.iloc[i]
+                if pd.isna(rh) or pd.isna(rl):
+                    continue
+                if direcao == 'compra' and close_atual <= rh:
+                    continue
+                if direcao == 'venda' and close_atual >= rl:
+                    continue
+                _d_sr += 1
+
+                nivel_sr = rh if direcao == 'compra' else rl
+                nivel_stop = (float(swing_stop_low.iloc[i])  if direcao == 'compra'
+                              else float(swing_stop_high.iloc[i]))
+
+                sinal_info = {
+                    'sinal'         : direcao,
+                    'nivel_sr'      : nivel_sr,
+                    'nivel_stop'    : nivel_stop,
+                    'forca'         : forca_atual,
+                    'indice_entrada': i,
+                }
+                nova_posicao = self._abrir_posicao(sinal_info, close_atual, ts_dt, ratio_rr, max_stop_pips)
+                if nova_posicao is not None:
+                    posicoes_abertas.append(nova_posicao)
 
             # Registrar equity curve diária
             if i % 288 == 0:
@@ -375,13 +479,22 @@ class Backtest:
 
         self.equity_curve.append((self.df_m5.index[-1], round(self.capital, 2)))
 
-        logger.info(
-            f"[DIAGNÓSTICO] Candles sem posição: {_d_total} "
-            f"→ sessão: {_d_sessao} → risco ok: {_d_risco} "
-            f"→ trend M5: {_d_trend} → RAFI>{forca_limiar}: {_d_rafi} "
-            f"→ BB abrindo: {_d_bb} → cor ok: {_d_cor} "
-            f"→ corpo≥{corpo_minimo:.0%}: {_d_cor - _d_corpo} → S/R rompido: {_d_sr} → trades: {len(self.trades)}"
-        )
+        if modo == 'epm':
+            logger.info(
+                f"[DIAGNÓSTICO EPM] Candles sem posição: {_d_total} "
+                f"→ sessão: {_d_sessao} → risco ok: {_d_risco} "
+                f"→ trend EMA: {_d_trend} → slope ok: {_d_rafi} "
+                f"→ pullback: {_d_bb} → recuperação: {_d_cor} "
+                f"→ cruzamento: {_d_corpo} → cor ok: {_d_sr} → trades: {len(self.trades)}"
+            )
+        else:
+            logger.info(
+                f"[DIAGNÓSTICO RAFI] Candles sem posição: {_d_total} "
+                f"→ sessão: {_d_sessao} → risco ok: {_d_risco} "
+                f"→ trend M5: {_d_trend} → RAFI>{forca_limiar}: {_d_rafi} "
+                f"→ BB abrindo: {_d_bb} → cor ok: {_d_cor} "
+                f"→ corpo≥{corpo_minimo:.0%}: {_d_cor - _d_corpo} → S/R rompido: {_d_sr} → trades: {len(self.trades)}"
+            )
         logger.info(
             f"Backtest concluído | Trades: {len(self.trades)} | "
             f"Capital final: ${self.capital:.2f}"

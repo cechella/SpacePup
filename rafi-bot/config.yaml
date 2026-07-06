@@ -9,7 +9,7 @@ corretora: "XM"
 tipo_conta: "Ultra Low Standard"
 
 # --- Capital e alavancagem ---
-capital_inicial: 100.0         # USD — TESTE W: $100 para operar no Kelly correto
+capital_inicial: 100.0         # USD — capital mínimo viável com Kelly
 alavancagem: 1000              # 1:1000 (XM Ultra Low)
 tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
 
@@ -17,7 +17,7 @@ tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
 # Fórmula: lote = (capital × risco_por_trade) / (risco_pips × 10)
 # Vantagem: auto-corrige após perdas → previne blow-up; escala com capital
 #
-#   Histórico de testes:
+#   Histórico de testes (estratégia RAFI):
 #   TESTE A-J: lote fixo 0.01 → PF=0.871~1.118
 #   TESTE K:   filtro corpo ativo → WR cai, PF piora
 #   TESTE L:   sr_lookback menor → piora
@@ -33,15 +33,12 @@ tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
 #   TESTE U:   breakeven stop → 126 trades, WR=30.9%, PF=0.955, $20→-$11 (pior! converteu vitórias em empates)
 #   TESTE V:   drawdown 40% + capital_min=$16 → só 4 trades (guard bloqueou tudo após 1ª perda)
 #   TESTE W:   capital=$100, drawdown 50%, capital_min=$20 → só 30 trades (proteção travou frequência!)
-#   TESTE X:   capital=$100 SEM proteção, risco=10% → Kelly funciona, frequência máxima ← ATUAL
-#
-#   TESTE X: capital $100 sem mecanismos restritivos
-#   TESTE W revelou: drawdown_protecao + capital_min juntos reduziram 75→30 trades (frequência caiu 60%)
-#   Com $100 o Kelly já funciona: lote=0.02, risco=13% ≈ próximo do Kelly ótimo (6.7%)
-#   Sem proteção extra para não travar o bot; risco reduzido 15%→10% para ser mais conservador
-#   Projeção realista com PF≈1.12: $100→$400-500 em 3.5 anos (sem blow-up provável)
+#   TESTE X:   capital=$100 SEM proteção, risco=10% → Kelly funciona, frequência máxima
+#   TESTE Y:   EPM (EMA Pullback Momentum) — nova estratégia exclusiva ← ATUAL
+#              EMA21 > EMA55 + pullback real à EMA21 + recuperação com candle verde
+#              WR esperado: 50-55% (vs 33-37% RAFI), R:R=2.0, Kelly≈28%
 lote_proporcional: false       # Kelly % real
-risco_por_trade: 0.10          # 10% por trade — mais conservador; com $100, lote=0.02, risco efetivo ~13%
+risco_por_trade: 0.10          # 10% por trade — com $100 e SL ~50p → lote=0.02
 lote_base: 0.10               # não usado com proporcional=false; mantido p/ referência
 capital_base: 200.0            # não usado com proporcional=false; mantido p/ referência
 lote_maximo: 100.0             # limite máximo por trade (XM permite até 100 lotes)
@@ -49,64 +46,77 @@ lote_fixo: 0.00               # 0 = desativado (usa risco_por_trade acima)
 
 # --- Gestão de risco ---
 risco_maximo_diario: 9.0       # 900% — desativado no backtest; limite real em produção
-max_trades_simultaneos: 3      # 3 trades simultâneos — multiplica frequência sem mudar WR/PF
-max_perdas_por_dia: 3          # 3 perdas/dia → para; previne meses catastróficos
-ratio_risco_retorno: 2.5       # R:R=2.5 — WR=45% + R:R=2.5 → PF=2.05 esperado (TESTE T)
+max_trades_simultaneos: 3      # 3 trades simultâneos
+max_perdas_por_dia: 3          # 3 perdas/dia → para
+ratio_risco_retorno: 2.0       # R:R=2.0 — mais realista com WR esperado de 50%; PF=2.0 teórico
 
 # --- Controle de duração e tamanho do stop ---
-max_stop_pips: 0               # 0 = desativado — stop natural pelo swing_stop_lookback
-max_duracao_candles: 0         # 0 = sem limite — deixa SL/TP natural para preservar R:R=2.5
-candle_corpo_minimo: 0.0       # 0.0 = desativado (corpo≥50% removeu ganhadores — TESTE K)
+max_stop_pips: 0               # 0 = desativado — stop natural pelo pullback
+max_duracao_candles: 0         # 0 = sem limite
+candle_corpo_minimo: 0.0       # 0.0 = desativado
 
 # --- Breakeven stop (desativado — TESTE U: piora WR ao converter vitórias em empates) ---
-breakeven_stop_ativo: false    # false = desativado (TESTE U provou que piora: WR 33%→30.9%)
-breakeven_gatilho_r: 1.0       # gatilho mantido p/ referência; inativo com ativo=false
+breakeven_stop_ativo: false
+breakeven_gatilho_r: 1.0
 
-# --- Proteção de drawdown (TESTE V) ---
-drawdown_protecao: false       # DESATIVADO — TESTE W: proteção cortou 75→30 trades (frequência caiu 60%)
-drawdown_reducao_pct: 0.50     # inativo com drawdown_protecao=false; mantido p/ referência
-capital_minimo_operacional: 0.0   # 0 = desativado — sem freio artificial; $100 já é capital suficiente
+# --- Proteção de drawdown (DESATIVADO — TESTE W: cortou 75→30 trades) ---
+drawdown_protecao: false
+drawdown_reducao_pct: 0.50
+capital_minimo_operacional: 0.0
 
 # --- Spread e slippage ---
 spread_pips: 0.8               # spread médio EURUSD# XM Ultra Low
 slippage_pips: 0.5             # slippage estimado em pontos
 
-# --- Indicador RAFI ---
-forca_limiar: 0.00             # 0 = desativado — RAFI aprox. é INVERTIDO em threshold alto (TESTE T: WR=0%)
-forca_exaustao: -1.0           # desativado: com RAFI absoluto (≥0) nunca dispara; saída só por SL/TP
+# --- Estratégia ativa ---
+# 'rafi' = rompimento de S/R com índice de força (padrão)
+# 'epm'  = EMA Pullback Momentum (nova estratégia exclusiva — TESTE Y)
+estrategia_modo: "epm"
 
-# --- Suporte e Resistência ---
-sr_lookback: 50                # candles para trás para S/R (50 × 5min ≈ 4h)
-sr_tolerancia: 0.0005          # tolerância de 5 pips para confirmar rompimento
-swing_stop_lookback: 150       # OTIMIZADO via grid search: 150c=12.5h → WR=37.5%, PF=1.800 ← MELHOR
-                               # Grid search confirmou: quanto maior o swing stop, mais espaço para o trade → WR sobe
-                               # 50c→PF≈0.87 | 75c→PF≈1.12 | 100c→PF≈1.36 | 150c→PF=1.80 | 200c→trades insuficientes
+# --- Parâmetros EPM (EMA Pullback Momentum) ---
+# Lógica: EMA21 acima de EMA55 (tendência de alta) → preço recua até tocar
+# a EMA21 → price action volta a fechar acima da EMA21 → ENTRADA COMPRA
+# Espelho para venda. SL no fundo/topo do pullback recente (15 candles M5 = 75 min)
+epm_ema_rapida: 21             # EMA rápida (tendência intraday — padrão universal)
+epm_ema_lenta: 55              # EMA lenta (tendência swing — Fibonacci)
+epm_slope_periodo: 5           # candles para calcular slope da EMA21 (5 × 5min = 25min)
+epm_threshold: 0.0005          # separação mínima EMA21-EMA55 (5 pips) para confirmar tendência
+epm_slope_minimo: 0.00002      # slope mínimo da EMA21 (tendência acelerando, não lateralizando)
+pullback_lookback: 15          # janela do pullback: 15 × 5min = 75 min
+pullback_minimo: 0.0003        # profundidade mínima do pullback (3 pips abaixo da EMA21)
+recovery_buffer: 0.0001        # buffer de recuperação (1 pip acima da EMA21 para confirmar retorno)
 
-# --- Médias Móveis (tendência M5) ---
+# --- Indicador RAFI (usado apenas no modo 'rafi') ---
+forca_limiar: 0.00             # 0 = desativado no modo epm; RAFI aprox. é INVERTIDO em limiar alto
+forca_exaustao: -1.0           # saída por exaustão (inativo no modo epm)
+
+# --- Suporte e Resistência (usado no modo 'rafi') ---
+sr_lookback: 50                # candles para trás para S/R
+sr_tolerancia: 0.0005          # tolerância de 5 pips
+swing_stop_lookback: 150       # OTIMIZADO: 150c=12.5h → WR=37.5%, PF=1.800 (modo rafi)
+
+# --- Médias Móveis (tendência M5 — usado no modo 'rafi') ---
 ma_rapida: 20                  # MA20
 ma_lenta: 50                   # MA50
-ma_threshold: 0.0003           # 3 pips de diferença MA20-MA50 para confirmar tendência
+ma_threshold: 0.0003           # 3 pips de diferença MA20-MA50
 
-# --- Bandas de Bollinger (timing de entrada) ---
-bb_filtro_ativo: false         # false = desativado (testado: piora PF 1.118→0.963)
-bb_periodo: 8                  # período do BB (estratégia RAFI usa 8)
-bb_desvios: 2.0                # desvios padrão
-bb_limiar_estreita: 0.0020     # BB estreita se largura < 20 pips (squeeze)
-bb_abertura_minima: 0.0003     # BB deve abrir ≥ 3 pips acima do mínimo recente
-bb_lookback: 3                 # candles de lookback para detectar squeeze
+# --- Bandas de Bollinger (timing — usado no modo 'rafi') ---
+bb_filtro_ativo: false
+bb_periodo: 8
+bb_desvios: 2.0
+bb_limiar_estreita: 0.0020
+bb_abertura_minima: 0.0003
+bb_lookback: 3
 
 # --- Timeframes ---
 timeframes:
-  - "M5"                       # apenas M5 ativo
+  - "M5"                       # apenas M5
 
 # --- Sessões ativas (UTC/GMT) ---
-# TESTE N: todas as horas — maximiza número de trades para compor mais rápido
-# TESTE anterior (L/M): 2 sessões (07-09h + 12-16h) davam ~64 trades em 3.5 anos
-# All-hours esperado: ~200-256 trades em 3.5 anos (4× mais sinais)
 sessoes:
   tudo:
     inicio: "00:00"
-    fim: "23:59"               # 24h — sem filtro de sessão; busca máximo de trades
+    fim: "23:59"               # 24h — sem filtro de sessão
 
 # --- Backtest ---
 backtest:
@@ -120,6 +130,6 @@ backtest:
 log_nivel: "INFO"
 log_arquivo: "logs/rafi_bot.log"
 
-# --- Meta de capital ($20 → $300.000 em 6 meses) ---
+# --- Meta de capital ---
 meta_ajuste_capital: 1000.0    # a partir de $1000 recalibrar lote
 meta_final: 300000.0
