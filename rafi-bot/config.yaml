@@ -9,7 +9,7 @@ corretora: "XM"
 tipo_conta: "Ultra Low Standard"
 
 # --- Capital e alavancagem ---
-capital_inicial: 20.0          # USD — capital de partida
+capital_inicial: 100.0         # USD — TESTE W: $100 para operar no Kelly correto
 alavancagem: 1000              # 1:1000 (XM Ultra Low)
 tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
 
@@ -31,18 +31,17 @@ tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
 #   TESTE S:   R:R=1.5 + dur=500c → 189 trades, WR=46.6%, PF=0.963 (dur mata R:R)
 #   TESTE T:   forca=2.5 + 3 posições + R:R=2.5 sem dur — WR=0%, PF=0.000 (RAFI invertido!)
 #   TESTE U:   breakeven stop → 126 trades, WR=30.9%, PF=0.955, $20→-$11 (pior! converteu vitórias em empates)
-#   TESTE V:   proteção drawdown 40% + capital_min=$16 → preserva pico $246, evita blow-up ← ATUAL
+#   TESTE V:   drawdown 40% + capital_min=$16 → só 4 trades (guard+drawdown juntos bloquearam tudo)
+#   TESTE W:   capital=$100 → Kelly funciona, drawdown 50%, capital_min=$20 ← ATUAL
 #
-#   TESTE V: proteção de drawdown + capital mínimo operacional
-#   TESTE U revelou: capital atingiu pico ~$246 (12×) em 2025-04, depois crashou para -$11
-#   Causa: 3 posições correlacionadas EURUSD → quando mercado vira, todas perdem juntas
-#   Fix 1: quando drawdown≥40% do pico → reduz para 1 posição (protege acumulado)
-#   Fix 2: capital_minimo_operacional=$16 → lote mínimo (0.01) = $15 risco → não opera abaixo
-#   Math: com WR=33%, risco forçado=30%, retorno esperado=-5.6%/trade → precisa WR≥39%
-#   Sem mudar WR, a proteção de drawdown é a única forma de preservar os ganhos do pico
-#   Kelly: sem mudança (ainda sub-Kelly, irrelevante abaixo de $133 pois min_lote domina)
+#   TESTE W: capital inicial $100 para operar dentro do Kelly correto
+#   Com $20: lote_min (0.01) força risco de 30-75% → Kelly diz -5.6%/trade (matematicamente negativo)
+#   Com $100: lote_min (0.01) força risco de ~10% → próximo do Kelly ótimo (6.7% para WR=33%)
+#   Fix: capital_minimo=$20 (não trava imediatamente) + drawdown 50% (dá mais room)
+#   AVISO: $100→$300K em 6 meses é matematicamente impossível; objetivo real: crescimento sustentável
+#   Projeção honesta: $100→$300-600 em 3.5 anos baseado no PF=1.122 do TESTE R
 lote_proporcional: false       # Kelly % real
-risco_por_trade: 0.15          # 15% por trade (irrelevante abaixo de $133 — min_lote domina)
+risco_por_trade: 0.15          # 15% — sub-Kelly para WR=33%, R:R=2.5 (Kelly ótimo=6.7%)
 lote_base: 0.10               # não usado com proporcional=false; mantido p/ referência
 capital_base: 200.0            # não usado com proporcional=false; mantido p/ referência
 lote_maximo: 100.0             # limite máximo por trade (XM permite até 100 lotes)
@@ -64,9 +63,9 @@ breakeven_stop_ativo: false    # false = desativado (TESTE U provou que piora: W
 breakeven_gatilho_r: 1.0       # gatilho mantido p/ referência; inativo com ativo=false
 
 # --- Proteção de drawdown (TESTE V) ---
-drawdown_protecao: true        # quando capital cair 40% do pico → reduz para 1 posição
-drawdown_reducao_pct: 0.40     # 40% de queda do pico ativa proteção (1 posição em vez de 3)
-capital_minimo_operacional: 16.0  # não abre novas posições abaixo de $16 (lote mín = $15 risco)
+drawdown_protecao: true        # quando capital cair 50% do pico → reduz para 1 posição
+drawdown_reducao_pct: 0.50     # 50% de queda do pico ativa proteção (TESTE V: 40% era agressivo demais)
+capital_minimo_operacional: 20.0  # não abre novas posições abaixo de $20 (10% de $100 inicial; antes $16/$20=muito restritivo)
 
 # --- Spread e slippage ---
 spread_pips: 0.8               # spread médio EURUSD# XM Ultra Low
