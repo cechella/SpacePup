@@ -172,8 +172,9 @@ class Backtest:
         forca_exaust       = float(self.config.get('forca_exaustao',      -2.50))
         ratio_rr           = float(self.config.get('ratio_risco_retorno',   1.5))
         corpo_minimo       = float(self.config.get('candle_corpo_minimo',   0.0))
-        max_stop_pips      = float(self.config.get('max_stop_pips',         0.0))
-        max_duracao_candles = int(self.config.get('max_duracao_candles',    0))
+        max_stop_pips        = float(self.config.get('max_stop_pips',          0.0))
+        max_duracao_candles  = int(self.config.get('max_duracao_candles',     0))
+        max_trades_simultaneos = int(self.config.get('max_trades_simultaneos', 1))
 
         # Garante que o loop começa após todos os indicadores estarem válidos
         # (rolling(N) precisa de N candles; shift(1) adiciona 1 extra)
