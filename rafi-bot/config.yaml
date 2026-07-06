@@ -34,7 +34,7 @@ lote_fixo: 0.01               # lote fixo 0.01 ($20, pip=$0,10) para medir PF pu
 risco_maximo_diario: 9.0       # 900% — desativado no backtest; limite real em produção
 max_trades_simultaneos: 1      # 1 trade por vez (confirmado S/R antes de abrir outro)
 max_perdas_por_dia: 999        # desativado no backtest — mede desempenho puro da estratégia
-ratio_risco_retorno: 2.0       # TESTE H: R:R=2.0 + 48h exit → TP mais próximo, mais trades chegam ao TP
+ratio_risco_retorno: 2.5       # TESTE I: R:R=2.5 + filtro D1 (viés diário) + sem 48h exit
 
 # --- Spread e slippage ---
 spread_pips: 0.8               # spread médio EURUSD# XM Ultra Low
@@ -48,11 +48,10 @@ forca_exaustao: -1.0           # desativado: com RAFI absoluto (≥0) nunca disp
 sr_lookback: 50                # candles para trás para S/R (50 × 5min ≈ 4h)
 sr_tolerancia: 0.0005          # tolerância de 5 pips para confirmar rompimento
 swing_stop_lookback: 75        # candles para swing stop (75×5min = 6.25h de fundo/topo recente)
-                               # TESTE A: swing+RR2.5+forca2.5 → WR=31.9%, PF=1.118 (116 trades)
-                               # TESTE D: swing+RR3.0          → WR=23.6%, PF=0.786 (89 trades) pior
-                               # TESTE E: swing+RR2.5+forca3.0 → WR=31.1%, PF=1.128 (103 trades)
-                               # TESTE F: +M15 confirm +48h exit → alvo WR~38%, PF~1.5
-max_duracao_horas: 48          # saída forçada após 48h (reduz duração média de 90h → ~24h)
+                               # TESTE A: RR=2.5, sem D1 → WR=31.9%, PF=1.118 (116 trades)
+                               # TESTE G: +proporcional+48h → WR=40.2%, PF=0.898 (48h corta vencedores)
+                               # TESTE H: RR=2.0+48h+fixo → WR=42.1%, PF=0.941 (48h ainda corta vencedores)
+                               # TESTE I: +D1 bias, sem 48h → alvo WR~40%, PF~1.5+ (vencedores completos)
 
 # --- Médias Móveis (tendência M5) ---
 ma_rapida: 20                  # MA20
