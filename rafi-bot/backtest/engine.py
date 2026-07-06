@@ -148,6 +148,12 @@ class Backtest:
         swing_stop_low  = self.df_m5['low'].rolling(swing_stop_lb).min().shift(1)
         swing_stop_high = self.df_m5['high'].rolling(swing_stop_lb).max().shift(1)
 
+        # Ratio corpo/range: filtra candles de indecisão (dojis, pinos)
+        # Candle de breakout genuíno tem corpo grande em relação ao range total
+        _candle_range = (self.df_m5['high'] - self.df_m5['low']).replace(0, np.nan)
+        corpo_ratio = (self.df_m5['close'] - self.df_m5['open']).abs() / _candle_range
+        corpo_ratio = corpo_ratio.fillna(0.0)
+
         # Bandas de Bollinger — timing de entrada (squeeze + abertura)
         bb = calcular_bollinger(
             self.df_m5,
@@ -162,9 +168,10 @@ class Backtest:
         )
 
         # Parâmetros globais
-        forca_limiar = float(self.config.get('forca_limiar',   2.50))
-        forca_exaust = float(self.config.get('forca_exaustao', -2.50))
-        ratio_rr     = float(self.config.get('ratio_risco_retorno', 1.5))
+        forca_limiar   = float(self.config.get('forca_limiar',       2.50))
+        forca_exaust   = float(self.config.get('forca_exaustao',    -2.50))
+        ratio_rr       = float(self.config.get('ratio_risco_retorno', 1.5))
+        corpo_minimo   = float(self.config.get('candle_corpo_minimo', 0.0))
 
         # Sessões ativas lidas do config (fallback: London/NY 12-16h)
         sessoes_config = self.config.get('sessoes', {})
@@ -181,7 +188,7 @@ class Backtest:
         forca_anterior: float = 0.0
 
         # Contadores de diagnóstico
-        _d_total = _d_sessao = _d_risco = _d_trend = _d_rafi = _d_bb = _d_cor = _d_sr = 0
+        _d_total = _d_sessao = _d_risco = _d_trend = _d_rafi = _d_bb = _d_cor = _d_corpo = _d_sr = 0
 
         logger.info(
             f"Iniciando backtest | Período: {self.df_m5.index[0]} → {self.df_m5.index[-1]} "
@@ -256,6 +263,13 @@ class Backtest:
                 continue
             _d_cor += 1
 
+            # ── Filtro 2d: Corpo do candle ≥ mínimo (sem dojis/pinos) ─
+            # Breakout genuíno tem corpo dominante — candle de indecisão indica reversão provável
+            if corpo_minimo > 0:
+                if float(corpo_ratio.iloc[i]) < corpo_minimo:
+                    _d_corpo += 1
+                    continue
+
             # ── Filtro 3: Rompimento de S/R dinâmico ──────────
             rh = rolling_high.iloc[i]
             rl = rolling_low.iloc[i]
@@ -302,7 +316,8 @@ class Backtest:
             f"[DIAGNÓSTICO] Candles sem posição: {_d_total} "
             f"→ sessão: {_d_sessao} → risco ok: {_d_risco} "
             f"→ trend M5: {_d_trend} → RAFI>{forca_limiar}: {_d_rafi} "
-            f"→ BB abrindo: {_d_bb} → cor ok: {_d_cor} → S/R rompido: {_d_sr} → trades: {len(self.trades)}"
+            f"→ BB abrindo: {_d_bb} → cor ok: {_d_cor} "
+            f"→ corpo≥{corpo_minimo:.0%}: {_d_cor - _d_corpo} → S/R rompido: {_d_sr} → trades: {len(self.trades)}"
         )
         logger.info(
             f"Backtest concluído | Trades: {len(self.trades)} | "

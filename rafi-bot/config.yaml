@@ -34,7 +34,8 @@ lote_fixo: 0.01               # lote fixo 0.01 ($20, pip=$0,10) para medir PF pu
 risco_maximo_diario: 9.0       # 900% — desativado no backtest; limite real em produção
 max_trades_simultaneos: 1      # 1 trade por vez (confirmado S/R antes de abrir outro)
 max_perdas_por_dia: 999        # desativado no backtest — mede desempenho puro da estratégia
-ratio_risco_retorno: 2.5       # TESTE J: só sessão Londres/NY (12-16h), remove Tokyo-Londres (mais ruído)
+ratio_risco_retorno: 2.5       # R:R fixo 2.5 (break-even WR=28.6%)
+candle_corpo_minimo: 0.50      # TESTE K: corpo do candle deve ser ≥50% do range (filtra dojis/indecisão)
 
 # --- Spread e slippage ---
 spread_pips: 0.8               # spread médio EURUSD# XM Ultra Low
@@ -50,7 +51,8 @@ sr_tolerancia: 0.0005          # tolerância de 5 pips para confirmar rompimento
 swing_stop_lookback: 75        # candles para swing stop (75×5min = 6.25h de fundo/topo recente)
                                # TESTE A: RR=2.5, 2 sessões → WR=31.9%, PF=1.118 (116 trades)
                                # TESTE I: +D1 filter → WR=26.2%, PF=0.943 — D1 prejudica
-                               # TESTE J: só Londres/NY → alvo WR>35%, PF>1.3 (sem ruído Tokyo)
+                               # TESTE J: só Londres/NY → WR=27.3%, PF=0.939 — Tokyo-Londres era melhor!
+                               # TESTE K: restaura Tokyo-Londres + filtro corpo≥50% — alvo PF>1.3
 
 # --- Médias Móveis (tendência M5) ---
 ma_rapida: 20                  # MA20
@@ -70,8 +72,12 @@ timeframes:
   - "M5"                       # apenas M5 ativo
 
 # --- Sessões ativas (UTC/GMT) ---
-# TESTE J: só Londres/NY (pico de liquidez) — Tokyo/Londres tem mais ruído/whipsaw
+# TESTE K: restaura Tokyo-Londres (07-09h) + mantém Londres/NY (12-16h)
+# Tokyo-Londres = abertura London que deu trades melhores que esperado (TESTE J confirmou)
 sessoes:
+  toquio_londres:
+    inicio: "07:00"
+    fim: "09:00"               # abertura Londres / Tokyo-Londres (alta volatilidade)
   londres_ny:
     inicio: "12:00"
     fim: "16:00"               # sobreposição Londres/Nova York (maior liquidez EURUSD)
