@@ -236,6 +236,36 @@ class Backtest:
             scalp_rsi_filtro = False
             scalp_ema_l_p = scalp_atr_p = 0
 
+        # ─── Pré-cálculo RSI_REV (mean-reversion por extremos de RSI) ────────
+        # RSI(N) muito curto (3-5 candles) oscila violentamente em M5.
+        # Quando chega a extremos (< oversold ou > overbought), espera-se reversão.
+        # Pesquisa Connors (2009): RSI(3) < 10 → WR 65-72% em mean-reversion.
+        if modo == 'rsi_rev':
+            rsi_rev_p       = int(self.config.get('rsi_rev_periodo',      3))
+            rsi_rev_os      = float(self.config.get('rsi_rev_oversold',  15.0))
+            rsi_rev_ob      = float(self.config.get('rsi_rev_overbought', 85.0))
+            rsi_rev_tp      = float(self.config.get('rsi_rev_tp_pips',   10.0))
+            rsi_rev_sl      = float(self.config.get('rsi_rev_sl_pips',   10.0))
+            rsi_rev_ema_p   = int(self.config.get('rsi_rev_ema_tendencia', 0))  # 0 = sem filtro
+
+            delta_r   = self.df_m5['close'].diff()
+            gain_r    = delta_r.clip(lower=0).ewm(span=rsi_rev_p, adjust=False).mean()
+            loss_r    = (-delta_r.clip(upper=0)).ewm(span=rsi_rev_p, adjust=False).mean()
+            rsi_rev_s = (100 - 100 / (1 + gain_r / loss_r.replace(0, np.nan))).fillna(50.0)
+
+            # Filtro de tendência opcional: EMA longa define macro-direção
+            # Se rsi_rev_ema_tendencia=200, só compra acima da EMA200 e só vende abaixo
+            if rsi_rev_ema_p > 0:
+                ema_rr_tend = self.df_m5['close'].ewm(span=rsi_rev_ema_p, adjust=False).mean()
+            else:
+                ema_rr_tend = None
+        else:
+            rsi_rev_s = None
+            rsi_rev_p = rsi_rev_ema_p = 0
+            rsi_rev_os = rsi_rev_ob = 0.0
+            rsi_rev_tp = rsi_rev_sl = 10.0
+            ema_rr_tend = None
+
         # Parâmetros globais
         forca_limiar       = float(self.config.get('forca_limiar',         2.50))
         forca_exaust       = float(self.config.get('forca_exaustao',      -2.50))
@@ -534,6 +564,69 @@ class Backtest:
                     f"| Capital: ${self.capital:.2f}"
                 )
 
+            elif modo == 'rsi_rev':
+                # ── RSI_REV: mean-reversion por extremos de RSI(N) ────────
+                rsi_val_r = float(rsi_rev_s.iloc[i])
+
+                # Determina direção: RSI oversold → compra, overbought → venda
+                if rsi_val_r <= rsi_rev_os:
+                    direcao = 'compra'
+                elif rsi_val_r >= rsi_rev_ob:
+                    direcao = 'venda'
+                else:
+                    continue
+                _d_trend += 1
+
+                # Filtro de tendência opcional (EMA longa): só opera a favor
+                if ema_rr_tend is not None:
+                    ema_rr_val = float(ema_rr_tend.iloc[i])
+                    if direcao == 'compra' and close_atual < ema_rr_val:
+                        continue
+                    if direcao == 'venda' and close_atual > ema_rr_val:
+                        continue
+                _d_rafi += 1
+                _d_bb    += 1
+                _d_cor   += 1
+                _d_corpo += 1
+                _d_sr    += 1
+
+                # TP e SL fixos em pips
+                pip = 0.0001
+                if direcao == 'compra':
+                    preco_e_r = close_atual + self.custo_total
+                    sl_r_v    = preco_e_r - rsi_rev_sl * pip
+                    tp_r_v    = preco_e_r + rsi_rev_tp * pip
+                else:
+                    preco_e_r = close_atual - self.custo_total
+                    sl_r_v    = preco_e_r + rsi_rev_sl * pip
+                    tp_r_v    = preco_e_r - rsi_rev_tp * pip
+
+                lote = self.gestor.calcular_lote(self.capital, rsi_rev_sl, incluir_spread=True)
+                if lote <= 0:
+                    continue
+                self.gestor.abrir_trade()
+
+                posicao = {
+                    'sinal'            : direcao,
+                    'preco_entrada'    : preco_e_r,
+                    'stop_loss'        : sl_r_v,
+                    'take_profit'      : tp_r_v,
+                    'risco_pips'       : rsi_rev_sl,
+                    'lote'             : lote,
+                    'timestamp_entrada': ts_dt,
+                    'capital_entrada'  : self.capital,
+                    'forca_entrada'    : rsi_val_r,
+                    'forca_anterior'   : 0.0,
+                    'indice_entrada'   : i,
+                }
+                posicoes_abertas.append(posicao)
+                logger.debug(
+                    f"[{ts_dt.strftime('%Y-%m-%d %H:%M')}] RSI_REV {direcao.upper()} "
+                    f"| RSI({rsi_rev_p})={rsi_val_r:.1f} | Lote: {lote} "
+                    f"| SL: {sl_r_v:.5f} | TP: {tp_r_v:.5f} "
+                    f"| Capital: ${self.capital:.2f}"
+                )
+
             else:
                 # ── RAFI Filtro 1: Tendência M5 (MA20 vs MA50) ────
                 t5 = int(trend_m5.iloc[i])
@@ -621,6 +714,13 @@ class Backtest:
                 f"→ EMA21>50: {_d_trend} → close>EMA9: {_d_rafi} "
                 f"→ cor certa: {_d_bb} → ATR min: {_d_cor} "
                 f"→ RSI ok: {_d_corpo} → trades: {len(self.trades)}"
+            )
+        elif modo == 'rsi_rev':
+            tend_info = f"EMA({rsi_rev_ema_p})" if rsi_rev_ema_p > 0 else "sem tendência"
+            logger.info(
+                f"[DIAGNÓSTICO RSI_REV] Candles: {_d_total} → sessão: {_d_sessao} "
+                f"→ risco ok: {_d_risco} → RSI({rsi_rev_p})<{rsi_rev_os}/{rsi_rev_ob}: {_d_trend} "
+                f"→ {tend_info}: {_d_rafi} → trades: {len(self.trades)}"
             )
         else:
             logger.info(
