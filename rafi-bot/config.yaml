@@ -24,11 +24,14 @@ tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
 #   GRID:      swing=150 → PF=1.800 (melhor), forca=2.5, sr=50
 #   TESTE M:   proporcional 25% → DD=96.5% blow-up 2026-06
 #   TESTE N:   Kelly % + R:R=3.5 + all-hours → 4 trades (TP de 975p nunca atingido!)
-#   TESTE O:   max_stop=50p + max_dur=500c + R:R=2.5 ← ATUAL
+#   TESTE O:   max_stop=50p + max_dur=500c + R:R=2.5 → PF=0.868 (SL artificial quebra estrutura)
+#   TESTE P:   max_stop=50p skip + max_dur=500c + R:R=2.5 → PF=0.725 (tempo mata R:R)
+#   TESTE Q:   sem filtro RAFI + sem cap stop + sem limite tempo + R:R=2.5 ← ATUAL
 #
-#   TESTE O: Kelly 25% + caps para alta frequência:
-#   max_stop_pips=50 → TP=125p (atingível em 1-5 dias) → 3-7 trades/semana
-#   max_duracao=500c → sai em 41h se SL/TP não atingidos → sem trades travados
+#   TESTE Q: Kelly 25% + swing_stop=150 puro (sem caps artificiais)
+#   forca_limiar=0 → aceita todos os rompimentos com MA alinhadas
+#   max_stop_pips=0 → stop natural do swing low/high (estrutura de mercado)
+#   max_duracao=0 → sai só em SL/TP (sem corte antecipado)
 lote_proporcional: false       # Kelly % real
 risco_por_trade: 0.25          # 25% risco por trade — Kelly 2× para R:R=2.5
 lote_base: 0.10               # não usado com proporcional=false; mantido p/ referência
@@ -43,8 +46,8 @@ max_perdas_por_dia: 3          # 3 perdas/dia → para; previne meses catastróf
 ratio_risco_retorno: 2.5       # R:R=2.5 — WR=37.5% dá PF=1.800 (comprovado no grid)
 
 # --- Controle de duração e tamanho do stop ---
-max_stop_pips: 50              # SL máximo 50 pips — previne TPs inalcançáveis (teste N: SL=278p, TP=975p!)
-max_duracao_candles: 500       # fecha trade após 500 candles (~41h) se SL/TP não atingidos
+max_stop_pips: 0               # 0 = desativado — stop natural pelo swing_stop_lookback (TESTE Q)
+max_duracao_candles: 0         # 0 = desativado — sai apenas em SL/TP (TESTE Q)
 candle_corpo_minimo: 0.0       # 0.0 = desativado (corpo≥50% removeu ganhadores — TESTE K)
 
 # --- Spread e slippage ---
@@ -52,7 +55,7 @@ spread_pips: 0.8               # spread médio EURUSD# XM Ultra Low
 slippage_pips: 0.5             # slippage estimado em pontos
 
 # --- Indicador RAFI ---
-forca_limiar: 2.00             # RAFI > 2.00 — ligeiramente mais sinais que 2.50 (era 2.50)
+forca_limiar: 0.00             # RAFI ≥ 0 (desativado) — sem filtro de força; só trend+cor+S/R
 forca_exaustao: -1.0           # desativado: com RAFI absoluto (≥0) nunca dispara; saída só por SL/TP
 
 # --- Suporte e Resistência ---
