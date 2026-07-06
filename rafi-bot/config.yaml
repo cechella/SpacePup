@@ -34,9 +34,10 @@ tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
 #   TESTE V:   drawdown 40% + capital_min=$16 → só 4 trades (guard bloqueou tudo após 1ª perda)
 #   TESTE W:   capital=$100, drawdown 50%, capital_min=$20 → só 30 trades (proteção travou frequência!)
 #   TESTE X:   capital=$100 SEM proteção, risco=10% → Kelly funciona, frequência máxima
-#   TESTE Y:   EPM v1 — pullback_lookback=15 (janela velha) → WR=21.6%, PF=0.613 (sinais velhos!)
-#   TESTE Z:   EPM v2 — pullback fresco (i-1 ou i-2), SL no candle anterior ← ATUAL
-#              Correção: cruzamento exige candle i-1 abaixo da EMA21 → sinal limpo
+#   TESTE Y:   EPM v1 — pullback_lookback=15 → WR=21.6%, PF=0.613 (dead-cat bounces)
+#   TESTE Z:   EPM v2 — pullback fresco i-1/i-2 + SL candle anterior → WR=29.9%, PF=0.484 (pior!)
+#              Diagnóstico EPM: cruzamento EMA21 em M5 é ruído — 22.714 candles → 77 trades, WR<30%
+#   TESTE AA:  RAFI de volta — swing_stop=150 (grid-best), 1 posição (sem correlação) ← ATUAL
 lote_proporcional: false       # Kelly % real
 risco_por_trade: 0.10          # 10% por trade — com $100 e SL ~50p → lote=0.02
 lote_base: 0.10               # não usado com proporcional=false; mantido p/ referência
@@ -46,9 +47,9 @@ lote_fixo: 0.00               # 0 = desativado (usa risco_por_trade acima)
 
 # --- Gestão de risco ---
 risco_maximo_diario: 9.0       # 900% — desativado no backtest; limite real em produção
-max_trades_simultaneos: 3      # 3 trades simultâneos
+max_trades_simultaneos: 1      # 1 posição — elimina correlação EURUSD (3 posições = todas caem juntas)
 max_perdas_por_dia: 3          # 3 perdas/dia → para
-ratio_risco_retorno: 2.0       # R:R=2.0 — mais realista com WR esperado de 50%; PF=2.0 teórico
+ratio_risco_retorno: 2.5       # R:R=2.5 — melhor equilíbrio com WR=37% do RAFI
 
 # --- Controle de duração e tamanho do stop ---
 max_stop_pips: 0               # 0 = desativado — stop natural pelo pullback
@@ -71,7 +72,7 @@ slippage_pips: 0.5             # slippage estimado em pontos
 # --- Estratégia ativa ---
 # 'rafi' = rompimento de S/R com índice de força (padrão)
 # 'epm'  = EMA Pullback Momentum (nova estratégia exclusiva — TESTE Y)
-estrategia_modo: "epm"
+estrategia_modo: "rafi"
 
 # --- Parâmetros EPM (EMA Pullback Momentum) ---
 # Lógica: EMA21 acima de EMA55 (tendência de alta) → preço recua até tocar
