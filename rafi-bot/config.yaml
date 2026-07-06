@@ -48,10 +48,10 @@ forca_exaustao: -1.0           # desativado: com RAFI absoluto (≥0) nunca disp
 # --- Suporte e Resistência ---
 sr_lookback: 50                # candles para trás para S/R (50 × 5min ≈ 4h)
 sr_tolerancia: 0.0005          # tolerância de 5 pips para confirmar rompimento
-swing_stop_lookback: 30        # TESTE L: 30 candles = 2.5h (era 75=6.25h) — stop menor → TP menor → mais alcançável
-                               # TESTE A: 75c, 2 sessões → WR=31.9%, PF=1.118 (116 trades)
-                               # TESTE K: 75c + corpo≥50% → WR=30.0%, PF=1.044 — filtro corpo removeu ganhadores
-                               # TESTE L: 30c, 2 sessões, sem filtro corpo — alvo: TP mais curto eleva WR
+swing_stop_lookback: 75        # baseline: 75c=6.25h — MELHOR encontrado (30c deu WR=28.1% pior)
+                               # TESTE A: 75c, 2 sessões → WR=31.9%, PF=1.118 (116 trades) — MELHOR
+                               # TESTE K: 75c + corpo≥50% → WR=30.0%, PF=1.044
+                               # TESTE L: 30c → WR=28.1%, PF=0.871 — stop curto = muito ruído
 
 # --- Médias Móveis (tendência M5) ---
 ma_rapida: 20                  # MA20
