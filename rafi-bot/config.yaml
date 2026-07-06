@@ -27,14 +27,15 @@ tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
 #   TESTE O:   max_stop=50p + max_dur=500c + R:R=2.5 → PF=0.868 (SL artificial quebra estrutura)
 #   TESTE P:   max_stop=50p skip + max_dur=500c + R:R=2.5 → PF=0.725 (tempo mata R:R)
 #   TESTE Q:   sem filtro RAFI + sem cap stop + sem limite tempo → PF=1.118, 32 trades (1 simultâneo)
-#   TESTE R:   igual Q + 3 posições simultâneas → maximiza frequência sem mudar WR/PF ← ATUAL
+#   TESTE R:   3 posições simultâneas → 75 trades, WR=33.3%, PF=1.122, Kelly=6.7% → crescimento mínimo
+#   TESTE S:   R:R=1.5 + 3 posições + max_duracao=500c → TP mais perto = hits mais rápido = mais frequência ← ATUAL
 #
-#   TESTE R: 3 posições simultâneas — unlock de frequência
-#   Engine agora suporta múltiplos trades abertos ao mesmo tempo
-#   Cada slot encontra seu próprio sinal de S/R independentemente
-#   risco_por_trade=0.12 (próximo do Kelly ótimo 12.5%) × 3 slots = 36% total max
+#   TESTE S: TP curto = fecha rápido = libera slot = mais trades/mês
+#   R:R=1.5 → TP≈75p em vez de 125p → atinge em 1-3 dias vs 5-15 dias
+#   max_duracao=500c (41h) → mata trades lentos antes de virar perda longa
+#   Kelly ótimo para WR=40%, R:R=1.5: f*=(0.40×1.5-0.60)/1.5 = 0%... precisa WR>40%
 lote_proporcional: false       # Kelly % real
-risco_por_trade: 0.12          # 12% por trade — próximo do Kelly ótimo (12.5%) para WR=37.5%/R:R=2.5
+risco_por_trade: 0.10          # 10% por trade — próximo do Kelly ótimo para R:R=1.5 (espera WR>40%)
 lote_base: 0.10               # não usado com proporcional=false; mantido p/ referência
 capital_base: 200.0            # não usado com proporcional=false; mantido p/ referência
 lote_maximo: 100.0             # limite máximo por trade (XM permite até 100 lotes)
@@ -44,11 +45,11 @@ lote_fixo: 0.00               # 0 = desativado (usa risco_por_trade acima)
 risco_maximo_diario: 9.0       # 900% — desativado no backtest; limite real em produção
 max_trades_simultaneos: 3      # 3 trades simultâneos — multiplica frequência sem mudar WR/PF
 max_perdas_por_dia: 3          # 3 perdas/dia → para; previne meses catastróficos
-ratio_risco_retorno: 2.5       # R:R=2.5 — WR=37.5% dá PF=1.800 (comprovado no grid)
+ratio_risco_retorno: 1.5       # R:R=1.5 — TP mais curto = hit mais rápido = libera slot mais cedo (TESTE S)
 
 # --- Controle de duração e tamanho do stop ---
-max_stop_pips: 0               # 0 = desativado — stop natural pelo swing_stop_lookback (TESTE Q)
-max_duracao_candles: 0         # 0 = desativado — sai apenas em SL/TP (TESTE Q)
+max_stop_pips: 0               # 0 = desativado — stop natural pelo swing_stop_lookback
+max_duracao_candles: 500       # 500c = 41h — mata trades lentos, libera slot para próximo sinal (TESTE S)
 candle_corpo_minimo: 0.0       # 0.0 = desativado (corpo≥50% removeu ganhadores — TESTE K)
 
 # --- Spread e slippage ---
