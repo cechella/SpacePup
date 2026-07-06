@@ -190,7 +190,8 @@ class Backtest:
             sessoes_minutos = [(720, 960)]  # 12:00–16:00 UTC
         logger.info(f"Sessões ativas: {[f'{s//60:02d}:{s%60:02d}–{e//60:02d}:{e%60:02d}' for s, e in sessoes_minutos]}")
 
-        posicao_aberta: Optional[dict] = None
+        # Suporte a múltiplas posições simultâneas
+        posicoes_abertas: list[dict] = []
         forca_anterior: float = 0.0
 
         # Contadores de diagnóstico
@@ -198,7 +199,7 @@ class Backtest:
 
         logger.info(
             f"Iniciando backtest | Período: {self.df_m5.index[0]} → {self.df_m5.index[-1]} "
-            f"| Candles M5: {n} | Capital: ${self.capital:.2f}"
+            f"| Candles M5: {n} | Capital: ${self.capital:.2f} | Max simultâneos: {max_trades_simultaneos}"
         )
 
         for i in range(min_candles, n):
@@ -211,35 +212,38 @@ class Backtest:
             ts_dt = timestamp.to_pydatetime() if hasattr(timestamp, 'to_pydatetime') \
                     else datetime.fromtimestamp(timestamp.timestamp(), tz=timezone.utc)
 
-            # ── Verificar saída de posição aberta ─────────────
-            if posicao_aberta is not None:
+            # ── Verificar saída de todas as posições abertas ───
+            posicoes_a_fechar = []
+            for posicao in list(posicoes_abertas):
                 # Saída por duração máxima (evita trades multi-semanas com TP inalcançável)
                 if max_duracao_candles > 0:
-                    duracao = i - posicao_aberta.get('indice_entrada', i)
+                    duracao = i - posicao.get('indice_entrada', i)
                     if duracao >= max_duracao_candles:
-                        self._fechar_posicao(
-                            posicao_aberta, close_atual, ts_dt,
-                            f"Duração máxima ({max_duracao_candles}c/{max_duracao_candles*5//60}h) atingida"
+                        posicoes_a_fechar.append(
+                            (posicao,
+                             f"Duração máxima ({max_duracao_candles}c/{max_duracao_candles*5//60}h) atingida")
                         )
-                        posicao_aberta = None
-                        forca_anterior = forca_atual
                         continue
 
-                posicao_aberta['forca_anterior'] = forca_anterior
-                saida = verificar_saida(close_atual, posicao_aberta, forca_atual, forca_exaust)
+                posicao['forca_anterior'] = forca_anterior
+                saida = verificar_saida(close_atual, posicao, forca_atual, forca_exaust)
                 if saida['fechar']:
-                    self._fechar_posicao(posicao_aberta, close_atual, ts_dt, saida['motivo'])
-                    posicao_aberta = None
+                    posicoes_a_fechar.append((posicao, saida['motivo']))
+
+            for posicao, motivo in posicoes_a_fechar:
+                self._fechar_posicao(posicao, close_atual, ts_dt, motivo)
+                posicoes_abertas.remove(posicao)
 
             forca_anterior = forca_atual
 
-            if posicao_aberta is not None:
+            # Avança a data do gestor de risco (reset diário — sempre, independente de posições)
+            self.gestor.avancar_data(ts_dt.date())
+
+            # Não busca novo sinal se já no máximo de posições simultâneas
+            if len(posicoes_abertas) >= max_trades_simultaneos:
                 continue
 
             _d_total += 1
-
-            # Avança a data do gestor de risco (para reset diário correto no backtest)
-            self.gestor.avancar_data(ts_dt.date())
 
             # ── Filtro 0: Sessão ativa ─────────────────────────
             hora_min = ts_dt.hour * 60 + ts_dt.minute
@@ -315,19 +319,19 @@ class Backtest:
                 'forca'        : forca_atual,
                 'indice_entrada': i,
             }
-            posicao_aberta = self._abrir_posicao(sinal_info, close_atual, ts_dt, ratio_rr, max_stop_pips)
+            nova_posicao = self._abrir_posicao(sinal_info, close_atual, ts_dt, ratio_rr, max_stop_pips)
+            if nova_posicao is not None:
+                posicoes_abertas.append(nova_posicao)
 
             # Registrar equity curve diária
             if i % 288 == 0:
                 self.equity_curve.append((timestamp, round(self.capital, 2)))
 
-        # Fechar posição aberta ao fim do período
-        if posicao_aberta is not None:
+        # Fechar posições ainda abertas ao fim do período
+        for posicao in list(posicoes_abertas):
             ultimo_close = float(self.df_m5['close'].iloc[-1])
-            self._fechar_posicao(
-                posicao_aberta, ultimo_close,
-                self.df_m5.index[-1], "Fim do período de backtest"
-            )
+            self._fechar_posicao(posicao, ultimo_close,
+                                 self.df_m5.index[-1], "Fim do período de backtest")
 
         self.equity_curve.append((self.df_m5.index[-1], round(self.capital, 2)))
 
