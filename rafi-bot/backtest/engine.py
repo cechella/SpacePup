@@ -246,7 +246,9 @@ class Backtest:
             rsi_rev_ob      = float(self.config.get('rsi_rev_overbought', 85.0))
             rsi_rev_tp      = float(self.config.get('rsi_rev_tp_pips',   10.0))
             rsi_rev_sl      = float(self.config.get('rsi_rev_sl_pips',   10.0))
-            rsi_rev_ema_p   = int(self.config.get('rsi_rev_ema_tendencia', 0))  # 0 = sem filtro
+            rsi_rev_ema_p   = int(self.config.get('rsi_rev_ema_tendencia', 0))
+            # invertir=True: segue o momentum (RSI>ob=BUY, RSI<os=SELL) em vez de fade
+            rsi_rev_inv     = bool(self.config.get('rsi_rev_invertir', False))
 
             delta_r   = self.df_m5['close'].diff()
             gain_r    = delta_r.clip(lower=0).ewm(span=rsi_rev_p, adjust=False).mean()
@@ -565,16 +567,25 @@ class Backtest:
                 )
 
             elif modo == 'rsi_rev':
-                # ── RSI_REV: mean-reversion por extremos de RSI(N) ────────
+                # ── RSI_REV: mean-reversion ou momentum por extremos de RSI(N) ──
                 rsi_val_r = float(rsi_rev_s.iloc[i])
 
-                # Determina direção: RSI oversold → compra, overbought → venda
-                if rsi_val_r <= rsi_rev_os:
-                    direcao = 'compra'
-                elif rsi_val_r >= rsi_rev_ob:
-                    direcao = 'venda'
+                # rsi_rev_inv=True → momentum: RSI extremo segue movimento (TESTE AD)
+                # rsi_rev_inv=False → mean-reversion: RSI extremo reverte (TESTE AC)
+                if rsi_rev_inv:
+                    if rsi_val_r >= rsi_rev_ob:
+                        direcao = 'compra'   # RSI sobrecomprado → momentum de alta → compra
+                    elif rsi_val_r <= rsi_rev_os:
+                        direcao = 'venda'    # RSI sobrevendido → momentum de baixa → venda
+                    else:
+                        continue
                 else:
-                    continue
+                    if rsi_val_r <= rsi_rev_os:
+                        direcao = 'compra'
+                    elif rsi_val_r >= rsi_rev_ob:
+                        direcao = 'venda'
+                    else:
+                        continue
                 _d_trend += 1
 
                 # Filtro de tendência opcional (EMA longa): só opera a favor

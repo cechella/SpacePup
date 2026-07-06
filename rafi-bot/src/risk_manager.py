@@ -171,14 +171,16 @@ class GestorRisco:
         Determina o lote máximo permitido pela margem disponível.
 
         Com alavancagem 1:1000 e capital em USD:
-          margem_necessária = (lote * 100.000) / alavancagem
-          lote_max = (capital * alavancagem) / 100.000
+          margem_necessária = (lote × 100.000) / alavancagem
+          lote_max          = (capital × alavancagem) / 100.000
 
-        Limitado a alavancagem efetiva de 1:50 para conservadorismo.
+        Usa alavancagem configurada (XM 1:1000 permite lotes grandes),
+        limitado pelo lote_maximo do config (padrão 100).
+        Resultado: com $100 e risco=10%, lote=0.10 conforme calculado —
+        sem corte artificial para 0.05 que reduzia o risco real para metade.
         """
-        alavancagem_efetiva = min(self.alavancagem, 50)  # conservador
-        lote_max = (capital * alavancagem_efetiva) / 100_000.0
-        return max(self.lote_minimo, round(lote_max, 2))
+        lote_max = (capital * self.alavancagem) / 100_000.0
+        return max(self.lote_minimo, min(round(lote_max, 2), self.lote_maximo))
 
     # ─────────────────────────────────────────────────────────
     # REGISTRO DE TRADES

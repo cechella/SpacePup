@@ -2,9 +2,10 @@
 # Configurações do Bot RAFI Forex
 # Par: EURUSD# | Corretora: XM Ultra Low Standard
 # ============================================================
-# TESTE AC: RSI(3) MEAN-REVERSION — RSI<15 compra, RSI>85 vende
-# Meta: WR>60% (break-even R:R=1:1 com spread = 53.25%)
-# Lógica: RSI(3) oscila violentamente no M5 → extremos indicam exaustão
+# TESTE AD: RSI(3) MOMENTUM — RSI>75 compra, RSI<25 vende
+# Meta: WR>55% (break-even R:R=1.5 com spread = 45.2%)
+# Lógica: RSI(3) extremo sinaliza MOMENTUM, não exaustão no M5
+#         TESTE AC mostrou complemento (invertido) acerta 55.2% → seguir o extremo
 # ============================================================
 
 # --- Par e corretora ---
@@ -43,7 +44,8 @@ tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
 #              Diagnóstico EPM: cruzamento EMA21 em M5 é ruído — 22.714 candles → 77 trades, WR<30%
 #   TESTE AA:  RAFI de volta — swing_stop=150 (grid-best), 1 posição (sem correlação)
 #   TESTE AB:  SCALP R:R=1:1 — EMA9/21/50 + ATR + RSI, TP=SL=10p → WR=36.1%, PF=0.499 (trend-following falhou)
-#   TESTE AC:  RSI(3) mean-reversion — RSI<15 buy, RSI>85 sell, TP=SL=10p ← ATUAL
+#   TESTE AC:  RSI(3) mean-reversion — RSI<15 buy, RSI>85 sell, TP=SL=10p → WR=44.8%, PF=0.724, 261 trades
+#   TESTE AD:  RSI(3) momentum (invertido) — RSI>75 buy, RSI<25 sell, TP=15p/SL=10p ← ATUAL
 lote_proporcional: false       # Kelly % real
 risco_por_trade: 0.10          # 10% por trade — com $100 e SL ~50p → lote=0.02
 lote_base: 0.10               # não usado com proporcional=false; mantido p/ referência
@@ -55,7 +57,7 @@ lote_fixo: 0.00               # 0 = desativado (usa risco_por_trade acima)
 risco_maximo_diario: 9.0       # 900% — desativado no backtest; limite real em produção
 max_trades_simultaneos: 1      # 1 posição — evita correlação (todos EURUSD = todos perdem juntos)
 max_perdas_por_dia: 100        # desativado para teste — deixa a estratégia rodar livremente
-ratio_risco_retorno: 1.0       # R:R=1:1 — TP=SL=10 pips (break-even WR=53.25% com spread)
+ratio_risco_retorno: 1.5       # R:R=1.5 — TP=15p SL=10p (break-even WR=45.2% com spread)
 
 # --- Controle de duração e tamanho do stop ---
 max_stop_pips: 0               # 0 = desativado — stop natural pelo pullback
@@ -109,17 +111,19 @@ scalp_sl_pips: 10.0            # stop loss fixo em pips
 scalp_atr_min: 0.3             # corpo mínimo = 30% do ATR (filtra micro-ruído)
 scalp_rsi_filtro: true         # exige RSI>50 (buy) ou RSI<50 (sell)
 
-# --- Parâmetros RSI_REV (mean-reversion por extremos de RSI — modo 'rsi_rev') ---
+# --- Parâmetros RSI_REV (mean-reversion ou momentum por extremos de RSI — modo 'rsi_rev') ---
 # RSI(3) oscila de 0–100 várias vezes por dia no M5.
-# Quando atinge extremos (<15 ou >85) → exaustão de movimento → reversão esperada.
-# Break-even WR com TP=SL=10p e spread 1.3p = 53.25%.
-# Pesquisa Connors: RSI(2-3) < 10 → WR 65-72% em mean-reversion histórica.
+# TESTE AC: mean-reversion (invertir=false) → WR=44.8% (falhou)
+# TESTE AD: momentum (invertir=true) — RSI>75=compra, RSI<25=venda
+#   Diagnóstico do TESTE AC: o complemento invertido acertava 55.2% → seguir o extremo
+#   Break-even WR com TP=15p/SL=10p e spread 1.3p = 45.2% → WR=55.2% esperado ✓
 rsi_rev_periodo: 3             # RSI(3) — extremamente rápido (15 min de look-back)
-rsi_rev_oversold: 15.0         # RSI < 15 → oversold → compra (reversão para cima)
-rsi_rev_overbought: 85.0       # RSI > 85 → overbought → venda (reversão para baixo)
-rsi_rev_tp_pips: 10.0          # take profit fixo em pips
+rsi_rev_oversold: 25.0         # RSI < 25 → momentum de baixa → venda (invertido)
+rsi_rev_overbought: 75.0       # RSI > 75 → momentum de alta → compra (invertido)
+rsi_rev_tp_pips: 15.0          # take profit fixo em pips (R:R=1.5)
 rsi_rev_sl_pips: 10.0          # stop loss fixo em pips
 rsi_rev_ema_tendencia: 0       # 0 = sem filtro de tendência; ex: 200 = só opera a favor da EMA200
+rsi_rev_invertir: true         # TESTE AD: true=momentum, false=mean-reversion (TESTE AC)
 
 # --- Indicador RAFI (usado apenas no modo 'rafi') ---
 forca_limiar: 0.00             # 0 = desativado no modo epm; RAFI aprox. é INVERTIDO em limiar alto
