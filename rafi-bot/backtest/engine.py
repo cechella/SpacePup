@@ -172,9 +172,11 @@ class Backtest:
         forca_exaust       = float(self.config.get('forca_exaustao',      -2.50))
         ratio_rr           = float(self.config.get('ratio_risco_retorno',   1.5))
         corpo_minimo       = float(self.config.get('candle_corpo_minimo',   0.0))
-        max_stop_pips        = float(self.config.get('max_stop_pips',          0.0))
-        max_duracao_candles  = int(self.config.get('max_duracao_candles',     0))
-        max_trades_simultaneos = int(self.config.get('max_trades_simultaneos', 1))
+        max_stop_pips          = float(self.config.get('max_stop_pips',          0.0))
+        max_duracao_candles    = int(self.config.get('max_duracao_candles',     0))
+        max_trades_simultaneos = int(self.config.get('max_trades_simultaneos',  1))
+        breakeven_stop_ativo   = bool(self.config.get('breakeven_stop_ativo',   False))
+        breakeven_gatilho_r    = float(self.config.get('breakeven_gatilho_r',   1.0))
 
         # Garante que o loop começa após todos os indicadores estarem válidos
         # (rolling(N) precisa de N candles; shift(1) adiciona 1 extra)
@@ -225,6 +227,20 @@ class Backtest:
                              f"Duração máxima ({max_duracao_candles}c/{max_duracao_candles*5//60}h) atingida")
                         )
                         continue
+
+                # Breakeven stop: após +1R de lucro, move SL para preço de entrada
+                # Converte perdas totais em empate → melhora WR efetivo sem mudar sinal
+                if breakeven_stop_ativo and not posicao.get('breakeven_atingido', False):
+                    entrada  = posicao['preco_entrada']
+                    risco_pr = posicao['risco_pips'] * 0.0001 * breakeven_gatilho_r
+                    if posicao['sinal'] == 'compra' and close_atual >= entrada + risco_pr:
+                        posicao['stop_loss']          = entrada + self.custo_total
+                        posicao['breakeven_atingido'] = True
+                        logger.debug(f"Breakeven atingido (compra) → SL={posicao['stop_loss']:.5f}")
+                    elif posicao['sinal'] == 'venda' and close_atual <= entrada - risco_pr:
+                        posicao['stop_loss']          = entrada - self.custo_total
+                        posicao['breakeven_atingido'] = True
+                        logger.debug(f"Breakeven atingido (venda) → SL={posicao['stop_loss']:.5f}")
 
                 posicao['forca_anterior'] = forca_anterior
                 saida = verificar_saida(close_atual, posicao, forca_atual, forca_exaust)

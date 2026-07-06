@@ -29,14 +29,16 @@ tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
 #   TESTE Q:   sem filtro RAFI + sem cap stop + sem limite tempo → PF=1.118, 32 trades (1 simultâneo)
 #   TESTE R:   3 posições simultâneas → 75 trades, WR=33.3%, PF=1.122, Kelly=6.7% → crescimento mínimo
 #   TESTE S:   R:R=1.5 + dur=500c → 189 trades, WR=46.6%, PF=0.963 (dur mata R:R)
-#   TESTE T:   forca=2.5 + 3 posições + R:R=2.5 sem dur — qualidade sobe WR, freq mantida ← ATUAL
+#   TESTE T:   forca=2.5 + 3 posições + R:R=2.5 sem dur — WR=0%, PF=0.000 (RAFI invertido!)
+#   TESTE U:   forca=0 (desativado) + breakeven stop após +1R → WR efetivo esperado ~42% ← ATUAL
 #
-#   TESTE T: filtro RAFI reativa para recuperar WR
-#   forca=2.5 → apenas rompimentos fortes → WR esperado 45-50% (era 33% sem filtro)
-#   3 posições mantidas para frequência; sem dur para preservar R:R
-#   Kelly para WR=45%, R:R=2.5: f*=23% → risco=0.15 (sub-Kelly, seguro)
+#   TESTE U: breakeven stop converte perdas totais em empates
+#   forca=0 desativado (RAFI aproximado é INVERTIDO em threshold alto — TESTE T provou isso)
+#   3 posições simultâneas mantidas; sem dur para preservar R:R=2.5
+#   breakeven após +1R: SL move para entrada+custo → empate em vez de perda
+#   Kelly para WR=42%, R:R=2.5: f*=17.8% → risco=0.12 (sub-Kelly conservador)
 lote_proporcional: false       # Kelly % real
-risco_por_trade: 0.15          # 15% por trade — sub-Kelly para WR=45%, R:R=2.5 (Kelly ótimo=23%)
+risco_por_trade: 0.12          # 12% por trade — sub-Kelly para WR=42%, R:R=2.5 (Kelly ótimo=17.8%)
 lote_base: 0.10               # não usado com proporcional=false; mantido p/ referência
 capital_base: 200.0            # não usado com proporcional=false; mantido p/ referência
 lote_maximo: 100.0             # limite máximo por trade (XM permite até 100 lotes)
@@ -50,15 +52,19 @@ ratio_risco_retorno: 2.5       # R:R=2.5 — WR=45% + R:R=2.5 → PF=2.05 espera
 
 # --- Controle de duração e tamanho do stop ---
 max_stop_pips: 0               # 0 = desativado — stop natural pelo swing_stop_lookback
-max_duracao_candles: 0         # 0 = sem limite — deixa SL/TP natural para preservar R:R=2.5 (TESTE T)
+max_duracao_candles: 0         # 0 = sem limite — deixa SL/TP natural para preservar R:R=2.5
 candle_corpo_minimo: 0.0       # 0.0 = desativado (corpo≥50% removeu ganhadores — TESTE K)
+
+# --- Breakeven stop (TESTE U) ---
+breakeven_stop_ativo: true     # após +1R de lucro, move SL para entrada+custo → empate em vez de perda
+breakeven_gatilho_r: 1.0       # gatilho: 1.0 = move SL quando lucro ≥ 1× o risco inicial
 
 # --- Spread e slippage ---
 spread_pips: 0.8               # spread médio EURUSD# XM Ultra Low
 slippage_pips: 0.5             # slippage estimado em pontos
 
 # --- Indicador RAFI ---
-forca_limiar: 2.50             # RAFI > 2.50 — filtro de qualidade reativado; WR sobe ~45% (TESTE T)
+forca_limiar: 0.00             # 0 = desativado — RAFI aprox. é INVERTIDO em threshold alto (TESTE T: WR=0%)
 forca_exaustao: -1.0           # desativado: com RAFI absoluto (≥0) nunca dispara; saída só por SL/TP
 
 # --- Suporte e Resistência ---
