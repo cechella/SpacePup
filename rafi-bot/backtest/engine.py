@@ -177,6 +177,11 @@ class Backtest:
         max_trades_simultaneos = int(self.config.get('max_trades_simultaneos',  1))
         breakeven_stop_ativo   = bool(self.config.get('breakeven_stop_ativo',   False))
         breakeven_gatilho_r    = float(self.config.get('breakeven_gatilho_r',   1.0))
+        # Proteção de drawdown: quando capital cai X% do pico, reduz para 1 posição simultânea
+        drawdown_protecao      = bool(self.config.get('drawdown_protecao',      False))
+        drawdown_limite        = float(self.config.get('drawdown_reducao_pct',  0.40))
+        # Capital mínimo operacional: não abre novas posições abaixo deste valor
+        capital_minimo_op      = float(self.config.get('capital_minimo_operacional', 0.0))
 
         # Garante que o loop começa após todos os indicadores estarem válidos
         # (rolling(N) precisa de N candles; shift(1) adiciona 1 extra)
@@ -196,6 +201,8 @@ class Backtest:
         # Suporte a múltiplas posições simultâneas
         posicoes_abertas: list[dict] = []
         forca_anterior: float = 0.0
+        # Rastreamento do pico de capital para proteção de drawdown
+        capital_pico: float = self.capital
 
         # Contadores de diagnóstico
         _d_total = _d_sessao = _d_risco = _d_trend = _d_rafi = _d_bb = _d_cor = _d_corpo = _d_sr = 0
@@ -256,8 +263,18 @@ class Backtest:
             # Avança a data do gestor de risco (reset diário — sempre, independente de posições)
             self.gestor.avancar_data(ts_dt.date())
 
+            # Atualiza pico de capital e calcula limite dinâmico de posições
+            if self.capital > capital_pico:
+                capital_pico = self.capital
+            if drawdown_protecao and capital_pico > 0:
+                # Quando drawdown ≥ limite: reduz para 1 posição (protege capital acumulado)
+                drawdown_atual = (capital_pico - self.capital) / capital_pico
+                max_pos_agora = 1 if drawdown_atual >= drawdown_limite else max_trades_simultaneos
+            else:
+                max_pos_agora = max_trades_simultaneos
+
             # Não busca novo sinal se já no máximo de posições simultâneas
-            if len(posicoes_abertas) >= max_trades_simultaneos:
+            if len(posicoes_abertas) >= max_pos_agora:
                 continue
 
             _d_total += 1
@@ -274,6 +291,12 @@ class Backtest:
             if not pode:
                 continue
             _d_risco += 1
+
+            # ── Guard: capital mínimo operacional ──────────────
+            # Evita operar quando capital é tão baixo que o lote mínimo
+            # representa risco desproporcional (>50-100% do capital)
+            if capital_minimo_op > 0 and self.capital < capital_minimo_op:
+                continue
 
             # ── Filtro 1: Tendência M5 (MA20 vs MA50) ──────────
             t5 = int(trend_m5.iloc[i])
