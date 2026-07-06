@@ -135,22 +135,6 @@ class Backtest:
         trend_m5[diff_m5 >  ma_threshold] = 1
         trend_m5[diff_m5 < -ma_threshold] = -1
 
-        # Tendência Diária (D1): resamplar M5 → 1D e calcular MA20/MA50
-        # Filtro de viés diário: só compra quando D1 aponta alta, só vende quando D1 aponta baixa.
-        # Elimina trades contra a tendência maior — aumenta WR sem cortar vencedores.
-        df_d1 = self.df_m5.resample('1D').agg({
-            'open': 'first', 'high': 'max', 'low': 'min',
-            'close': 'last', 'volume': 'sum'
-        }).dropna()
-        ma20_d1 = df_d1['close'].rolling(ma_r).mean()
-        ma50_d1 = df_d1['close'].rolling(ma_l).mean()
-        diff_d1  = ma20_d1 - ma50_d1
-        trend_d1_series = pd.Series(0, index=df_d1.index, dtype=int)
-        trend_d1_series[diff_d1 >  ma_threshold] = 1
-        trend_d1_series[diff_d1 < -ma_threshold] = -1
-        # Forward-fill: cada barra D1 cobre ~288 candles M5
-        trend_d1 = trend_d1_series.reindex(self.df_m5.index, method='ffill').fillna(0).astype(int)
-
         # S/R dinâmico: máximo e mínimo dos últimos sr_lookback candles (shift=1 evita lookahead)
         # Usar sr_lookback do config (padrão 50 = 250 min ≈ 4h de histórico local)
         sr_lookback  = int(self.config.get('sr_lookback', 50))
@@ -197,7 +181,7 @@ class Backtest:
         forca_anterior: float = 0.0
 
         # Contadores de diagnóstico
-        _d_total = _d_sessao = _d_risco = _d_trend = _d_trend_d1 = _d_rafi = _d_bb = _d_cor = _d_sr = 0
+        _d_total = _d_sessao = _d_risco = _d_trend = _d_rafi = _d_bb = _d_cor = _d_sr = 0
 
         logger.info(
             f"Iniciando backtest | Período: {self.df_m5.index[0]} → {self.df_m5.index[-1]} "
@@ -252,14 +236,6 @@ class Backtest:
             _d_trend += 1
 
             direcao = 'compra' if t5 == 1 else 'venda'
-
-            # ── Filtro 1b: Tendência D1 (viés diário) ──────────
-            # Só compra quando D1 também está em alta; só vende quando D1 em baixa.
-            # Elimina entradas contra o movimento maior do dia — sobe WR sem cortar vencedores.
-            td1 = int(trend_d1.iloc[i])
-            if td1 != t5:
-                continue
-            _d_trend_d1 += 1
 
             # ── Filtro 2: RAFI > +2.50 confirma força ──────────
             if forca_atual < forca_limiar:
@@ -325,7 +301,7 @@ class Backtest:
         logger.info(
             f"[DIAGNÓSTICO] Candles sem posição: {_d_total} "
             f"→ sessão: {_d_sessao} → risco ok: {_d_risco} "
-            f"→ trend M5: {_d_trend} → trend D1: {_d_trend_d1} → RAFI>{forca_limiar}: {_d_rafi} "
+            f"→ trend M5: {_d_trend} → RAFI>{forca_limiar}: {_d_rafi} "
             f"→ BB abrindo: {_d_bb} → cor ok: {_d_cor} → S/R rompido: {_d_sr} → trades: {len(self.trades)}"
         )
         logger.info(
