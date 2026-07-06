@@ -173,6 +173,10 @@ class Backtest:
         ratio_rr       = float(self.config.get('ratio_risco_retorno', 1.5))
         corpo_minimo   = float(self.config.get('candle_corpo_minimo', 0.0))
 
+        # Garante que o loop começa após todos os indicadores estarem válidos
+        # (rolling(N) precisa de N candles; shift(1) adiciona 1 extra)
+        min_candles = max(min_candles, ma_l, sr_lookback, swing_stop_lb) + 5
+
         # Sessões ativas lidas do config (fallback: London/NY 12-16h)
         sessoes_config = self.config.get('sessoes', {})
         sessoes_minutos: list[tuple[int, int]] = []
@@ -347,9 +351,15 @@ class Backtest:
         else:
             preco_entrada = close_atual - self.custo_total
 
+        # Rejeita se nivel_stop for NaN (rolling ainda não aqueceu — nunca deveria
+        # chegar aqui após a correção do min_candles, mas mantemos como guarda extra)
+        if nivel_stop is None or np.isnan(nivel_stop):
+            logger.debug("nivel_stop NaN — trade ignorado (lookback insuficiente)")
+            return None
+
         stops = calcular_stops(sinal, preco_entrada, nivel_stop, ratio_rr, self.spread_pips)
 
-        if stops['risco_pips'] <= 0:
+        if stops['risco_pips'] <= 0 or np.isnan(stops['risco_pips']):
             logger.warning(f"Risco inválido ({stops['risco_pips']}p) — trade ignorado")
             return None
 
