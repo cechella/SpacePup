@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import type { IChartApi } from 'lightweight-charts'
 import type { CandleData } from '@/lib/types'
 import { applyRAFICandleColors } from '@/lib/indicators'
 import type { RAFIPoint, SRLevel, BBBands } from '@/lib/indicators'
 import type { ManualTrade } from './trade-panel'
+import { OCOOverlay, type OCOState } from './oco-overlay'
 
 interface Props {
   candles:       CandleData[]
@@ -14,15 +15,33 @@ interface Props {
   trades:        ManualTrade[]
   bbBands?:      BBBands
   onPriceClick?: (price: number) => void
+  ocoState?:     OCOState | null
+  onOCOChange?:  (s: OCOState) => void
+  onOCOExecute?: (dir: 'buy' | 'sell') => void
+  onOCOClose?:   () => void
 }
 
-export function RAFIChart({ candles, rafiData, srLevels, trades, bbBands, onPriceClick }: Props) {
-  const mainRef        = useRef<HTMLDivElement>(null)
-  const rafiRef        = useRef<HTMLDivElement>(null)
+export function RAFIChart({
+  candles, rafiData, srLevels, trades, bbBands, onPriceClick,
+  ocoState, onOCOChange, onOCOExecute, onOCOClose,
+}: Props) {
+  const mainRef         = useRef<HTMLDivElement>(null)
+  const mainWrapperRef  = useRef<HTMLDivElement>(null)
+  const rafiRef         = useRef<HTMLDivElement>(null)
   const onPriceClickRef = useRef(onPriceClick)
+  const candleSeriesRef = useRef<any>(null)
+  const [chartReady, setChartReady] = useState(false)
 
-  // Mantém a referência atualizada sem re-criar o gráfico
   useEffect(() => { onPriceClickRef.current = onPriceClick }, [onPriceClick])
+
+  // Funções estáveis para conversão preço ↔ coordenada Y
+  const getY = useCallback((price: number): number | null => {
+    return candleSeriesRef.current?.priceToCoordinate(price) ?? null
+  }, [])
+
+  const getPrice = useCallback((y: number): number | null => {
+    return candleSeriesRef.current?.coordinateToPrice(y) ?? null
+  }, [])
 
   useEffect(() => {
     if (!mainRef.current || !rafiRef.current || candles.length === 0) return
@@ -53,7 +72,7 @@ export function RAFIChart({ candles, rafiData, srLevels, trades, bbBands, onPric
         horzLine: { color: '#3b82f640', style: LineStyle.Dashed, width: 1 as const },
       }
 
-      // ── Gráfico principal (candlestick) ──────────────────────────────────
+      // ── Gráfico principal ────────────────────────────────────────────────
       mChart = createChart(mainEl, {
         layout:    sharedLayout,
         grid:      sharedGrid,
@@ -67,10 +86,10 @@ export function RAFIChart({ candles, rafiData, srLevels, trades, bbBands, onPric
           minimumWidth: 80,
         },
         timeScale: {
-          borderColor:     '#30363d',
-          timeVisible:     true,
-          secondsVisible:  false,
-          visible:         false,
+          borderColor:    '#30363d',
+          timeVisible:    true,
+          secondsVisible: false,
+          visible:        false,
         },
         width:  mainEl.clientWidth  || 600,
         height: mainEl.clientHeight || 300,
@@ -85,33 +104,37 @@ export function RAFIChart({ candles, rafiData, srLevels, trades, bbBands, onPric
       })
       candleSeries.setData(applyRAFICandleColors(candles, rafiData) as any)
 
-      // Clique no gráfico → envia preço para o painel de ordem
+      // Expõe série para conversão de coordenadas no OCO overlay
+      candleSeriesRef.current = candleSeries
+      setChartReady(true)
+
+      // Clique no gráfico → define preço de entrada no painel
       mChart.subscribeClick((param) => {
         if (!param.point) return
         const price = candleSeries.coordinateToPrice(param.point.y)
         if (price !== null) onPriceClickRef.current?.(price)
       })
 
-      // Bandas de Bollinger (8p, 2σ) — somente superior e inferior
+      // Bandas de Bollinger (8p, 2σ)
       if (bbBands) {
         const bbOpts = { lineWidth: 1 as const, priceLineVisible: false, lastValueVisible: false, color: '#26c6da' }
         mChart.addLineSeries(bbOpts).setData(bbBands.upper as any)
         mChart.addLineSeries(bbOpts).setData(bbBands.lower as any)
       }
 
-      // Níveis de suporte/resistência
+      // Níveis S/R
       for (const lvl of srLevels) {
         candleSeries.createPriceLine({
-          price:             lvl.price,
-          color:             lvl.type === 'resistance' ? '#ef444448' : '#10b98148',
-          lineWidth:         1,
-          lineStyle:         LineStyle.Dotted,
-          axisLabelVisible:  false,
-          title:             '',
+          price:            lvl.price,
+          color:            lvl.type === 'resistance' ? '#ef444448' : '#10b98148',
+          lineWidth:        1,
+          lineStyle:        LineStyle.Dotted,
+          axisLabelVisible: false,
+          title:            '',
         })
       }
 
-      // Linhas de ordem OCO (entrada, SL, TP)
+      // Trades executados
       if (trades.length > 0) {
         const lastTime = candles[candles.length - 1].time
         const markers = trades.map((t, i) => ({
@@ -146,7 +169,7 @@ export function RAFIChart({ candles, rafiData, srLevels, trades, bbBands, onPric
 
       mChart.timeScale().fitContent()
 
-      // ── Gráfico RAFI (histograma) ─────────────────────────────────────────
+      // ── Gráfico RAFI ─────────────────────────────────────────────────────
       rChart = createChart(rafiEl, {
         layout:    sharedLayout,
         grid:      sharedGrid,
@@ -172,29 +195,23 @@ export function RAFIChart({ candles, rafiData, srLevels, trades, bbBands, onPric
         lastValueVisible: false,
       })
       histSeries.setData(rafiData as any)
-
       histSeries.createPriceLine({ price:  2.5, color: '#f59e0b80', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true,  title: '+2.5' })
       histSeries.createPriceLine({ price: -2.5, color: '#ef444480', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true,  title: '-2.5' })
       histSeries.createPriceLine({ price:  0,   color: '#8b949e30', lineWidth: 1, lineStyle: LineStyle.Solid,  axisLabelVisible: false, title: '' })
 
       rChart.timeScale().fitContent()
 
-      // ── Sincroniza escalas de tempo ───────────────────────────────────────
+      // Sincroniza escalas de tempo
       let syncing = false
       mChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
         if (syncing || !range) return
-        syncing = true
-        rChart.timeScale().setVisibleLogicalRange(range)
-        syncing = false
+        syncing = true; rChart.timeScale().setVisibleLogicalRange(range); syncing = false
       })
       rChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
         if (syncing || !range) return
-        syncing = true
-        mChart.timeScale().setVisibleLogicalRange(range)
-        syncing = false
+        syncing = true; mChart.timeScale().setVisibleLogicalRange(range); syncing = false
       })
 
-      // ── ResizeObserver ────────────────────────────────────────────────────
       roMain = new ResizeObserver(([e]) => {
         const { width, height } = e.contentRect
         if (width > 0 && height > 0) mChart?.applyOptions({ width, height })
@@ -210,6 +227,8 @@ export function RAFIChart({ candles, rafiData, srLevels, trades, bbBands, onPric
     init()
 
     return () => {
+      setChartReady(false)
+      candleSeriesRef.current = null
       roMain?.disconnect()
       roRafi?.disconnect()
       mChart?.remove()
@@ -219,7 +238,21 @@ export function RAFIChart({ candles, rafiData, srLevels, trades, bbBands, onPric
 
   return (
     <div className="flex flex-col h-full">
-      <div ref={mainRef} className="flex-[7] min-h-0" />
+      {/* Área principal — relative para o overlay OCO */}
+      <div className="flex-[7] min-h-0 relative" ref={mainWrapperRef}>
+        <div ref={mainRef} className="absolute inset-0" />
+        {ocoState && chartReady && (
+          <OCOOverlay
+            state={ocoState}
+            onChange={onOCOChange  ?? (() => {})}
+            onExecute={onOCOExecute ?? (() => {})}
+            onClose={onOCOClose    ?? (() => {})}
+            getY={getY}
+            getPrice={getPrice}
+            containerRef={mainRef}
+          />
+        )}
+      </div>
       <div className="h-px bg-[#30363d] shrink-0" />
       <div ref={rafiRef} className="flex-[3] min-h-0" />
     </div>
