@@ -126,7 +126,7 @@ export function calcSRLevels(
  */
 export function calcBollingerBands(
   candles:  CandleData[],
-  period    = 20,
+  period    = 8,   // RAFI Módulo 2: 8 períodos, 2 desvios padrão
   stdMult   = 2,
 ): BBBands {
   const upper:  Array<{ time: number; value: number }> = []

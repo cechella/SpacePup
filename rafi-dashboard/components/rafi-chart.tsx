@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import type { IChartApi } from 'lightweight-charts'
-import type { CandleData, LinePoint } from '@/lib/types'
+import type { CandleData } from '@/lib/types'
 import { applyRAFICandleColors } from '@/lib/indicators'
 import type { RAFIPoint, SRLevel, BBBands } from '@/lib/indicators'
 import type { ManualTrade } from './trade-panel'
@@ -12,12 +12,10 @@ interface Props {
   rafiData: RAFIPoint[]
   srLevels: SRLevel[]
   trades:   ManualTrade[]
-  ma20?:    LinePoint[]
-  ma50?:    LinePoint[]
   bbBands?: BBBands
 }
 
-export function RAFIChart({ candles, rafiData, srLevels, trades, ma20 = [], ma50 = [], bbBands }: Props) {
+export function RAFIChart({ candles, rafiData, srLevels, trades, bbBands }: Props) {
   const mainRef = useRef<HTMLDivElement>(null)
   const rafiRef = useRef<HTMLDivElement>(null)
 
@@ -79,23 +77,11 @@ export function RAFIChart({ candles, rafiData, srLevels, trades, ma20 = [], ma50
       // Aplica cores RAFI por vela (verde/vermelho/amarelo/branco)
       candleSeries.setData(applyRAFICandleColors(candles, rafiData) as any)
 
-      // Bandas de Bollinger (20p, 2σ)
+      // Bandas de Bollinger (8p, 2σ) — somente superior e inferior, cor ciano igual ao PDF
       if (bbBands) {
-        const bbBase = { lineWidth: 1 as const, priceLineVisible: false, lastValueVisible: false }
-        mChart.addLineSeries({ ...bbBase, color: '#818cf870' }).setData(bbBands.upper as any)
-        mChart.addLineSeries({ ...bbBase, color: '#818cf8', lineStyle: LineStyle.Dashed }).setData(bbBands.middle as any)
-        mChart.addLineSeries({ ...bbBase, color: '#818cf870' }).setData(bbBands.lower as any)
-      }
-
-      if (ma20.length) {
-        mChart
-          .addLineSeries({ color: '#3b82f6', lineWidth: 1, priceLineVisible: false, lastValueVisible: false })
-          .setData(ma20 as any)
-      }
-      if (ma50.length) {
-        mChart
-          .addLineSeries({ color: '#f59e0b', lineWidth: 1, priceLineVisible: false, lastValueVisible: false })
-          .setData(ma50 as any)
+        const bbOpts = { lineWidth: 1 as const, priceLineVisible: false, lastValueVisible: false, color: '#26c6da' }
+        mChart.addLineSeries(bbOpts).setData(bbBands.upper as any)
+        mChart.addLineSeries(bbOpts).setData(bbBands.lower as any)
       }
 
       // Níveis de suporte/resistência
@@ -211,7 +197,7 @@ export function RAFIChart({ candles, rafiData, srLevels, trades, ma20 = [], ma50
       mChart?.remove()
       rChart?.remove()
     }
-  }, [candles, rafiData, srLevels, trades, ma20, ma50, bbBands])
+  }, [candles, rafiData, srLevels, trades, bbBands])
 
   return (
     <div className="flex flex-col h-full">
