@@ -3,7 +3,8 @@
 import { useEffect, useRef } from 'react'
 import type { IChartApi } from 'lightweight-charts'
 import type { CandleData, LinePoint } from '@/lib/types'
-import type { RAFIPoint, SRLevel } from '@/lib/indicators'
+import { applyRAFICandleColors } from '@/lib/indicators'
+import type { RAFIPoint, SRLevel, BBBands } from '@/lib/indicators'
 import type { ManualTrade } from './trade-panel'
 
 interface Props {
@@ -13,9 +14,10 @@ interface Props {
   trades:   ManualTrade[]
   ma20?:    LinePoint[]
   ma50?:    LinePoint[]
+  bbBands?: BBBands
 }
 
-export function RAFIChart({ candles, rafiData, srLevels, trades, ma20 = [], ma50 = [] }: Props) {
+export function RAFIChart({ candles, rafiData, srLevels, trades, ma20 = [], ma50 = [], bbBands }: Props) {
   const mainRef = useRef<HTMLDivElement>(null)
   const rafiRef = useRef<HTMLDivElement>(null)
 
@@ -68,13 +70,22 @@ export function RAFIChart({ candles, rafiData, srLevels, trades, ma20 = [], ma50
       })
 
       const candleSeries = mChart.addCandlestickSeries({
-        upColor:      '#10b981',
-        downColor:    '#ef4444',
+        upColor:       '#10b981',
+        downColor:     '#ef4444',
         borderVisible: false,
         wickUpColor:   '#10b981',
         wickDownColor: '#ef4444',
       })
-      candleSeries.setData(candles as any)
+      // Aplica cores RAFI por vela (verde/vermelho/amarelo/branco)
+      candleSeries.setData(applyRAFICandleColors(candles, rafiData) as any)
+
+      // Bandas de Bollinger (20p, 2σ)
+      if (bbBands) {
+        const bbBase = { lineWidth: 1 as const, priceLineVisible: false, lastValueVisible: false }
+        mChart.addLineSeries({ ...bbBase, color: '#818cf870' }).setData(bbBands.upper as any)
+        mChart.addLineSeries({ ...bbBase, color: '#818cf8', lineStyle: LineStyle.Dashed }).setData(bbBands.middle as any)
+        mChart.addLineSeries({ ...bbBase, color: '#818cf870' }).setData(bbBands.lower as any)
+      }
 
       if (ma20.length) {
         mChart
@@ -200,7 +211,7 @@ export function RAFIChart({ candles, rafiData, srLevels, trades, ma20 = [], ma50
       mChart?.remove()
       rChart?.remove()
     }
-  }, [candles, rafiData, srLevels, trades, ma20, ma50])
+  }, [candles, rafiData, srLevels, trades, ma20, ma50, bbBands])
 
   return (
     <div className="flex flex-col h-full">
