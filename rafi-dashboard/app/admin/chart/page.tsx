@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import { generateDemoData, type Timeframe } from '@/lib/demo-data'
 import { calcRAFI, calcSRLevels, calcBollingerBands } from '@/lib/indicators'
 import { TradePanel, type ManualTrade } from '@/components/trade-panel'
+import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
-import { Info, BarChart2 } from 'lucide-react'
+import { Info, BarChart2, Crosshair } from 'lucide-react'
 
 const RAFIChart = dynamic(
   () => import('@/components/rafi-chart').then(m => m.RAFIChart),
@@ -25,15 +26,36 @@ const RAFIChart = dynamic(
 
 const TIMEFRAMES: Timeframe[] = ['M5', 'M15', 'H1']
 
-export default function ChartPage() {
-  const [trades, setTrades]           = useState<ManualTrade[]>([])
-  const [tf, setTf]                   = useState<Timeframe>('M5')
-  const [clickedEntry, setClickedEntry] = useState<number | null>(null)
+// Defaults OCO: 0.20L, SL=$5, TP=$15
+const OCO_LOT      = 0.20
+const OCO_LEVERAGE = 100
+const OCO_PV       = OCO_LOT * 10          // $2/pip
+const OCO_SL_OFF   = (5  / OCO_PV) * 0.0001  // 2.5 pips = 0.00025
+const OCO_TP_OFF   = (15 / OCO_PV) * 0.0001  // 7.5 pips = 0.00075
 
-  const candles  = useMemo(() => generateDemoData(tf),          [tf])
-  const rafiData = useMemo(() => calcRAFI(candles),             [candles])
-  const srLevels = useMemo(() => calcSRLevels(candles),         [candles])
-  const bbBands  = useMemo(() => calcBollingerBands(candles),   [candles])
+function makeOCO(price: number): OCOState {
+  const p = (v: number) => Math.round(v * 100000) / 100000
+  return {
+    lot:       OCO_LOT,
+    leverage:  OCO_LEVERAGE,
+    direction: 'buy',
+    entry:     p(price),
+    sl:        p(price - OCO_SL_OFF),
+    tp:        p(price + OCO_TP_OFF),
+  }
+}
+
+export default function ChartPage() {
+  const [trades,       setTrades]       = useState<ManualTrade[]>([])
+  const [tf,           setTf]           = useState<Timeframe>('M5')
+  const [clickedEntry, setClickedEntry] = useState<number | null>(null)
+  const [ocoState,     setOcoState]     = useState<OCOState | null>(null)
+  const [ocoVisible,   setOcoVisible]   = useState(true)
+
+  const candles  = useMemo(() => generateDemoData(tf),        [tf])
+  const rafiData = useMemo(() => calcRAFI(candles),           [candles])
+  const srLevels = useMemo(() => calcSRLevels(candles),       [candles])
+  const bbBands  = useMemo(() => calcBollingerBands(candles), [candles])
 
   const lastCandle = candles[candles.length - 1]
   const lastPrice  = lastCandle?.close ?? 0
@@ -42,8 +64,36 @@ export default function ChartPage() {
   const strongBullBars = rafiData.filter(p => p.value >=  2.5).length
   const strongBearBars = rafiData.filter(p => p.value <= -2.5).length
 
+  // Inicializa/reseta OCO quando o timeframe muda (lastPrice muda junto)
+  useEffect(() => {
+    if (lastPrice > 0) {
+      setOcoState(makeOCO(lastPrice))
+      setOcoVisible(true)
+    }
+  }, [lastPrice])
+
   const handleAdd    = useCallback((t: ManualTrade) => setTrades(p => [...p, t]),    [])
   const handleRemove = useCallback((id: string)     => setTrades(p => p.filter(t => t.id !== id)), [])
+
+  // Executa OCO (adiciona à lista de trades)
+  const handleOCOExecute = useCallback((direction: 'buy' | 'sell') => {
+    if (!ocoState) return
+    handleAdd({
+      id:         `${Date.now()}-oco-${Math.random().toString(36).slice(2, 5)}`,
+      direction,
+      entry:      ocoState.entry,
+      stopLoss:   ocoState.sl,
+      takeProfit: ocoState.tp,
+      label:      `OCO ${direction === 'buy' ? '▲ COMPRA' : '▼ VENDA'} @ ${formatPrice(ocoState.entry)} | ${ocoState.lot.toFixed(2)}L`,
+      time:       lastTime,
+      lot:        ocoState.lot,
+      leverage:   ocoState.leverage,
+    })
+    // Atualiza direção no OCO após execução
+    setOcoState(prev => prev ? { ...prev, direction } : null)
+  }, [ocoState, lastTime, handleAdd])
+
+  const handleOCOClose = useCallback(() => setOcoVisible(false), [])
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -109,6 +159,7 @@ export default function ChartPage() {
               <span className="text-[#30363d]">|</span>
               <span className="text-[#f0f6fc] font-medium">EURUSD {tf}</span>
               <span className="text-[#484f58]">{candles.length} candles</span>
+
               <span className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-sm bg-[#f59e0b] inline-block" />
                 <span className="text-[#f59e0b]">RAFI &gt; +2.5</span>
@@ -119,14 +170,41 @@ export default function ChartPage() {
                 <span className="text-[#ef4444]">RAFI &lt; -2.5</span>
                 <span className="text-[#484f58]">({strongBearBars}×)</span>
               </span>
+
+              <span className="text-[#30363d]">|</span>
+
+              {/* Botão OCO */}
+              <button
+                onClick={() => {
+                  if (!ocoVisible && ocoState) {
+                    setOcoVisible(true)
+                  } else if (!ocoVisible) {
+                    setOcoState(makeOCO(lastPrice))
+                    setOcoVisible(true)
+                  } else {
+                    setOcoVisible(false)
+                  }
+                }}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-all',
+                  ocoVisible
+                    ? 'bg-[#f59e0b]/15 border-[#f59e0b]/40 text-[#f59e0b]'
+                    : 'text-[#484f58] border-[#30363d] hover:text-[#8b949e] hover:bg-[#21262d]',
+                )}
+              >
+                <Crosshair size={10} />
+                OCO
+                {ocoVisible && <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b] inline-block" />}
+              </button>
             </div>
+
             <div className="flex items-center gap-1 text-[10px] text-[#484f58]">
               <Info size={10} />
               Arraste para navegar · scroll para zoom
             </div>
           </div>
 
-          {/* Chart: flex-1 preenche o espaço restante */}
+          {/* Chart */}
           <div className="flex-1 min-h-0">
             <RAFIChart
               candles={candles}
@@ -135,6 +213,10 @@ export default function ChartPage() {
               trades={trades}
               bbBands={bbBands}
               onPriceClick={setClickedEntry}
+              ocoState={ocoVisible ? ocoState : null}
+              onOCOChange={setOcoState}
+              onOCOExecute={handleOCOExecute}
+              onOCOClose={handleOCOClose}
             />
           </div>
         </div>
@@ -146,8 +228,8 @@ export default function ChartPage() {
         )}>
           <span>
             {trades.length > 0
-              ? `${trades.length} trade${trades.length > 1 ? 's' : ''} anotado${trades.length > 1 ? 's' : ''} no gráfico`
-              : 'Adicione trades no painel lateral para visualizá-los no gráfico com entrada, SL e TP'}
+              ? `${trades.length} ordem${trades.length > 1 ? 'ns' : ''} OCO executada${trades.length > 1 ? 's' : ''} no gráfico`
+              : 'Arraste as linhas OCO no gráfico e clique COMPRA ou VENDA para executar'}
           </span>
           {srLevels.length > 0 && (
             <span className="ml-auto">
@@ -158,7 +240,7 @@ export default function ChartPage() {
         </div>
       </div>
 
-      {/* ── Painel de anotação ──────────────────────────────────────── */}
+      {/* ── Painel lateral ──────────────────────────────────────────── */}
       <div className="w-80 shrink-0">
         <TradePanel
           trades={trades}
