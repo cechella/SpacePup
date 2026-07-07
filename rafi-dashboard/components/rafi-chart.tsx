@@ -30,6 +30,8 @@ export function RAFIChart({
   const rafiRef         = useRef<HTMLDivElement>(null)
   const onPriceClickRef = useRef(onPriceClick)
   const candleSeriesRef = useRef<any>(null)
+  const lineStyleRef    = useRef<any>(null)
+  const ocoLinesRef     = useRef<{ entry: any; sl: any; tp: any } | null>(null)
   const [chartReady, setChartReady] = useState(false)
 
   useEffect(() => { onPriceClickRef.current = onPriceClick }, [onPriceClick])
@@ -104,8 +106,9 @@ export function RAFIChart({
       })
       candleSeries.setData(applyRAFICandleColors(candles, rafiData) as any)
 
-      // Expõe série para conversão de coordenadas no OCO overlay
+      // Expõe série e LineStyle para uso fora do efeito (OCO nativo + overlay)
       candleSeriesRef.current = candleSeries
+      lineStyleRef.current    = LineStyle
       setChartReady(true)
 
       // Clique no gráfico → define preço de entrada no painel
@@ -229,12 +232,76 @@ export function RAFIChart({
     return () => {
       setChartReady(false)
       candleSeriesRef.current = null
+      lineStyleRef.current    = null
+      ocoLinesRef.current     = null  // linhas destruídas junto com o chart
       roMain?.disconnect()
       roRafi?.disconnect()
       mChart?.remove()
       rChart?.remove()
     }
   }, [candles, rafiData, srLevels, trades, bbBands])
+
+  // ── Linhas OCO nativas no canvas LWC ─────────────────────────────────────
+  // Usa createPriceLine / applyOptions para garantir visibilidade mesmo que
+  // o overlay HTML não renderize corretamente.
+  useEffect(() => {
+    const series = candleSeriesRef.current
+    const LS     = lineStyleRef.current
+    if (!series || !LS) return
+
+    if (!ocoState) {
+      if (ocoLinesRef.current) {
+        try { series.removePriceLine(ocoLinesRef.current.entry) } catch {}
+        try { series.removePriceLine(ocoLinesRef.current.sl)    } catch {}
+        try { series.removePriceLine(ocoLinesRef.current.tp)    } catch {}
+        ocoLinesRef.current = null
+      }
+      return
+    }
+
+    const pv     = ocoState.lot * 10
+    const slPips = Math.round(Math.abs(ocoState.entry - ocoState.sl)   * 10000)
+    const tpPips = Math.round(Math.abs(ocoState.tp   - ocoState.entry) * 10000)
+    const slUSD  = (slPips * pv).toFixed(2)
+    const tpUSD  = (tpPips * pv).toFixed(2)
+    const isBuy  = ocoState.direction === 'buy'
+    const entryC = isBuy ? '#3b82f6cc' : '#f59e0bcc'
+
+    if (ocoLinesRef.current) {
+      // Atualiza preço/título sem recriar (sem flicker durante o drag)
+      ocoLinesRef.current.entry.applyOptions({
+        price: ocoState.entry, color: entryC,
+        title: `${isBuy ? '▲' : '▼'} ${ocoState.entry.toFixed(5)}`,
+      })
+      ocoLinesRef.current.sl.applyOptions({
+        price: ocoState.sl,
+        title: `STOP  -$${slUSD}`,
+      })
+      ocoLinesRef.current.tp.applyOptions({
+        price: ocoState.tp,
+        title: `GAIN  +$${tpUSD}`,
+      })
+    } else {
+      // Cria as linhas pela primeira vez
+      ocoLinesRef.current = {
+        entry: series.createPriceLine({
+          price: ocoState.entry, color: entryC, lineWidth: 2,
+          lineStyle: LS.Solid, axisLabelVisible: true,
+          title: `${isBuy ? '▲' : '▼'} ${ocoState.entry.toFixed(5)}`,
+        }),
+        sl: series.createPriceLine({
+          price: ocoState.sl, color: '#ef4444cc', lineWidth: 1,
+          lineStyle: LS.Dashed, axisLabelVisible: true,
+          title: `STOP  -$${slUSD}`,
+        }),
+        tp: series.createPriceLine({
+          price: ocoState.tp, color: '#22c55ecc', lineWidth: 1,
+          lineStyle: LS.Dashed, axisLabelVisible: true,
+          title: `GAIN  +$${tpUSD}`,
+        }),
+      }
+    }
+  }, [ocoState, chartReady])
 
   return (
     <div className="flex flex-col h-full">
