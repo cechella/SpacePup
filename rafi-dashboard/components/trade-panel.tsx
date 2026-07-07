@@ -53,6 +53,7 @@ export function TradePanel({
   const [label,     setLabel]     = useState('')
   const [lot,       setLot]       = useState('0.01')
   const [leverage,  setLeverage]  = useState('100')
+  const [capital,   setCapital]   = useState('100')
 
   // Clique no gráfico → preenche entrada automaticamente
   useEffect(() => {
@@ -84,8 +85,9 @@ export function TradePanel({
   const eNum   = parseFloat(entry)
   const sNum   = parseFloat(sl)
   const tNum   = parseFloat(tp)
-  const lNum   = parseFloat(lot)   || 0.01
+  const lNum   = parseFloat(lot)      || 0.01
   const levNum = parseFloat(leverage) || 100
+  const capNum = parseFloat(capital)  || 0
 
   const hasValues = !isNaN(eNum) && !isNaN(sNum) && !isNaN(tNum)
   const risk      = hasValues ? riskPips(eNum, sNum, direction)   : 0
@@ -95,6 +97,7 @@ export function TradePanel({
   const usdRisk   = risk   * pv
   const usdProfit = reward * pv
   const margin    = hasValues && eNum > 0 ? (lNum * 100000 * eNum) / levNum : 0
+  const riskPct   = capNum > 0 ? (usdRisk / capNum) * 100 : 0
 
   return (
     <div className="flex flex-col h-full bg-[#161b22] border-l border-[#30363d]">
@@ -221,6 +224,17 @@ export function TradePanel({
           />
         </div>
 
+        {/* Capital */}
+        <div className="space-y-1">
+          <label className="text-[10px] text-[#484f58] uppercase tracking-wide">Capital (USD)</label>
+          <input
+            type="number" step="1" min="1" value={capital}
+            onChange={e => setCapital(e.target.value)}
+            placeholder="100"
+            className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-2.5 py-1.5 text-xs text-[#f0f6fc] mono focus:outline-none focus:border-[#3b82f6]"
+          />
+        </div>
+
         {/* Rótulo */}
         <div className="space-y-1">
           <label className="text-[10px] text-[#484f58] uppercase tracking-wide">Rótulo (opcional)</label>
@@ -257,6 +271,14 @@ export function TradePanel({
                 1:{rr.toFixed(1)}
               </span>
             </div>
+            {capNum > 0 && usdRisk > 0 && (
+              <div className="flex justify-between items-center border-t border-[#30363d] pt-1.5">
+                <span className="text-[#484f58]">% do capital</span>
+                <span className={cn('mono font-bold', riskPct <= 1 ? 'text-emerald-400' : riskPct <= 2 ? 'text-amber-400' : 'text-red-400')}>
+                  {riskPct.toFixed(1)}%
+                </span>
+              </div>
+            )}
             {margin > 0 && (
               <div className="flex justify-between items-center border-t border-[#30363d] pt-1.5">
                 <span className="text-[#484f58]">Margem ({levNum}×)</span>
