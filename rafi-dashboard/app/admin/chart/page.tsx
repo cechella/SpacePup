@@ -1,0 +1,147 @@
+'use client'
+
+import { useState, useMemo, useCallback } from 'react'
+import dynamic from 'next/dynamic'
+import { generateDemoWeek } from '@/lib/demo-data'
+import { calcRAFI, calcSRLevels } from '@/lib/indicators'
+import { runRAFI } from '@/lib/rafi'
+import { TradePanel, type ManualTrade } from '@/components/trade-panel'
+import { cn, formatPrice } from '@/lib/utils'
+import { Info, BarChart2 } from 'lucide-react'
+
+const RAFIChart = dynamic(
+  () => import('@/components/rafi-chart').then(m => m.RAFIChart),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-full flex items-center justify-center bg-[#0d1117]">
+        <div className="flex flex-col items-center gap-3 text-[#484f58]">
+          <BarChart2 size={24} className="animate-pulse" />
+          <span className="text-xs">Carregando gráfico…</span>
+        </div>
+      </div>
+    ),
+  },
+)
+
+export default function ChartPage() {
+  const [trades, setTrades] = useState<ManualTrade[]>([])
+
+  const candles  = useMemo(() => generateDemoWeek(), [])
+  const rafiData = useMemo(() => calcRAFI(candles),   [candles])
+  const srLevels = useMemo(() => calcSRLevels(candles), [candles])
+  const { ma20, ma50 } = useMemo(() => runRAFI(candles), [candles])
+
+  const lastCandle = candles[candles.length - 1]
+  const lastPrice  = lastCandle?.close ?? 0
+  const lastTime   = lastCandle?.time  ?? 0
+
+  const strongBullBars = rafiData.filter(p => p.value >=  2.5).length
+  const strongBearBars = rafiData.filter(p => p.value <= -2.5).length
+
+  const handleAdd    = useCallback((t: ManualTrade) => setTrades(p => [...p, t]),    [])
+  const handleRemove = useCallback((id: string)     => setTrades(p => p.filter(t => t.id !== id)), [])
+
+  return (
+    <div className="flex h-full overflow-hidden">
+
+      {/* ── Área do gráfico ─────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col min-w-0 p-4 gap-3">
+
+        {/* Header */}
+        <div className="flex items-center justify-between shrink-0">
+          <div>
+            <h1 className="text-base font-bold text-[#f0f6fc]">Análise RAFI</h1>
+            <p className="text-xs text-[#8b949e] mt-0.5">
+              EURUSD · M5 · Semana demo
+              <span className="ml-2 mono text-[#484f58]">{formatPrice(lastPrice)}</span>
+            </p>
+          </div>
+
+          {/* Legendas rápidas */}
+          <div className="flex items-center gap-4 text-[10px]">
+            <span className="flex items-center gap-1 text-[#3b82f6]">
+              <span className="w-4 h-0.5 bg-[#3b82f6] inline-block" />MA20
+            </span>
+            <span className="flex items-center gap-1 text-[#f59e0b]">
+              <span className="w-4 h-0.5 bg-[#f59e0b] inline-block" />MA50
+            </span>
+            <span className="flex items-center gap-1 text-[#8b949e]">
+              <span className="w-2 h-2.5 bg-[#ef444445] border border-red-400/30 inline-block rounded-sm" />R
+            </span>
+            <span className="flex items-center gap-1 text-[#8b949e]">
+              <span className="w-2 h-2.5 bg-[#10b98145] border border-emerald-400/30 inline-block rounded-sm" />S
+            </span>
+          </div>
+        </div>
+
+        {/* Gráfico duplo (candles + RAFI) */}
+        <div className="flex-1 min-h-0 rounded-xl border border-[#30363d] overflow-hidden flex flex-col">
+
+          {/* Toolbar do gráfico */}
+          <div className="px-4 py-2 border-b border-[#30363d] bg-[#161b22] flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-4 text-[10px]">
+              <span className="text-[#f0f6fc] font-medium text-xs">EURUSD M5</span>
+              <span className="text-[#484f58]">{candles.length} candles</span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm bg-[#f59e0b] inline-block" />
+                <span className="text-[#f59e0b]">RAFI &gt; +2.5</span>
+                <span className="text-[#484f58]">({strongBullBars}×)</span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm bg-[#ef4444] inline-block" />
+                <span className="text-[#ef4444]">RAFI &lt; -2.5</span>
+                <span className="text-[#484f58]">({strongBearBars}×)</span>
+              </span>
+            </div>
+            <div className="flex items-center gap-1 text-[10px] text-[#484f58]">
+              <Info size={10} />
+              Arraste para navegar · scroll para zoom
+            </div>
+          </div>
+
+          {/* Chart: flex-1 preenche o espaço restante */}
+          <div className="flex-1 min-h-0">
+            <RAFIChart
+              candles={candles}
+              rafiData={rafiData}
+              srLevels={srLevels}
+              trades={trades}
+              ma20={ma20}
+              ma50={ma50}
+            />
+          </div>
+        </div>
+
+        {/* Rodapé informativo */}
+        <div className={cn(
+          'shrink-0 flex items-center gap-3 text-[10px] text-[#484f58] px-1',
+          trades.length > 0 && 'text-[#8b949e]',
+        )}>
+          <span>
+            {trades.length > 0
+              ? `${trades.length} trade${trades.length > 1 ? 's' : ''} anotado${trades.length > 1 ? 's' : ''} no gráfico`
+              : 'Adicione trades no painel lateral para visualizá-los no gráfico com entrada, SL e TP'}
+          </span>
+          {srLevels.length > 0 && (
+            <span className="ml-auto">
+              {srLevels.filter(l => l.type === 'resistance').length} resistências ·{' '}
+              {srLevels.filter(l => l.type === 'support').length} suportes detectados
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* ── Painel de anotação ──────────────────────────────────────── */}
+      <div className="w-72 shrink-0">
+        <TradePanel
+          trades={trades}
+          onAdd={handleAdd}
+          onRemove={handleRemove}
+          lastPrice={lastPrice}
+          lastCandleTime={lastTime}
+        />
+      </div>
+    </div>
+  )
+}
