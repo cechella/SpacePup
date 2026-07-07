@@ -1,13 +1,14 @@
 'use client'
 
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { generateDemoData, type Timeframe } from '@/lib/demo-data'
 import { calcRAFI, calcSRLevels, calcBollingerBands } from '@/lib/indicators'
+import { parseCSV, type LoadResult } from '@/lib/csv-loader'
 import { TradePanel, type ManualTrade } from '@/components/trade-panel'
 import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
-import { Info, BarChart2, Crosshair } from 'lucide-react'
+import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon } from 'lucide-react'
 
 const RAFIChart = dynamic(
   () => import('@/components/rafi-chart').then(m => m.RAFIChart),
@@ -53,6 +54,32 @@ export default function ChartPage() {
   const [clickedEntry, setClickedEntry] = useState<number | null>(null)
   const [ocoState,     setOcoState]     = useState<OCOState | null>(null)
   const [ocoVisible,   setOcoVisible]   = useState(true)
+  const [csvData,      setCsvData]      = useState<LoadResult | null>(null)
+  const [csvError,     setCsvError]     = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setCsvError(null)
+    const reader = new FileReader()
+    reader.onload = ev => {
+      try {
+        const result = parseCSV(ev.target?.result as string, file.name)
+        setCsvData(result)
+        setTrades([])
+      } catch (err: any) {
+        setCsvError(err?.message ?? 'Erro desconhecido')
+        setCsvData(null)
+      }
+    }
+    reader.readAsText(file, 'utf-8')
+    e.target.value = ''
+  }, [])
+
+  const clearCSV = useCallback(() => {
+    setCsvData(null); setCsvError(null); setTrades([])
+  }, [])
 
   // Carrega trades salvos do localStorage na inicialização
   useEffect(() => {
@@ -70,7 +97,10 @@ export default function ChartPage() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(trades)) } catch {}
   }, [trades])
 
-  const candles  = useMemo(() => generateDemoData(tf),        [tf])
+  const candles  = useMemo(
+    () => csvData?.candles ?? generateDemoData(tf),
+    [csvData, tf],
+  )
   const rafiData = useMemo(() => calcRAFI(candles),           [candles])
   const srLevels = useMemo(() => calcSRLevels(candles),       [candles])
   const bbBands  = useMemo(() => calcBollingerBands(candles), [candles])
@@ -145,7 +175,10 @@ export default function ChartPage() {
           <div>
             <h1 className="text-base font-bold text-[#f0f6fc]">Análise RAFI</h1>
             <p className="text-xs text-[#8b949e] mt-0.5">
-              EURUSD · {tf} · Semana demo
+              {csvData
+                ? <><span className="text-[#22c55e]">{csvData.timeframe}</span> · {csvData.dateFrom} → {csvData.dateTo} · <span className="text-[#22c55e]">{csvData.count.toLocaleString('pt-BR')} candles</span></>
+                : <>EURUSD · {tf} · Semana demo</>
+              }
               <span className="ml-2 mono text-[#484f58]">{formatPrice(lastPrice)}</span>
             </p>
           </div>
@@ -178,7 +211,20 @@ export default function ChartPage() {
             <div className="flex items-center gap-3 text-[10px]">
 
               {/* Seletor de Timeframe */}
-              <div className="flex items-center gap-0.5 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]">
+              {/* Input de arquivo oculto */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,.txt"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+
+              {/* Timeframe — desabilitado quando CSV carregado */}
+              <div className={cn(
+                'flex items-center gap-0.5 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]',
+                csvData && 'opacity-40 pointer-events-none',
+              )}>
                 {TIMEFRAMES.map(t => (
                   <button
                     key={t}
@@ -195,9 +241,34 @@ export default function ChartPage() {
                 ))}
               </div>
 
+              {/* Botão Carregar CSV */}
+              {csvData ? (
+                <span className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#22c55e]/10 border border-[#22c55e]/30 text-[#22c55e] text-[10px] font-semibold">
+                  <FolderOpen size={10} />
+                  {csvData.timeframe} · {csvData.count.toLocaleString('pt-BR')} candles
+                  <button onClick={clearCSV} className="hover:text-red-400 transition-colors ml-0.5" title="Remover dados">
+                    <XIcon size={10} />
+                  </button>
+                </span>
+              ) : (
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border border-[#30363d] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d] transition-all"
+                  title="Carregar dados históricos reais (CSV Dukascopy ou MT5)"
+                >
+                  <FolderOpen size={10} />
+                  Carregar CSV
+                </button>
+              )}
+              {csvError && (
+                <span className="text-[#ef4444] text-[9px] max-w-[180px] truncate" title={csvError}>
+                  ⚠ {csvError}
+                </span>
+              )}
+
               <span className="text-[#30363d]">|</span>
-              <span className="text-[#f0f6fc] font-medium">EURUSD {tf}</span>
-              <span className="text-[#484f58]">{candles.length} candles</span>
+              <span className="text-[#f0f6fc] font-medium">EURUSD {csvData?.timeframe ?? tf}</span>
+              <span className="text-[#484f58]">{candles.length.toLocaleString('pt-BR')} candles</span>
 
               <span className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-sm bg-[#22c55e] inline-block" />
