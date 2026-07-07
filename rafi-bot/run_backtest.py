@@ -99,8 +99,8 @@ def main() -> None:
     )
     parser.add_argument('--m5',      default=None, help='CSV com dados M5')
     parser.add_argument('--m15',     default=None, help='CSV com dados M15')
-    parser.add_argument('--capital', type=float, default=20.0,
-                        help='Capital inicial em USD (padrão: 20)')
+    parser.add_argument('--capital', type=float, default=None,
+                        help='Capital inicial em USD (padrão: capital_inicial do config.yaml)')
     parser.add_argument('--config',  default='config.yaml',
                         help='Arquivo de configuração YAML')
     parser.add_argument('--grafico', default=None,
@@ -112,6 +112,9 @@ def main() -> None:
     # ── Carregar configurações ─────────────────────────────────
     with open(args.config, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
+
+    # Capital: CLI > config.yaml > default 100
+    capital = args.capital if args.capital is not None else float(config.get('capital_inicial', 100.0))
 
     log_arquivo = config.get('log_arquivo', 'logs/backtest.log')
     configurar_logging(args.log, log_arquivo)
@@ -129,7 +132,7 @@ def main() -> None:
             config,
             caminho_m5=args.m5,
             caminho_m15=args.m15 if args.m15 else args.m5,
-            capital=args.capital,
+            capital=capital,
         )
     else:
         logger.warning(
@@ -137,7 +140,7 @@ def main() -> None:
         )
         df_m5  = gerar_dados_sinteticos(n_candles=8640, tf_minutos=5)   # ~30 dias
         df_m15 = reamostrar(df_m5, 15)
-        bt = Backtest(config, df_m5, df_m15, capital=args.capital)
+        bt = Backtest(config, df_m5, df_m15, capital=capital)
 
     # ── Executar ───────────────────────────────────────────────
     trades = bt.executar()
@@ -145,7 +148,7 @@ def main() -> None:
     # ── Relatório ──────────────────────────────────────────────
     relatorio = gerar_relatorio(
         trades,
-        capital_inicial=args.capital,
+        capital_inicial=capital,
         equity_curve=bt.equity_curve,
         salvar_grafico=args.grafico,
     )
