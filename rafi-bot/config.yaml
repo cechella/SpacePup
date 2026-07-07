@@ -1,0 +1,177 @@
+# ============================================================
+# Configurações do Bot RAFI Forex
+# Par: EURUSD# | Corretora: XM Ultra Low Standard
+# ============================================================
+# TESTE AF: RSI(3) MEAN-REVERSION + EMA200 (risco 2% para ver período completo)
+# Meta: WR>45% (break-even R:R=2.0 com spread = 35.5%)
+# Lógica: RSI<5 + acima da EMA200 → compra pullback com tendência
+#         risco=2% evita blowup prematuro → estatísticas reais do período todo
+# ============================================================
+
+# --- Par e corretora ---
+par: "EURUSD#"                 # XM usa EURUSD# com hashtag
+corretora: "XM"
+tipo_conta: "Ultra Low Standard"
+
+# --- Capital e alavancagem ---
+capital_inicial: 100.0         # USD — capital mínimo viável com Kelly
+alavancagem: 1000              # 1:1000 (XM Ultra Low)
+tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
+
+# --- Sizing pelo Kelly % real (lote ajustado ao SL dinâmico) ---
+# Fórmula: lote = (capital × risco_por_trade) / (risco_pips × 10)
+# Vantagem: auto-corrige após perdas → previne blow-up; escala com capital
+#
+#   Histórico de testes (estratégia RAFI):
+#   TESTE A-J: lote fixo 0.01 → PF=0.871~1.118
+#   TESTE K:   filtro corpo ativo → WR cai, PF piora
+#   TESTE L:   sr_lookback menor → piora
+#   GRID:      swing=150 → PF=1.800 (melhor), forca=2.5, sr=50
+#   TESTE M:   proporcional 25% → DD=96.5% blow-up 2026-06
+#   TESTE N:   Kelly % + R:R=3.5 + all-hours → 4 trades (TP de 975p nunca atingido!)
+#   TESTE O:   max_stop=50p + max_dur=500c + R:R=2.5 → PF=0.868 (SL artificial quebra estrutura)
+#   TESTE P:   max_stop=50p skip + max_dur=500c + R:R=2.5 → PF=0.725 (tempo mata R:R)
+#   TESTE Q:   sem filtro RAFI + sem cap stop + sem limite tempo → PF=1.118, 32 trades (1 simultâneo)
+#   TESTE R:   3 posições simultâneas → 75 trades, WR=33.3%, PF=1.122, Kelly=6.7% → crescimento mínimo
+#   TESTE S:   R:R=1.5 + dur=500c → 189 trades, WR=46.6%, PF=0.963 (dur mata R:R)
+#   TESTE T:   forca=2.5 + 3 posições + R:R=2.5 sem dur — WR=0%, PF=0.000 (RAFI invertido!)
+#   TESTE U:   breakeven stop → 126 trades, WR=30.9%, PF=0.955, $20→-$11 (pior! converteu vitórias em empates)
+#   TESTE V:   drawdown 40% + capital_min=$16 → só 4 trades (guard bloqueou tudo após 1ª perda)
+#   TESTE W:   capital=$100, drawdown 50%, capital_min=$20 → só 30 trades (proteção travou frequência!)
+#   TESTE X:   capital=$100 SEM proteção, risco=10% → Kelly funciona, frequência máxima
+#   TESTE Y:   EPM v1 — pullback_lookback=15 → WR=21.6%, PF=0.613 (dead-cat bounces)
+#   TESTE Z:   EPM v2 — pullback fresco i-1/i-2 + SL candle anterior → WR=29.9%, PF=0.484 (pior!)
+#              Diagnóstico EPM: cruzamento EMA21 em M5 é ruído — 22.714 candles → 77 trades, WR<30%
+#   TESTE AA:  RAFI de volta — swing_stop=150 (grid-best), 1 posição (sem correlação)
+#   TESTE AB:  SCALP R:R=1:1 — EMA9/21/50 + ATR + RSI, TP=SL=10p → WR=36.1%, PF=0.499 (trend-following falhou)
+#   TESTE AC:  RSI(3) mean-reversion — RSI<15 buy, RSI>85 sell, TP=SL=10p → WR=44.8%, PF=0.724, 261 trades
+#   TESTE AD:  RSI(3) momentum (invertido) — RSI>75 buy, RSI<25 sell, TP=15p/SL=10p → WR=20%, PF=0.341, 30 trades (BLOWUP)
+#   TESTE AE:  RSI(3) mean-reversion puro — RSI<5 buy, RSI>95 sell, TP=15p/SL=10p → WR=28.9%, PF=0.655, blowup Jan2023 (risco 10% demasiado!)
+#   TESTE AF:  RSI(3) mean-rev + EMA200 filtro + risco=2% — RSI<5 buy acima EMA200 ← ATUAL
+lote_proporcional: false       # Kelly % real
+risco_por_trade: 0.02          # 2% por trade — conservador para ver estatísticas reais sem blowup
+lote_base: 0.10               # não usado com proporcional=false; mantido p/ referência
+capital_base: 200.0            # não usado com proporcional=false; mantido p/ referência
+lote_maximo: 100.0             # limite máximo por trade (XM permite até 100 lotes)
+lote_fixo: 0.00               # 0 = desativado (usa risco_por_trade acima)
+
+# --- Gestão de risco ---
+risco_maximo_diario: 9.0       # 900% — desativado no backtest; limite real em produção
+max_trades_simultaneos: 1      # 1 posição — evita correlação (todos EURUSD = todos perdem juntos)
+max_perdas_por_dia: 100        # desativado para teste — deixa a estratégia rodar livremente
+ratio_risco_retorno: 2.0       # R:R=2.0 — TP=20p SL=10p (break-even WR=35.5% com spread)
+
+# --- Controle de duração e tamanho do stop ---
+max_stop_pips: 0               # 0 = desativado — stop natural pelo pullback
+max_duracao_candles: 0         # 0 = sem limite
+candle_corpo_minimo: 0.0       # 0.0 = desativado
+
+# --- Breakeven stop (desativado — TESTE U: piora WR ao converter vitórias em empates) ---
+breakeven_stop_ativo: false
+breakeven_gatilho_r: 1.0
+
+# --- Proteção de drawdown (DESATIVADO — TESTE W: cortou 75→30 trades) ---
+drawdown_protecao: false
+drawdown_reducao_pct: 0.50
+capital_minimo_operacional: 0.0
+
+# --- Spread e slippage ---
+spread_pips: 0.8               # spread médio EURUSD# XM Ultra Low
+slippage_pips: 0.5             # slippage estimado em pontos
+
+# --- Estratégia ativa ---
+# 'rafi'    = rompimento de S/R com índice de força (padrão)
+# 'epm'     = EMA Pullback Momentum (TESTE Y/Z — abandonado)
+# 'scalp'   = alta frequência EMA9/21/50 + ATR + RSI (TESTE AB — WR=36%, falhou)
+# 'rsi_rev' = mean-reversion RSI(3) extremos (TESTE AC — atual)
+estrategia_modo: "rsi_rev"
+
+# --- Parâmetros EPM (EMA Pullback Momentum) ---
+# Lógica: EMA21 acima de EMA55 (tendência de alta) → preço recua até tocar
+# a EMA21 → price action volta a fechar acima da EMA21 → ENTRADA COMPRA
+# Espelho para venda. SL no fundo/topo do pullback recente (15 candles M5 = 75 min)
+epm_ema_rapida: 21             # EMA rápida (tendência intraday — padrão universal)
+epm_ema_lenta: 55              # EMA lenta (tendência swing — Fibonacci)
+epm_slope_periodo: 5           # candles para calcular slope da EMA21 (5 × 5min = 25min)
+epm_threshold: 0.0005          # separação mínima EMA21-EMA55 (5 pips) para confirmar tendência
+epm_slope_minimo: 0.00005      # slope mínimo da EMA21 — 0.5 pip/5 candles; filtra lateralização
+pullback_lookback: 3           # lookback de SL legado (não usado no v2 — SL agora = low do candle anterior)
+pullback_minimo: 0.0002        # profundidade mínima do pullback: 2 pips abaixo/acima da EMA21
+recovery_buffer: 0.0001        # buffer de recuperação: 1 pip acima da EMA21 para confirmar retorno
+
+# --- Parâmetros SCALP (EMA9/21/50 + ATR + RSI — usado no modo 'scalp') ---
+# Lógica: EMA21 > EMA50 (macro-tendência) + close > EMA9 (micro-tendência)
+#         + candle na direção + corpo >= ATR×mínimo + RSI alinhado
+# TP e SL fixos em pips (R:R=1:1 → ratio_risco_retorno=1.0 acima)
+scalp_ema_curta: 9             # EMA rápida — micro-tendência (5×9=45min)
+scalp_ema_media: 21            # EMA média — tendência intraday
+scalp_ema_longa: 50            # EMA longa — macro-tendência swing
+scalp_rsi_periodo: 7           # RSI curto — momentum imediato
+scalp_atr_periodo: 14          # ATR para tamanho mínimo do candle
+scalp_tp_pips: 10.0            # take profit fixo em pips
+scalp_sl_pips: 10.0            # stop loss fixo em pips
+scalp_atr_min: 0.3             # corpo mínimo = 30% do ATR (filtra micro-ruído)
+scalp_rsi_filtro: true         # exige RSI>50 (buy) ou RSI<50 (sell)
+
+# --- Parâmetros RSI_REV (mean-reversion ou momentum por extremos de RSI — modo 'rsi_rev') ---
+# RSI(3) oscila de 0–100 várias vezes por dia no M5.
+# TESTE AC: mean-reversion (invertir=false), thresholds 15/85 → WR=44.8% (abaixo do break-even com R:R=1)
+# TESTE AD: momentum (invertir=true), thresholds 25/75 → WR=20% (RSI extremo = REVERSÃO, não momentum!)
+# TESTE AE: mean-reversion puro, thresholds 5/95, risco=10% → WR=28.9%, blowup Jan2023 (risco alto demais)
+# TESTE AF: mean-reversion + EMA200 + risco=2% + R:R=2.0 → ver estatísticas reais sem blowup
+#   Break-even WR com TP=20p/SL=10p e spread 1.3p = 35.5% → qualquer WR>36% é lucrativo
+rsi_rev_periodo: 3             # RSI(3) — extremamente rápido (15 min de look-back)
+rsi_rev_oversold: 5.0          # RSI < 5 → extremo sobrevendido → compra
+rsi_rev_overbought: 95.0       # RSI > 95 → extremo sobrecomprado → venda
+rsi_rev_tp_pips: 20.0          # take profit fixo em pips (R:R=2.0)
+rsi_rev_sl_pips: 10.0          # stop loss fixo em pips
+rsi_rev_ema_tendencia: 200     # EMA200: só compra acima, só vende abaixo (filtro tendência macro)
+rsi_rev_invertir: false        # false=mean-reversion
+
+# --- Indicador RAFI (usado apenas no modo 'rafi') ---
+forca_limiar: 0.00             # 0 = desativado no modo epm; RAFI aprox. é INVERTIDO em limiar alto
+forca_exaustao: -1.0           # saída por exaustão (inativo no modo epm)
+
+# --- Suporte e Resistência (usado no modo 'rafi') ---
+sr_lookback: 50                # candles para trás para S/R
+sr_tolerancia: 0.0005          # tolerância de 5 pips
+swing_stop_lookback: 150       # OTIMIZADO: 150c=12.5h → WR=37.5%, PF=1.800 (modo rafi)
+
+# --- Médias Móveis (tendência M5 — usado no modo 'rafi') ---
+ma_rapida: 20                  # MA20
+ma_lenta: 50                   # MA50
+ma_threshold: 0.0003           # 3 pips de diferença MA20-MA50
+
+# --- Bandas de Bollinger (timing — usado no modo 'rafi') ---
+bb_filtro_ativo: false
+bb_periodo: 8
+bb_desvios: 2.0
+bb_limiar_estreita: 0.0020
+bb_abertura_minima: 0.0003
+bb_lookback: 3
+
+# --- Timeframes ---
+timeframes:
+  - "M5"                       # apenas M5
+
+# --- Sessões ativas (UTC/GMT) ---
+sessoes:
+  tudo:
+    inicio: "00:00"
+    fim: "23:59"               # 24h — sem filtro de sessão
+
+# --- Backtest ---
+backtest:
+  data_inicio: "2023-01-01"
+  data_fim: "2026-07-03"
+  timeframe_base: "M5"
+  incluir_spread: true
+  incluir_slippage: true
+
+# --- Logging ---
+log_nivel: "INFO"
+log_arquivo: "logs/rafi_bot.log"
+
+# --- Meta de capital ---
+meta_ajuste_capital: 1000.0    # a partir de $1000 recalibrar lote
+meta_final: 300000.0
