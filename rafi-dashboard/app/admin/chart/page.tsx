@@ -93,8 +93,10 @@ export default function ChartPage() {
 
   const handleAdd    = useCallback((t: ManualTrade) => setTrades(p => [...p, t]),    [])
   const handleRemove = useCallback((id: string)     => setTrades(p => p.filter(t => t.id !== id)), [])
+  const handleUpdate = useCallback((id: string, updates: Partial<ManualTrade>) =>
+    setTrades(p => p.map(t => t.id === id ? { ...t, ...updates } : t)), [])
 
-  // Executa OCO — inverte TP/SL automaticamente se necessário para a direção
+  // Executa OCO — captura features RAFI + BB para dataset ML
   const handleOCOExecute = useCallback((direction: 'buy' | 'sell') => {
     if (!ocoState) return
     const { entry } = ocoState
@@ -104,6 +106,14 @@ export default function ChartPage() {
     const tp = direction === 'buy' ? entry + tpDist : entry - tpDist
     const sl = direction === 'buy' ? entry - slDist : entry + slDist
     const p  = (v: number) => Math.round(v * 100000) / 100000
+
+    // Features do momento para treinamento ML
+    const lastRafi  = rafiData[rafiData.length - 1]
+    const lastUpper = bbBands?.upper[bbBands.upper.length - 1]?.value
+    const lastLower = bbBands?.lower[bbBands.lower.length - 1]?.value
+    const bbWidth   = lastUpper !== undefined && lastLower !== undefined
+      ? lastUpper - lastLower : undefined
+
     handleAdd({
       id:         `${Date.now()}-oco-${Math.random().toString(36).slice(2, 5)}`,
       direction,
@@ -114,9 +124,13 @@ export default function ChartPage() {
       time:       lastTime,
       lot:        ocoState.lot,
       leverage:   ocoState.leverage,
+      result:     'pending',
+      rafi:       lastRafi?.value,
+      rafiDir:    lastRafi?.dir,
+      bbWidth,
     })
     setOcoState(prev => prev ? { ...prev, direction, tp: p(tp), sl: p(sl) } : null)
-  }, [ocoState, lastTime, handleAdd])
+  }, [ocoState, lastTime, rafiData, bbBands, handleAdd])
 
   const handleOCOClose = useCallback(() => setOcoVisible(false), [])
 
@@ -271,6 +285,7 @@ export default function ChartPage() {
           trades={trades}
           onAdd={handleAdd}
           onRemove={handleRemove}
+          onUpdate={handleUpdate}
           lastPrice={lastPrice}
           lastCandleTime={lastTime}
           externalEntry={clickedEntry}
