@@ -50,16 +50,29 @@ function OCOLine({
         }}
       />
 
-      {/* Badge principal — esquerda */}
+      {/* Badge principal — esquerda — ARRASTÁVEL (entrada: move tudo; SL/TP: move só essa linha) */}
       <div
-        className="absolute left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-lg whitespace-nowrap"
+        className={cn(
+          'absolute left-3 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg whitespace-nowrap select-none transition-all',
+          isDragging ? 'opacity-100 shadow-xl scale-105' : 'opacity-90 hover:opacity-100 hover:scale-105',
+        )}
         style={{
-          pointerEvents:   onClose ? 'all' : 'none',
-          backgroundColor: `${lineColor}1a`,
-          border:          `1px solid ${lineColor}45`,
+          pointerEvents:   'all',
+          backgroundColor: isDragging ? `${lineColor}30` : `${lineColor}1a`,
+          border:          `1px solid ${isDragging ? lineColor + '80' : lineColor + '45'}`,
+          cursor:          !draggable
+            ? (isDragging ? 'grabbing' : 'grab')
+            : 'ns-resize',
+          touchAction:     'none',
           minWidth:        64,
         }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
       >
+        {/* Ícone de arraste */}
+        <GripVertical size={11} style={{ color: lineColor, opacity: 0.6, flexShrink: 0 }} />
         <div className="flex flex-col justify-center">
           <span className="font-mono font-black leading-tight" style={{ color: lineColor, fontSize: 13 }}>
             {label}
@@ -73,6 +86,7 @@ function OCOLine({
         {onClose && (
           <button
             onClick={onClose}
+            onPointerDown={e => e.stopPropagation()}
             className="flex items-center justify-center rounded transition-all hover:scale-110 active:scale-95 ml-0.5"
             style={{
               width: 16, height: 16,
@@ -88,13 +102,13 @@ function OCOLine({
         )}
       </div>
 
-      {/* Handle de arraste — direita */}
+      {/* Handle de arraste — direita (preço + grip secundário) */}
       <div
         className={cn(
           'absolute right-0 flex items-center gap-1.5 px-2.5 py-2 rounded-l-lg',
-          'font-mono text-[11px] font-bold border-l border-t border-b',
-          'cursor-ns-resize select-none transition-all',
-          isDragging ? 'opacity-100 scale-105 shadow-xl' : 'opacity-70 hover:opacity-100 hover:scale-105',
+          'font-mono text-[11px] font-bold border-l border-t border-b select-none transition-all',
+          !draggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-ns-resize',
+          isDragging ? 'opacity-100 scale-105 shadow-xl' : 'opacity-55 hover:opacity-100 hover:scale-105',
         )}
         style={{
           pointerEvents:   'all',
@@ -110,7 +124,7 @@ function OCOLine({
       >
         <GripVertical size={12} style={{ opacity: 0.8 }} />
         <div className="flex flex-col items-center" style={{ lineHeight: 1 }}>
-          <span style={{ fontSize: 9, opacity: 0.7 }}>{draggable ? '↕ arraste' : '↕ mover tudo'}</span>
+          <span style={{ fontSize: 9, opacity: 0.7 }}>{draggable ? '↕' : '✥ mover'}</span>
           <span style={{ fontSize: 11 }}>{price.toFixed(5)}</span>
         </div>
       </div>
