@@ -65,7 +65,7 @@ class AnalisadorSinal:
     """
 
     def __init__(self, config: dict):
-        self.forca_limiar  = float(config.get('forca_limiar', 2.50))
+        self.forca_limiar  = float(config.get('forca_limiar', 0.00))
         self.forca_exaust  = float(config.get('forca_exaustao', -2.50))
         self.sr_lookback   = int(config.get('sr_lookback', 50))
         self.sr_tolerancia = float(config.get('sr_tolerancia', 0.0005))
