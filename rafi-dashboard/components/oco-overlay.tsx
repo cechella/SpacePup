@@ -551,6 +551,50 @@ export function OCOOverlay({
             ))}
           </div>
 
+          {/* Toggle DIREÇÃO — inverte TP/SL ao trocar */}
+          <div
+            className="grid grid-cols-2"
+            style={{ borderBottom: '1px solid #30363d' }}
+          >
+            <button
+              onClick={() => {
+                const { entry, tp, sl } = state
+                const tpDist = Math.abs(tp - entry)
+                const slDist = Math.abs(sl - entry)
+                onChange({ ...state, direction: 'buy', tp: entry + tpDist, sl: entry - slDist })
+              }}
+              className="flex items-center justify-center gap-1 py-2 select-none transition-all"
+              style={{
+                borderRight: '1px solid #30363d',
+                background:  isBuy ? 'rgba(34,197,94,0.15)' : 'transparent',
+                color:       isBuy ? '#4ade80' : '#484f58',
+                fontWeight:  isBuy ? 900 : 500,
+                fontSize:    10,
+              }}
+            >
+              <TrendingUp size={11} strokeWidth={2.5} />
+              COMPRA {isBuy && '●'}
+            </button>
+            <button
+              onClick={() => {
+                const { entry, tp, sl } = state
+                const tpDist = Math.abs(tp - entry)
+                const slDist = Math.abs(sl - entry)
+                onChange({ ...state, direction: 'sell', tp: entry - tpDist, sl: entry + slDist })
+              }}
+              className="flex items-center justify-center gap-1 py-2 select-none transition-all"
+              style={{
+                background: !isBuy ? 'rgba(239,68,68,0.15)' : 'transparent',
+                color:      !isBuy ? '#f87171' : '#484f58',
+                fontWeight: !isBuy ? 900 : 500,
+                fontSize:   10,
+              }}
+            >
+              <TrendingDown size={11} strokeWidth={2.5} />
+              VENDA {!isBuy && '●'}
+            </button>
+          </div>
+
           {/* Botões VENDA / COMPRA */}
           <div className="grid grid-cols-2">
             <button

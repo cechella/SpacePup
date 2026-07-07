@@ -45,12 +45,30 @@ function makeOCO(price: number): OCOState {
   }
 }
 
+const STORAGE_KEY = 'rafi-trade-log'
+
 export default function ChartPage() {
   const [trades,       setTrades]       = useState<ManualTrade[]>([])
   const [tf,           setTf]           = useState<Timeframe>('M5')
   const [clickedEntry, setClickedEntry] = useState<number | null>(null)
   const [ocoState,     setOcoState]     = useState<OCOState | null>(null)
   const [ocoVisible,   setOcoVisible]   = useState(true)
+
+  // Carrega trades salvos do localStorage na inicialização
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (Array.isArray(parsed) && parsed.length > 0) setTrades(parsed)
+      }
+    } catch {}
+  }, [])
+
+  // Salva trades no localStorage sempre que mudam
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(trades)) } catch {}
+  }, [trades])
 
   const candles  = useMemo(() => generateDemoData(tf),        [tf])
   const rafiData = useMemo(() => calcRAFI(candles),           [candles])
@@ -75,22 +93,28 @@ export default function ChartPage() {
   const handleAdd    = useCallback((t: ManualTrade) => setTrades(p => [...p, t]),    [])
   const handleRemove = useCallback((id: string)     => setTrades(p => p.filter(t => t.id !== id)), [])
 
-  // Executa OCO (adiciona à lista de trades)
+  // Executa OCO — inverte TP/SL automaticamente se necessário para a direção
   const handleOCOExecute = useCallback((direction: 'buy' | 'sell') => {
     if (!ocoState) return
+    const { entry } = ocoState
+    const tpDist = Math.abs(ocoState.tp - entry)
+    const slDist = Math.abs(ocoState.sl - entry)
+    // BUY: TP acima, SL abaixo | SELL: TP abaixo, SL acima
+    const tp = direction === 'buy' ? entry + tpDist : entry - tpDist
+    const sl = direction === 'buy' ? entry - slDist : entry + slDist
+    const p  = (v: number) => Math.round(v * 100000) / 100000
     handleAdd({
       id:         `${Date.now()}-oco-${Math.random().toString(36).slice(2, 5)}`,
       direction,
-      entry:      ocoState.entry,
-      stopLoss:   ocoState.sl,
-      takeProfit: ocoState.tp,
-      label:      `OCO ${direction === 'buy' ? '▲ COMPRA' : '▼ VENDA'} @ ${formatPrice(ocoState.entry)} | ${ocoState.lot.toFixed(2)}L`,
+      entry:      p(entry),
+      stopLoss:   p(sl),
+      takeProfit: p(tp),
+      label:      `OCO ${direction === 'buy' ? '▲ COMPRA' : '▼ VENDA'} @ ${formatPrice(entry)} | ${ocoState.lot.toFixed(2)}L`,
       time:       lastTime,
       lot:        ocoState.lot,
       leverage:   ocoState.leverage,
     })
-    // Atualiza direção no OCO após execução
-    setOcoState(prev => prev ? { ...prev, direction } : null)
+    setOcoState(prev => prev ? { ...prev, direction, tp: p(tp), sl: p(sl) } : null)
   }, [ocoState, lastTime, handleAdd])
 
   const handleOCOClose = useCallback(() => setOcoVisible(false), [])
