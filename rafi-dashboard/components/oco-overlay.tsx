@@ -188,7 +188,7 @@ export function OCOOverlay({
   const cardTop = ok(yPos.entry) ? Math.max(56, yPos.entry - 80) : 100
 
   return (
-    <div className="absolute inset-0 overflow-hidden" style={{ pointerEvents: 'none' }}>
+    <div className="absolute inset-0 overflow-hidden" style={{ pointerEvents: 'none', zIndex: 10 }}>
 
       {/* Zona vermelha: risco (SL → Entrada) */}
       {ok(yPos.entry) && ok(yPos.sl) && (
