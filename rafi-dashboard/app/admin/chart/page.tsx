@@ -79,8 +79,9 @@ export default function ChartPage() {
   const lastPrice  = lastCandle?.close ?? 0
   const lastTime   = lastCandle?.time  ?? 0
 
-  const strongBullBars = rafiData.filter(p => p.value >=  2.5).length
-  const strongBearBars = rafiData.filter(p => p.value <= -2.5).length
+  // RAFI sempre positivo: separa por dir do candle
+  const strongBullBars = rafiData.filter(p => p.value >= 2.5 && p.dir === 'bull').length
+  const strongBearBars = rafiData.filter(p => p.value >= 2.5 && p.dir === 'bear').length
 
   // Inicializa/reseta OCO quando o timeframe muda (lastPrice muda junto)
   useEffect(() => {
@@ -185,13 +186,13 @@ export default function ChartPage() {
               <span className="text-[#484f58]">{candles.length} candles</span>
 
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm bg-[#f59e0b] inline-block" />
-                <span className="text-[#f59e0b]">RAFI &gt; +2.5</span>
+                <span className="w-2.5 h-2.5 rounded-sm bg-[#22c55e] inline-block" />
+                <span className="text-[#22c55e]">Alta ≥2.5</span>
                 <span className="text-[#484f58]">({strongBullBars}×)</span>
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-sm bg-[#ef4444] inline-block" />
-                <span className="text-[#ef4444]">RAFI &lt; -2.5</span>
+                <span className="text-[#ef4444]">Baixa ≥2.5</span>
                 <span className="text-[#484f58]">({strongBearBars}×)</span>
               </span>
 
