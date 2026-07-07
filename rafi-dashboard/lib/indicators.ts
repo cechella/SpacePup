@@ -13,9 +13,10 @@ export interface ColoredCandle extends CandleData {
 }
 
 export interface RAFIPoint {
-  time: number
-  value: number
+  time:  number
+  value: number   // sempre positivo (0–5): magnitude da força, não direção
   color: string
+  dir:   'bull' | 'bear'
 }
 
 export interface SRLevel {
@@ -46,31 +47,36 @@ function calcATR(candles: CandleData[], period = 14): number[] {
 }
 
 /**
- * Aproximação do indicador RAFI (índice de força):
- *   direção × (momentum_pct × 25 + amplitude_relativa × 3)
- * Escalado para ±5; sinais fortes ultrapassam ±2.5.
+ * Aproximação do indicador RAFI (índice de força).
+ * Valor SEMPRE positivo (0–5): mede MAGNITUDE da força, não direção.
+ * A direção (alta/baixa) é determinada pela direção do candle (dir).
+ * Qualquer RAFI > 0 num rompimento válido é sinal de entrada.
+ * Força forte: RAFI ≥ 2.5.
  */
 export function calcRAFI(candles: CandleData[], period = 3): RAFIPoint[] {
-  const atr = calcATR(candles)
+  const atr   = calcATR(candles)
   const start = Math.max(period, 14)
   const result: RAFIPoint[] = []
 
   for (let i = start; i < candles.length; i++) {
-    const c     = candles[i]
-    const prev  = candles[i - period]
-    const dir   = c.close >= c.open ? 1 : -1
+    const c    = candles[i]
+    const prev = candles[i - period]
+    const dir: 'bull' | 'bear' = c.close >= c.open ? 'bull' : 'bear'
     const mom   = Math.abs((c.close - prev.close) / prev.close) * 100
     const body  = Math.abs(c.close - c.open)
     const amp   = atr[i] > 0 ? body / atr[i] : 0
-    const value = Math.max(-5, Math.min(5, dir * (mom * 25 + amp * 3)))
+    // magnitude pura: sem sinal negativo
+    const value = Math.min(5, mom * 25 + amp * 3)
 
+    // Verde = alta forte, vermelho = baixa forte; saturado se >= 2.5
     const color =
-      value >=  2.5 ? '#f59e0b'   :
-      value >   0   ? '#fbbf24aa' :
-      value <= -2.5 ? '#ef4444'   :
-                      '#f87171aa'
+      value >= 2.5
+        ? (dir === 'bull' ? '#22c55e' : '#ef4444')
+        : value > 0
+          ? (dir === 'bull' ? '#22c55e88' : '#ef444488')
+          : '#484f5866'
 
-    result.push({ time: c.time, value, color })
+    result.push({ time: c.time, value, color, dir })
   }
   return result
 }
@@ -150,38 +156,36 @@ export function calcBollingerBands(
 }
 
 /**
- * Colore cada vela de acordo com o estado do RAFI:
- *   Verde   = RAFI > +2,5   (tendência alta forte)
- *   Vermelho = RAFI < -2,5  (tendência baixa forte)
- *   Amarelo = exaustão       (RAFI cruzou de força forte para o oposto)
- *   Branco  = consolidação   (RAFI entre -2,5 e +2,5)
+ * Colore cada vela de acordo com o RAFI (magnitude) + direção do candle:
+ *   Verde   = RAFI ≥ 2.5 + candle de alta  (força forte subindo)
+ *   Vermelho = RAFI ≥ 2.5 + candle de baixa (força forte caindo)
+ *   Amarelo = exaustão (RAFI forte no anterior, queda abrupta agora < 1.0)
+ *   Cinza   = consolidação (RAFI < 2.5)
  */
 export function applyRAFICandleColors(
   candles:    CandleData[],
   rafiPoints: RAFIPoint[],
 ): ColoredCandle[] {
-  const rafiMap = new Map<number, number>()
-  for (const p of rafiPoints) rafiMap.set(p.time, p.value)
+  const rafiMap = new Map<number, RAFIPoint>()
+  for (const p of rafiPoints) rafiMap.set(p.time, p)
 
   return candles.map((c, i) => {
-    const val = rafiMap.get(c.time)
-    if (val === undefined) return { ...c }
+    const pt = rafiMap.get(c.time)
+    if (!pt) return { ...c }
 
     const prevTime = i > 0 ? candles[i - 1].time : undefined
-    const prev     = prevTime !== undefined ? rafiMap.get(prevTime) : undefined
+    const prevPt   = prevTime !== undefined ? rafiMap.get(prevTime) : undefined
 
-    const exhaustion = prev !== undefined && (
-      (prev >= 2.5 && val <= -2.5) ||
-      (prev <= -2.5 && val >= 2.5)
-    )
+    // Exaustão: força forte anterior com colapso brusco
+    const exhaustion = prevPt !== undefined && prevPt.value >= 2.5 && pt.value < 1.0
 
     const [color, wickColor] = exhaustion
-      ? ['#f59e0b', '#d97706']       // amarelo — exaustão
-      : val >= 2.5
-        ? ['#22c55e', '#16a34a']     // verde — alta forte
-        : val <= -2.5
-          ? ['#ef4444', '#dc2626']   // vermelho — baixa forte
-          : ['#d1d5db', '#94a3b8']   // branco/cinza — consolidação
+      ? ['#f59e0b', '#d97706']                                   // amarelo — exaustão
+      : pt.value >= 2.5
+        ? pt.dir === 'bull'
+          ? ['#22c55e', '#16a34a']   // verde — alta forte
+          : ['#ef4444', '#dc2626']   // vermelho — baixa forte
+        : ['#d1d5db', '#94a3b8']     // cinza — consolidação
 
     return { ...c, color, borderColor: color, wickColor }
   })
