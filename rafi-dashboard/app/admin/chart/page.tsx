@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback } from 'react'
 import dynamic from 'next/dynamic'
-import { generateDemoWeek } from '@/lib/demo-data'
+import { generateDemoData, type Timeframe } from '@/lib/demo-data'
 import { calcRAFI, calcSRLevels, calcBollingerBands } from '@/lib/indicators'
 import { TradePanel, type ManualTrade } from '@/components/trade-panel'
 import { cn, formatPrice } from '@/lib/utils'
@@ -23,13 +23,16 @@ const RAFIChart = dynamic(
   },
 )
 
+const TIMEFRAMES: Timeframe[] = ['M5', 'M15', 'H1']
+
 export default function ChartPage() {
   const [trades, setTrades] = useState<ManualTrade[]>([])
+  const [tf, setTf]         = useState<Timeframe>('M5')
 
-  const candles  = useMemo(() => generateDemoWeek(), [])
-  const rafiData = useMemo(() => calcRAFI(candles),          [candles])
-  const srLevels = useMemo(() => calcSRLevels(candles),      [candles])
-  const bbBands  = useMemo(() => calcBollingerBands(candles), [candles])
+  const candles  = useMemo(() => generateDemoData(tf),          [tf])
+  const rafiData = useMemo(() => calcRAFI(candles),             [candles])
+  const srLevels = useMemo(() => calcSRLevels(candles),         [candles])
+  const bbBands  = useMemo(() => calcBollingerBands(candles),   [candles])
 
   const lastCandle = candles[candles.length - 1]
   const lastPrice  = lastCandle?.close ?? 0
@@ -52,7 +55,7 @@ export default function ChartPage() {
           <div>
             <h1 className="text-base font-bold text-[#f0f6fc]">Análise RAFI</h1>
             <p className="text-xs text-[#8b949e] mt-0.5">
-              EURUSD · M5 · Semana demo
+              EURUSD · {tf} · Semana demo
               <span className="ml-2 mono text-[#484f58]">{formatPrice(lastPrice)}</span>
             </p>
           </div>
@@ -82,8 +85,28 @@ export default function ChartPage() {
 
           {/* Toolbar do gráfico */}
           <div className="px-4 py-2 border-b border-[#30363d] bg-[#161b22] flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-4 text-[10px]">
-              <span className="text-[#f0f6fc] font-medium text-xs">EURUSD M5</span>
+            <div className="flex items-center gap-3 text-[10px]">
+
+              {/* Seletor de Timeframe */}
+              <div className="flex items-center gap-0.5 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]">
+                {TIMEFRAMES.map(t => (
+                  <button
+                    key={t}
+                    onClick={() => { setTf(t); setTrades([]) }}
+                    className={cn(
+                      'px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all',
+                      t === tf
+                        ? 'bg-[#3b82f6] text-white'
+                        : 'text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
+                    )}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+
+              <span className="text-[#30363d]">|</span>
+              <span className="text-[#f0f6fc] font-medium">EURUSD {tf}</span>
               <span className="text-[#484f58]">{candles.length} candles</span>
               <span className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-sm bg-[#f59e0b] inline-block" />
