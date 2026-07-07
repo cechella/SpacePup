@@ -8,16 +8,21 @@ import type { RAFIPoint, SRLevel, BBBands } from '@/lib/indicators'
 import type { ManualTrade } from './trade-panel'
 
 interface Props {
-  candles:  CandleData[]
-  rafiData: RAFIPoint[]
-  srLevels: SRLevel[]
-  trades:   ManualTrade[]
-  bbBands?: BBBands
+  candles:       CandleData[]
+  rafiData:      RAFIPoint[]
+  srLevels:      SRLevel[]
+  trades:        ManualTrade[]
+  bbBands?:      BBBands
+  onPriceClick?: (price: number) => void
 }
 
-export function RAFIChart({ candles, rafiData, srLevels, trades, bbBands }: Props) {
-  const mainRef = useRef<HTMLDivElement>(null)
-  const rafiRef = useRef<HTMLDivElement>(null)
+export function RAFIChart({ candles, rafiData, srLevels, trades, bbBands, onPriceClick }: Props) {
+  const mainRef        = useRef<HTMLDivElement>(null)
+  const rafiRef        = useRef<HTMLDivElement>(null)
+  const onPriceClickRef = useRef(onPriceClick)
+
+  // Mantém a referência atualizada sem re-criar o gráfico
+  useEffect(() => { onPriceClickRef.current = onPriceClick }, [onPriceClick])
 
   useEffect(() => {
     if (!mainRef.current || !rafiRef.current || candles.length === 0) return
@@ -53,15 +58,19 @@ export function RAFIChart({ candles, rafiData, srLevels, trades, bbBands }: Prop
         layout:    sharedLayout,
         grid:      sharedGrid,
         crosshair: sharedCrosshair,
+        localization: {
+          priceFormatter: (p: number) => p.toFixed(5),
+        },
         rightPriceScale: {
-          borderColor: '#30363d',
+          borderColor:  '#30363d',
           scaleMargins: { top: 0.08, bottom: 0.08 },
+          minimumWidth: 80,
         },
         timeScale: {
           borderColor:     '#30363d',
           timeVisible:     true,
           secondsVisible:  false,
-          visible:         false,  // eixo de tempo só no painel RAFI abaixo
+          visible:         false,
         },
         width:  mainEl.clientWidth  || 600,
         height: mainEl.clientHeight || 300,
@@ -74,10 +83,16 @@ export function RAFIChart({ candles, rafiData, srLevels, trades, bbBands }: Prop
         wickUpColor:   '#10b981',
         wickDownColor: '#ef4444',
       })
-      // Aplica cores RAFI por vela (verde/vermelho/amarelo/branco)
       candleSeries.setData(applyRAFICandleColors(candles, rafiData) as any)
 
-      // Bandas de Bollinger (8p, 2σ) — somente superior e inferior, cor ciano igual ao PDF
+      // Clique no gráfico → envia preço para o painel de ordem
+      mChart.subscribeClick((param) => {
+        if (!param.point) return
+        const price = candleSeries.coordinateToPrice(param.point.y)
+        if (price !== null) onPriceClickRef.current?.(price)
+      })
+
+      // Bandas de Bollinger (8p, 2σ) — somente superior e inferior
       if (bbBands) {
         const bbOpts = { lineWidth: 1 as const, priceLineVisible: false, lastValueVisible: false, color: '#26c6da' }
         mChart.addLineSeries(bbOpts).setData(bbBands.upper as any)
@@ -96,7 +111,7 @@ export function RAFIChart({ candles, rafiData, srLevels, trades, bbBands }: Prop
         })
       }
 
-      // Marcadores e linhas de trade manual
+      // Linhas de ordem OCO (entrada, SL, TP)
       if (trades.length > 0) {
         const lastTime = candles[candles.length - 1].time
         const markers = trades.map((t, i) => ({
@@ -104,7 +119,7 @@ export function RAFIChart({ candles, rafiData, srLevels, trades, bbBands }: Prop
           position: t.direction === 'buy' ? 'belowBar' as const : 'aboveBar' as const,
           color:    t.direction === 'buy' ? '#10b981' : '#ef4444',
           shape:    t.direction === 'buy' ? 'arrowUp' as const : 'arrowDown' as const,
-          text:     t.direction.toUpperCase(),
+          text:     `${t.direction === 'buy' ? '▲' : '▼'} ${t.lot.toFixed(2)}L`,
           size:     2,
         }))
         candleSeries.setMarkers(markers)
@@ -114,15 +129,17 @@ export function RAFIChart({ candles, rafiData, srLevels, trades, bbBands }: Prop
           candleSeries.createPriceLine({
             price: t.entry, color: `${dirColor}99`, lineWidth: 2,
             lineStyle: LineStyle.Solid, axisLabelVisible: true,
-            title: `${t.direction === 'buy' ? '▲' : '▼'} Entry`,
+            title: `${t.direction === 'buy' ? '▲' : '▼'} Entrada`,
           })
           candleSeries.createPriceLine({
             price: t.stopLoss, color: '#ef444490', lineWidth: 1,
-            lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'SL',
+            lineStyle: LineStyle.Dashed, axisLabelVisible: true,
+            title: `SL  ${t.lot.toFixed(2)}L`,
           })
           candleSeries.createPriceLine({
             price: t.takeProfit, color: '#10b98190', lineWidth: 1,
-            lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'TP',
+            lineStyle: LineStyle.Dashed, axisLabelVisible: true,
+            title: `TP  ${t.lot.toFixed(2)}L`,
           })
         }
       }
@@ -137,6 +154,7 @@ export function RAFIChart({ candles, rafiData, srLevels, trades, bbBands }: Prop
         rightPriceScale: {
           borderColor:  '#30363d',
           scaleMargins: { top: 0.12, bottom: 0.12 },
+          minimumWidth: 80,
         },
         timeScale: {
           borderColor:    '#30363d',

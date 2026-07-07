@@ -26,8 +26,9 @@ const RAFIChart = dynamic(
 const TIMEFRAMES: Timeframe[] = ['M5', 'M15', 'H1']
 
 export default function ChartPage() {
-  const [trades, setTrades] = useState<ManualTrade[]>([])
-  const [tf, setTf]         = useState<Timeframe>('M5')
+  const [trades, setTrades]           = useState<ManualTrade[]>([])
+  const [tf, setTf]                   = useState<Timeframe>('M5')
+  const [clickedEntry, setClickedEntry] = useState<number | null>(null)
 
   const candles  = useMemo(() => generateDemoData(tf),          [tf])
   const rafiData = useMemo(() => calcRAFI(candles),             [candles])
@@ -133,6 +134,7 @@ export default function ChartPage() {
               srLevels={srLevels}
               trades={trades}
               bbBands={bbBands}
+              onPriceClick={setClickedEntry}
             />
           </div>
         </div>
@@ -157,13 +159,14 @@ export default function ChartPage() {
       </div>
 
       {/* ── Painel de anotação ──────────────────────────────────────── */}
-      <div className="w-72 shrink-0">
+      <div className="w-80 shrink-0">
         <TradePanel
           trades={trades}
           onAdd={handleAdd}
           onRemove={handleRemove}
           lastPrice={lastPrice}
           lastCandleTime={lastTime}
+          externalEntry={clickedEntry}
         />
       </div>
     </div>
