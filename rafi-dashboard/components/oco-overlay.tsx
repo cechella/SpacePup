@@ -20,12 +20,12 @@ function pipValueUSD(lot: number) { return lot * 10 }
 interface OCOLineProps {
   y:             number
   price:         number
-  label:         string        // ex: "+$15.00" | "1.03540" | "-$5.00"
-  sublabel?:     string        // linha secundária menor
+  label:         string
+  sublabel?:     string
   lineColor:     string
   isDragging:    boolean
-  draggable?:    boolean       // exibe handle de arraste (false na linha de entrada)
-  onClose?:      () => void    // botão X — só na linha de entrada
+  draggable?:    boolean   // false = entrada (arrasta tudo junto)
+  onClose?:      () => void
   onPointerDown: (e: React.PointerEvent) => void
   onPointerMove: (e: React.PointerEvent) => void
   onPointerUp:   (e: React.PointerEvent) => void
@@ -61,10 +61,7 @@ function OCOLine({
         }}
       >
         <div className="flex flex-col justify-center">
-          <span
-            className="font-mono font-black leading-tight"
-            style={{ color: lineColor, fontSize: 13 }}
-          >
+          <span className="font-mono font-black leading-tight" style={{ color: lineColor, fontSize: 13 }}>
             {label}
           </span>
           {sublabel && (
@@ -91,69 +88,32 @@ function OCOLine({
         )}
       </div>
 
-      {/* Handle de arraste — direita (apenas em SL e TP) */}
-      {draggable && (
-        <div
-          className={cn(
-            'absolute right-0 flex items-center gap-1.5 px-2.5 py-2 rounded-l-lg',
-            'font-mono text-[11px] font-bold border-l border-t border-b',
-            'cursor-ns-resize select-none transition-all',
-            isDragging
-              ? 'opacity-100 scale-105 shadow-xl'
-              : 'opacity-70 hover:opacity-100 hover:scale-105',
-          )}
-          style={{
-            pointerEvents:   'all',
-            backgroundColor: isDragging ? `${lineColor}35` : `${lineColor}1e`,
-            borderColor:     `${lineColor}70`,
-            color:           lineColor,
-            touchAction:     'none',
-          }}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-        >
-          <div className="flex flex-col items-center gap-px" style={{ opacity: 0.8 }}>
-            <GripVertical size={12} />
-          </div>
-          <div className="flex flex-col items-center" style={{ lineHeight: 1 }}>
-            <span style={{ fontSize: 9, opacity: 0.7 }}>↕ arraste</span>
-            <span style={{ fontSize: 11 }}>{price.toFixed(5)}</span>
-          </div>
+      {/* Handle de arraste — direita */}
+      <div
+        className={cn(
+          'absolute right-0 flex items-center gap-1.5 px-2.5 py-2 rounded-l-lg',
+          'font-mono text-[11px] font-bold border-l border-t border-b',
+          'cursor-ns-resize select-none transition-all',
+          isDragging ? 'opacity-100 scale-105 shadow-xl' : 'opacity-70 hover:opacity-100 hover:scale-105',
+        )}
+        style={{
+          pointerEvents:   'all',
+          backgroundColor: isDragging ? `${lineColor}35` : `${lineColor}1e`,
+          borderColor:     `${lineColor}70`,
+          color:           lineColor,
+          touchAction:     'none',
+        }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
+        <GripVertical size={12} style={{ opacity: 0.8 }} />
+        <div className="flex flex-col items-center" style={{ lineHeight: 1 }}>
+          <span style={{ fontSize: 9, opacity: 0.7 }}>{draggable ? '↕ arraste' : '↕ mover tudo'}</span>
+          <span style={{ fontSize: 11 }}>{price.toFixed(5)}</span>
         </div>
-      )}
-
-      {/* Handle de arraste — entrada (arrasta todas as 3 linhas juntas) */}
-      {!draggable && (
-        <div
-          className={cn(
-            'absolute right-0 flex items-center gap-1.5 px-2.5 py-2 rounded-l-lg',
-            'font-mono text-[11px] font-bold border-l border-t border-b',
-            'cursor-ns-resize select-none transition-all',
-            isDragging
-              ? 'opacity-100 scale-105 shadow-xl'
-              : 'opacity-70 hover:opacity-100 hover:scale-105',
-          )}
-          style={{
-            pointerEvents:   'all',
-            backgroundColor: isDragging ? `${lineColor}35` : `${lineColor}1e`,
-            borderColor:     `${lineColor}70`,
-            color:           lineColor,
-            touchAction:     'none',
-          }}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-        >
-          <GripVertical size={12} />
-          <div className="flex flex-col items-center" style={{ lineHeight: 1 }}>
-            <span style={{ fontSize: 9, opacity: 0.7 }}>↕ mover tudo</span>
-            <span style={{ fontSize: 11 }}>{price.toFixed(5)}</span>
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -183,6 +143,15 @@ export function OCOOverlay({
   })
   const prevY = useRef({ entry: 0, sl: 0, tp: 0 })
 
+  // Card drag state
+  const [cardPos, setCardPos] = useState<{ x: number; y: number } | null>(null)
+  const cardRef    = useRef<HTMLDivElement>(null)
+  const cardDragRef = useRef<{ mx: number; my: number; cx: number; cy: number } | null>(null)
+
+  // Inline edit state for dollar values
+  const [editing, setEditing]   = useState<'tp' | 'sl' | null>(null)
+  const [editVal, setEditVal]   = useState('')
+
   // RAF loop: mantém Y sincronizado com scroll/zoom do gráfico
   useEffect(() => {
     let raf: number
@@ -203,6 +172,8 @@ export function OCOOverlay({
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
   }, [getY, state.entry, state.sl, state.tp])
+
+  // ── Line drag ────────────────────────────────────────────────────────────
 
   const startDrag = useCallback((e: React.PointerEvent, field: DragField) => {
     e.preventDefault()
@@ -235,7 +206,58 @@ export function OCOOverlay({
     setDragging(null)
   }, [])
 
-  // Cálculos P&L
+  // ── Card drag ─────────────────────────────────────────────────────────────
+
+  const startCardDrag = useCallback((e: React.PointerEvent) => {
+    e.preventDefault()
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    let cx: number, cy: number
+    if (cardPos) {
+      cx = cardPos.x; cy = cardPos.y
+    } else if (cardRef.current && containerRef.current) {
+      const cRect = containerRef.current.getBoundingClientRect()
+      const dRect = cardRef.current.getBoundingClientRect()
+      cx = dRect.left - cRect.left
+      cy = dRect.top  - cRect.top
+    } else {
+      return
+    }
+    cardDragRef.current = { mx: e.clientX, my: e.clientY, cx, cy }
+  }, [cardPos, containerRef])
+
+  const moveCardDrag = useCallback((e: React.PointerEvent) => {
+    if (!cardDragRef.current) return
+    const { mx, my, cx, cy } = cardDragRef.current
+    setCardPos({ x: cx + (e.clientX - mx), y: cy + (e.clientY - my) })
+  }, [])
+
+  const endCardDrag = useCallback(() => {
+    cardDragRef.current = null
+  }, [])
+
+  // ── Edição de valor em dólares ────────────────────────────────────────────
+
+  const commitEdit = useCallback((raw: string) => {
+    const val = parseFloat(raw.replace(',', '.'))
+    if (!isNaN(val) && val > 0) {
+      const pv    = pipValueUSD(state.lot)
+      const pips  = val / pv
+      const off   = Math.round(pips * 0.0001 * 100000) / 100000
+      const isBuy = state.direction === 'buy'
+      if (editing === 'tp') {
+        const newTp = isBuy ? state.entry + off : state.entry - off
+        onChange({ ...state, tp: Math.round(newTp * 100000) / 100000 })
+      } else if (editing === 'sl') {
+        const newSl = isBuy ? state.entry - off : state.entry + off
+        onChange({ ...state, sl: Math.round(newSl * 100000) / 100000 })
+      }
+    }
+    setEditing(null)
+    setEditVal('')
+  }, [editing, state, onChange])
+
+  // ── Cálculos P&L ─────────────────────────────────────────────────────────
+
   const pv     = pipValueUSD(state.lot)
   const slPips = Math.round(Math.abs(state.entry - state.sl)   * 10000)
   const tpPips = Math.round(Math.abs(state.tp   - state.entry) * 10000)
@@ -251,7 +273,7 @@ export function OCOOverlay({
   return (
     <div className="absolute inset-0 overflow-hidden" style={{ pointerEvents: 'none', zIndex: 10 }}>
 
-      {/* Zona vermelha: risco (SL → Entrada) */}
+      {/* Zona vermelha: risco */}
       {ok(yPos.entry) && ok(yPos.sl) && (
         <div
           className="absolute left-0 right-0"
@@ -264,7 +286,7 @@ export function OCOOverlay({
         />
       )}
 
-      {/* Zona verde: alvo (Entrada → TP) */}
+      {/* Zona verde: alvo */}
       {ok(yPos.entry) && ok(yPos.tp) && (
         <div
           className="absolute left-0 right-0"
@@ -277,7 +299,7 @@ export function OCOOverlay({
         />
       )}
 
-      {/* Linha TAKE PROFIT — mostra ganho em dólares */}
+      {/* Linha TAKE PROFIT */}
       {ok(yPos.tp) && (
         <OCOLine
           y={yPos.tp}
@@ -293,7 +315,7 @@ export function OCOOverlay({
         />
       )}
 
-      {/* Linha ENTRADA — mostra o preço de entrada + botão X para cancelar */}
+      {/* Linha ENTRADA — com botão X para cancelar */}
       {ok(yPos.entry) && (
         <OCOLine
           y={yPos.entry}
@@ -310,7 +332,7 @@ export function OCOOverlay({
         />
       )}
 
-      {/* Linha STOP LOSS — mostra perda em dólares */}
+      {/* Linha STOP LOSS */}
       {ok(yPos.sl) && (
         <OCOLine
           y={yPos.sl}
@@ -326,35 +348,117 @@ export function OCOOverlay({
         />
       )}
 
-      {/* Card de execução flutuante */}
+      {/* Card de execução — arrastável */}
       <div
-        className="absolute right-[88px]"
-        style={{ top: cardTop, pointerEvents: 'all' }}
+        ref={cardRef}
+        className="absolute"
+        style={cardPos
+          ? { left: cardPos.x, top: cardPos.y, pointerEvents: 'all' }
+          : { right: 88, top: cardTop, pointerEvents: 'all' }
+        }
       >
         <div
           className="rounded-2xl shadow-2xl overflow-hidden"
           style={{
-            width: 192,
+            width: 200,
             background: 'rgba(10,12,18,0.97)',
             border: '1px solid #30363d',
             backdropFilter: 'blur(12px)',
           }}
         >
+          {/* Handle de arraste do card */}
+          <div
+            className="flex items-center justify-center gap-1 select-none cursor-grab active:cursor-grabbing"
+            style={{
+              borderBottom: '1px solid #30363d',
+              background: '#161b22',
+              padding: '5px 0',
+              touchAction: 'none',
+              pointerEvents: 'all',
+            }}
+            onPointerDown={startCardDrag}
+            onPointerMove={moveCardDrag}
+            onPointerUp={endCardDrag}
+            onPointerCancel={endCardDrag}
+          >
+            <GripVertical size={11} style={{ color: '#484f58' }} />
+            <span style={{ fontSize: 9, color: '#484f58', letterSpacing: '0.8px' }}>MOVER</span>
+            <GripVertical size={11} style={{ color: '#484f58' }} />
+          </div>
+
           {/* Stats: GAIN | STOP | R:R */}
           <div className="grid grid-cols-3" style={{ borderBottom: '1px solid #30363d' }}>
-            <div className="flex flex-col items-center py-2.5 px-1" style={{ borderRight: '1px solid #30363d' }}>
-              <span className="text-[8px] font-semibold tracking-widest uppercase" style={{ color: '#484f58' }}>GAIN</span>
-              <span className="font-mono font-black mt-0.5" style={{ fontSize: 13, color: '#4ade80', letterSpacing: '-0.5px' }}>
-                +${tpUSD.toFixed(2)}
+
+            {/* GAIN — clique para editar */}
+            <div
+              className="flex flex-col items-center py-2 px-1 cursor-pointer group relative"
+              style={{ borderRight: '1px solid #30363d' }}
+              onClick={() => { if (editing !== 'tp') { setEditing('tp'); setEditVal(tpUSD.toFixed(2)) } }}
+              title="Clique para definir o ganho em dólares"
+            >
+              <span className="text-[8px] font-semibold tracking-widest uppercase" style={{ color: '#484f58' }}>
+                GAIN <span className="opacity-0 group-hover:opacity-60 transition-opacity" style={{ fontSize: 7 }}>✎</span>
               </span>
+              {editing === 'tp' ? (
+                <div className="flex items-center mt-0.5" style={{ color: '#4ade80' }}>
+                  <span style={{ fontSize: 10 }}>$</span>
+                  <input
+                    autoFocus
+                    className="bg-transparent font-mono font-black text-center outline-none w-12"
+                    style={{ fontSize: 12, color: '#4ade80' }}
+                    value={editVal}
+                    onChange={e => setEditVal(e.target.value)}
+                    onBlur={() => commitEdit(editVal)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter')  { e.preventDefault(); commitEdit(editVal) }
+                      if (e.key === 'Escape') { setEditing(null); setEditVal('') }
+                    }}
+                    onClick={e => e.stopPropagation()}
+                  />
+                </div>
+              ) : (
+                <span className="font-mono font-black mt-0.5" style={{ fontSize: 13, color: '#4ade80', letterSpacing: '-0.5px' }}>
+                  +${tpUSD.toFixed(2)}
+                </span>
+              )}
             </div>
-            <div className="flex flex-col items-center py-2.5 px-1" style={{ borderRight: '1px solid #30363d' }}>
-              <span className="text-[8px] font-semibold tracking-widest uppercase" style={{ color: '#484f58' }}>STOP</span>
-              <span className="font-mono font-black mt-0.5" style={{ fontSize: 13, color: '#f87171', letterSpacing: '-0.5px' }}>
-                -${slUSD.toFixed(2)}
+
+            {/* STOP — clique para editar */}
+            <div
+              className="flex flex-col items-center py-2 px-1 cursor-pointer group relative"
+              style={{ borderRight: '1px solid #30363d' }}
+              onClick={() => { if (editing !== 'sl') { setEditing('sl'); setEditVal(slUSD.toFixed(2)) } }}
+              title="Clique para definir o stop em dólares"
+            >
+              <span className="text-[8px] font-semibold tracking-widest uppercase" style={{ color: '#484f58' }}>
+                STOP <span className="opacity-0 group-hover:opacity-60 transition-opacity" style={{ fontSize: 7 }}>✎</span>
               </span>
+              {editing === 'sl' ? (
+                <div className="flex items-center mt-0.5" style={{ color: '#f87171' }}>
+                  <span style={{ fontSize: 10 }}>$</span>
+                  <input
+                    autoFocus
+                    className="bg-transparent font-mono font-black text-center outline-none w-12"
+                    style={{ fontSize: 12, color: '#f87171' }}
+                    value={editVal}
+                    onChange={e => setEditVal(e.target.value)}
+                    onBlur={() => commitEdit(editVal)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter')  { e.preventDefault(); commitEdit(editVal) }
+                      if (e.key === 'Escape') { setEditing(null); setEditVal('') }
+                    }}
+                    onClick={e => e.stopPropagation()}
+                  />
+                </div>
+              ) : (
+                <span className="font-mono font-black mt-0.5" style={{ fontSize: 13, color: '#f87171', letterSpacing: '-0.5px' }}>
+                  -${slUSD.toFixed(2)}
+                </span>
+              )}
             </div>
-            <div className="flex flex-col items-center py-2.5 px-1">
+
+            {/* R:R */}
+            <div className="flex flex-col items-center py-2 px-1">
               <span className="text-[8px] font-semibold tracking-widest uppercase" style={{ color: '#484f58' }}>R:R</span>
               <span
                 className="font-mono font-black mt-0.5"
@@ -374,11 +478,7 @@ export function OCOOverlay({
             <button
               onClick={() => onExecute('sell')}
               className="flex flex-col items-center justify-center gap-1 py-4 active:scale-95 transition-all select-none"
-              style={{
-                background: 'rgba(239,68,68,0.12)',
-                borderRight: '1px solid #30363d',
-                color: '#f87171',
-              }}
+              style={{ background: 'rgba(239,68,68,0.12)', borderRight: '1px solid #30363d', color: '#f87171' }}
               onMouseEnter={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.25)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.12)')}
             >
@@ -388,10 +488,7 @@ export function OCOOverlay({
             <button
               onClick={() => onExecute('buy')}
               className="flex flex-col items-center justify-center gap-1 py-4 active:scale-95 transition-all select-none"
-              style={{
-                background: 'rgba(34,197,94,0.12)',
-                color: '#4ade80',
-              }}
+              style={{ background: 'rgba(34,197,94,0.12)', color: '#4ade80' }}
               onMouseEnter={e => (e.currentTarget.style.background = 'rgba(34,197,94,0.25)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'rgba(34,197,94,0.12)')}
             >
@@ -404,12 +501,7 @@ export function OCOOverlay({
           <button
             onClick={onClose}
             className="w-full flex items-center justify-center gap-1.5 select-none transition-colors"
-            style={{
-              borderTop: '1px solid #30363d',
-              padding: '6px 0',
-              fontSize: 10,
-              color: '#484f58',
-            }}
+            style={{ borderTop: '1px solid #30363d', padding: '6px 0', fontSize: 10, color: '#484f58' }}
             onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#8b949e'; (e.currentTarget as HTMLElement).style.background = '#21262d' }}
             onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#484f58'; (e.currentTarget as HTMLElement).style.background = '' }}
           >
