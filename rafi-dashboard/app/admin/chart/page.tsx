@@ -28,7 +28,7 @@ const TIMEFRAMES: Timeframe[] = ['M5', 'M15', 'H1']
 
 // Defaults OCO: 0.20L, SL=$5, TP=$15
 const OCO_LOT      = 0.20
-const OCO_LEVERAGE = 100
+const OCO_LEVERAGE = 1000
 const OCO_PV       = OCO_LOT * 10          // $2/pip
 const OCO_SL_OFF   = (5  / OCO_PV) * 0.0001  // 2.5 pips = 0.00025
 const OCO_TP_OFF   = (15 / OCO_PV) * 0.0001  // 7.5 pips = 0.00075
