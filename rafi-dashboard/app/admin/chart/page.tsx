@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { generateDemoWeek } from '@/lib/demo-data'
-import { calcRAFI, calcSRLevels } from '@/lib/indicators'
+import { calcRAFI, calcSRLevels, calcBollingerBands } from '@/lib/indicators'
 import { runRAFI } from '@/lib/rafi'
 import { TradePanel, type ManualTrade } from '@/components/trade-panel'
 import { cn, formatPrice } from '@/lib/utils'
@@ -28,9 +28,10 @@ export default function ChartPage() {
   const [trades, setTrades] = useState<ManualTrade[]>([])
 
   const candles  = useMemo(() => generateDemoWeek(), [])
-  const rafiData = useMemo(() => calcRAFI(candles),   [candles])
-  const srLevels = useMemo(() => calcSRLevels(candles), [candles])
-  const { ma20, ma50 } = useMemo(() => runRAFI(candles), [candles])
+  const rafiData = useMemo(() => calcRAFI(candles),          [candles])
+  const srLevels = useMemo(() => calcSRLevels(candles),      [candles])
+  const bbBands  = useMemo(() => calcBollingerBands(candles), [candles])
+  const { ma20, ma50 } = useMemo(() => runRAFI(candles),     [candles])
 
   const lastCandle = candles[candles.length - 1]
   const lastPrice  = lastCandle?.close ?? 0
@@ -60,17 +61,26 @@ export default function ChartPage() {
 
           {/* Legendas rápidas */}
           <div className="flex items-center gap-4 text-[10px]">
+            <span className="flex items-center gap-1 text-[#22c55e]">
+              <span className="w-2.5 h-2.5 bg-[#22c55e] inline-block rounded-sm" />Alta
+            </span>
+            <span className="flex items-center gap-1 text-[#ef4444]">
+              <span className="w-2.5 h-2.5 bg-[#ef4444] inline-block rounded-sm" />Baixa
+            </span>
+            <span className="flex items-center gap-1 text-[#f59e0b]">
+              <span className="w-2.5 h-2.5 bg-[#f59e0b] inline-block rounded-sm" />Exaustão
+            </span>
+            <span className="flex items-center gap-1 text-[#d1d5db]">
+              <span className="w-2.5 h-2.5 bg-[#d1d5db] inline-block rounded-sm" />Consol.
+            </span>
+            <span className="flex items-center gap-1 text-[#818cf8]">
+              <span className="w-4 h-0.5 bg-[#818cf8] inline-block" />BB(20)
+            </span>
             <span className="flex items-center gap-1 text-[#3b82f6]">
               <span className="w-4 h-0.5 bg-[#3b82f6] inline-block" />MA20
             </span>
             <span className="flex items-center gap-1 text-[#f59e0b]">
               <span className="w-4 h-0.5 bg-[#f59e0b] inline-block" />MA50
-            </span>
-            <span className="flex items-center gap-1 text-[#8b949e]">
-              <span className="w-2 h-2.5 bg-[#ef444445] border border-red-400/30 inline-block rounded-sm" />R
-            </span>
-            <span className="flex items-center gap-1 text-[#8b949e]">
-              <span className="w-2 h-2.5 bg-[#10b98145] border border-emerald-400/30 inline-block rounded-sm" />S
             </span>
           </div>
         </div>
@@ -109,6 +119,7 @@ export default function ChartPage() {
               trades={trades}
               ma20={ma20}
               ma50={ma50}
+              bbBands={bbBands}
             />
           </div>
         </div>
