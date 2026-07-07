@@ -4,7 +4,6 @@ import { useState, useMemo, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { generateDemoWeek } from '@/lib/demo-data'
 import { calcRAFI, calcSRLevels, calcBollingerBands } from '@/lib/indicators'
-import { runRAFI } from '@/lib/rafi'
 import { TradePanel, type ManualTrade } from '@/components/trade-panel'
 import { cn, formatPrice } from '@/lib/utils'
 import { Info, BarChart2 } from 'lucide-react'
@@ -31,7 +30,6 @@ export default function ChartPage() {
   const rafiData = useMemo(() => calcRAFI(candles),          [candles])
   const srLevels = useMemo(() => calcSRLevels(candles),      [candles])
   const bbBands  = useMemo(() => calcBollingerBands(candles), [candles])
-  const { ma20, ma50 } = useMemo(() => runRAFI(candles),     [candles])
 
   const lastCandle = candles[candles.length - 1]
   const lastPrice  = lastCandle?.close ?? 0
@@ -73,14 +71,8 @@ export default function ChartPage() {
             <span className="flex items-center gap-1 text-[#d1d5db]">
               <span className="w-2.5 h-2.5 bg-[#d1d5db] inline-block rounded-sm" />Consol.
             </span>
-            <span className="flex items-center gap-1 text-[#818cf8]">
-              <span className="w-4 h-0.5 bg-[#818cf8] inline-block" />BB(20)
-            </span>
-            <span className="flex items-center gap-1 text-[#3b82f6]">
-              <span className="w-4 h-0.5 bg-[#3b82f6] inline-block" />MA20
-            </span>
-            <span className="flex items-center gap-1 text-[#f59e0b]">
-              <span className="w-4 h-0.5 bg-[#f59e0b] inline-block" />MA50
+            <span className="flex items-center gap-1 text-[#26c6da]">
+              <span className="w-4 h-0.5 bg-[#26c6da] inline-block" />BB(8,2)
             </span>
           </div>
         </div>
@@ -117,8 +109,6 @@ export default function ChartPage() {
               rafiData={rafiData}
               srLevels={srLevels}
               trades={trades}
-              ma20={ma20}
-              ma50={ma50}
               bbBands={bbBands}
             />
           </div>
