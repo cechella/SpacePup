@@ -263,56 +263,93 @@ export function OCOOverlay({
 
       {/* Card de execução flutuante */}
       <div
-        className="absolute right-24"
+        className="absolute right-[88px]"
         style={{ top: cardTop, pointerEvents: 'all' }}
       >
-        <div className="bg-[#0d1117]/96 backdrop-blur-sm border border-[#30363d] rounded-2xl shadow-2xl overflow-hidden w-[160px]">
-
-          {/* P&L resumo */}
-          <div className="px-3 pt-3 pb-2 space-y-1.5 border-b border-[#30363d]">
-            <div className="flex items-center justify-between">
-              <span className="text-[9px] text-[#484f58] uppercase tracking-wider">Gain</span>
-              <span className="font-mono text-[13px] font-black text-emerald-400">+${tpUSD.toFixed(2)}</span>
+        <div
+          className="rounded-2xl shadow-2xl overflow-hidden"
+          style={{
+            width: 192,
+            background: 'rgba(10,12,18,0.97)',
+            border: '1px solid #30363d',
+            backdropFilter: 'blur(12px)',
+          }}
+        >
+          {/* Stats: GAIN | STOP | R:R */}
+          <div className="grid grid-cols-3" style={{ borderBottom: '1px solid #30363d' }}>
+            <div className="flex flex-col items-center py-2.5 px-1" style={{ borderRight: '1px solid #30363d' }}>
+              <span className="text-[8px] font-semibold tracking-widest uppercase" style={{ color: '#484f58' }}>GAIN</span>
+              <span className="font-mono font-black mt-0.5" style={{ fontSize: 13, color: '#4ade80', letterSpacing: '-0.5px' }}>
+                +${tpUSD.toFixed(2)}
+              </span>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-[9px] text-[#484f58] uppercase tracking-wider">Stop</span>
-              <span className="font-mono text-[13px] font-black text-red-400">-${slUSD.toFixed(2)}</span>
+            <div className="flex flex-col items-center py-2.5 px-1" style={{ borderRight: '1px solid #30363d' }}>
+              <span className="text-[8px] font-semibold tracking-widest uppercase" style={{ color: '#484f58' }}>STOP</span>
+              <span className="font-mono font-black mt-0.5" style={{ fontSize: 13, color: '#f87171', letterSpacing: '-0.5px' }}>
+                -${slUSD.toFixed(2)}
+              </span>
             </div>
-            <div className="flex items-center justify-between border-t border-[#30363d] pt-1.5">
-              <span className="text-[9px] text-[#484f58] uppercase tracking-wider">R:R</span>
-              <span className={cn(
-                'font-mono text-[12px] font-black',
-                rr >= 2 ? 'text-emerald-400' : rr >= 1.5 ? 'text-amber-400' : 'text-red-400',
-              )}>
-                1:{rr.toFixed(1)}
+            <div className="flex flex-col items-center py-2.5 px-1">
+              <span className="text-[8px] font-semibold tracking-widest uppercase" style={{ color: '#484f58' }}>R:R</span>
+              <span
+                className="font-mono font-black mt-0.5"
+                style={{
+                  fontSize: 13,
+                  color: rr >= 2 ? '#4ade80' : rr >= 1.5 ? '#fbbf24' : '#f87171',
+                  letterSpacing: '-0.5px',
+                }}
+              >
+                {rr.toFixed(1)}×
               </span>
             </div>
           </div>
 
-          {/* Botões */}
-          <div className="grid grid-cols-2 gap-0">
+          {/* Botões VENDA / COMPRA */}
+          <div className="grid grid-cols-2">
             <button
               onClick={() => onExecute('sell')}
-              className="flex flex-col items-center justify-center py-3 text-red-400 bg-red-500/10 hover:bg-red-500/25 active:scale-95 transition-all border-r border-[#30363d]"
+              className="flex flex-col items-center justify-center gap-1 py-4 active:scale-95 transition-all select-none"
+              style={{
+                background: 'rgba(239,68,68,0.12)',
+                borderRight: '1px solid #30363d',
+                color: '#f87171',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.25)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.12)')}
             >
-              <TrendingDown size={14} className="mb-0.5" />
-              <span className="text-[11px] font-black">VENDA</span>
+              <TrendingDown size={18} strokeWidth={2.5} />
+              <span style={{ fontSize: 11, fontWeight: 900, letterSpacing: '0.5px' }}>VENDA</span>
             </button>
             <button
               onClick={() => onExecute('buy')}
-              className="flex flex-col items-center justify-center py-3 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/25 active:scale-95 transition-all"
+              className="flex flex-col items-center justify-center gap-1 py-4 active:scale-95 transition-all select-none"
+              style={{
+                background: 'rgba(34,197,94,0.12)',
+                color: '#4ade80',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(34,197,94,0.25)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(34,197,94,0.12)')}
             >
-              <TrendingUp size={14} className="mb-0.5" />
-              <span className="text-[11px] font-black">COMPRA</span>
+              <TrendingUp size={18} strokeWidth={2.5} />
+              <span style={{ fontSize: 11, fontWeight: 900, letterSpacing: '0.5px' }}>COMPRA</span>
             </button>
           </div>
 
           {/* Cancelar */}
           <button
             onClick={onClose}
-            className="w-full flex items-center justify-center gap-1 py-1.5 text-[10px] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d] transition-all border-t border-[#30363d]"
+            className="w-full flex items-center justify-center gap-1.5 select-none transition-colors"
+            style={{
+              borderTop: '1px solid #30363d',
+              padding: '6px 0',
+              fontSize: 10,
+              color: '#484f58',
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#8b949e'; (e.currentTarget as HTMLElement).style.background = '#21262d' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#484f58'; (e.currentTarget as HTMLElement).style.background = '' }}
           >
-            <X size={9} />Cancelar
+            <X size={10} />
+            <span>Cancelar OCO</span>
           </button>
         </div>
       </div>
