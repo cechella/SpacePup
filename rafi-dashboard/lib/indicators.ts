@@ -1,5 +1,17 @@
 import type { CandleData } from './types'
 
+export interface BBBands {
+  upper:  Array<{ time: number; value: number }>
+  middle: Array<{ time: number; value: number }>
+  lower:  Array<{ time: number; value: number }>
+}
+
+export interface ColoredCandle extends CandleData {
+  color?:       string
+  borderColor?: string
+  wickColor?:   string
+}
+
 export interface RAFIPoint {
   time: number
   value: number
@@ -106,4 +118,71 @@ export function calcSRLevels(
   return merged
     .sort((a, b) => b.time - a.time)
     .slice(0, max)
+}
+
+/**
+ * Bandas de Bollinger: média móvel simples ± N desvios padrão.
+ * Configuração padrão: 20 períodos, 2 desvios (igual ao PDF RAFI).
+ */
+export function calcBollingerBands(
+  candles:  CandleData[],
+  period    = 20,
+  stdMult   = 2,
+): BBBands {
+  const upper:  Array<{ time: number; value: number }> = []
+  const middle: Array<{ time: number; value: number }> = []
+  const lower:  Array<{ time: number; value: number }> = []
+
+  for (let i = period - 1; i < candles.length; i++) {
+    let sum = 0
+    for (let j = i - period + 1; j <= i; j++) sum += candles[j].close
+    const mean = sum / period
+    let variance = 0
+    for (let j = i - period + 1; j <= i; j++) variance += (candles[j].close - mean) ** 2
+    const std = Math.sqrt(variance / period)
+    const t = candles[i].time
+    upper.push({ time: t, value: mean + stdMult * std })
+    middle.push({ time: t, value: mean })
+    lower.push({ time: t, value: mean - stdMult * std })
+  }
+
+  return { upper, middle, lower }
+}
+
+/**
+ * Colore cada vela de acordo com o estado do RAFI:
+ *   Verde   = RAFI > +2,5   (tendência alta forte)
+ *   Vermelho = RAFI < -2,5  (tendência baixa forte)
+ *   Amarelo = exaustão       (RAFI cruzou de força forte para o oposto)
+ *   Branco  = consolidação   (RAFI entre -2,5 e +2,5)
+ */
+export function applyRAFICandleColors(
+  candles:    CandleData[],
+  rafiPoints: RAFIPoint[],
+): ColoredCandle[] {
+  const rafiMap = new Map<number, number>()
+  for (const p of rafiPoints) rafiMap.set(p.time, p.value)
+
+  return candles.map((c, i) => {
+    const val = rafiMap.get(c.time)
+    if (val === undefined) return { ...c }
+
+    const prevTime = i > 0 ? candles[i - 1].time : undefined
+    const prev     = prevTime !== undefined ? rafiMap.get(prevTime) : undefined
+
+    const exhaustion = prev !== undefined && (
+      (prev >= 2.5 && val <= -2.5) ||
+      (prev <= -2.5 && val >= 2.5)
+    )
+
+    const [color, wickColor] = exhaustion
+      ? ['#f59e0b', '#d97706']       // amarelo — exaustão
+      : val >= 2.5
+        ? ['#22c55e', '#16a34a']     // verde — alta forte
+        : val <= -2.5
+          ? ['#ef4444', '#dc2626']   // vermelho — baixa forte
+          : ['#d1d5db', '#94a3b8']   // branco/cinza — consolidação
+
+    return { ...c, color, borderColor: color, wickColor }
+  })
 }
