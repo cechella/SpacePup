@@ -162,8 +162,8 @@ export function OCOOverlay({
   const cardRef    = useRef<HTMLDivElement>(null)
   const cardDragRef = useRef<{ mx: number; my: number; cx: number; cy: number } | null>(null)
 
-  // Inline edit state for dollar values
-  const [editing, setEditing]   = useState<'tp' | 'sl' | null>(null)
+  // Inline edit state for dollar values + lot
+  const [editing, setEditing]   = useState<'tp' | 'sl' | 'lot' | null>(null)
   const [editVal, setEditVal]   = useState('')
 
   // RAF loop: mantém Y sincronizado com scroll/zoom do gráfico
@@ -485,6 +485,70 @@ export function OCOOverlay({
                 {rr.toFixed(1)}×
               </span>
             </div>
+          </div>
+
+          {/* Linha de lote — editável */}
+          <div
+            className="flex items-center gap-1.5 px-3 py-2"
+            style={{ borderBottom: '1px solid #30363d', background: '#0d1117' }}
+          >
+            <span className="text-[8px] font-semibold tracking-widest uppercase shrink-0" style={{ color: '#484f58' }}>
+              LOTE
+            </span>
+            {editing === 'lot' ? (
+              <input
+                autoFocus
+                className="bg-transparent font-mono font-black text-center outline-none border rounded"
+                style={{
+                  width: 52, fontSize: 12, color: '#f0f6fc',
+                  border: '1px solid #3b82f680', borderRadius: 4, padding: '1px 4px',
+                }}
+                value={editVal}
+                onChange={e => setEditVal(e.target.value)}
+                onBlur={() => {
+                  const v = parseFloat(editVal.replace(',', '.'))
+                  if (!isNaN(v) && v > 0) onChange({ ...state, lot: Math.round(v * 100) / 100 })
+                  setEditing(null); setEditVal('')
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    const v = parseFloat(editVal.replace(',', '.'))
+                    if (!isNaN(v) && v > 0) onChange({ ...state, lot: Math.round(v * 100) / 100 })
+                    setEditing(null); setEditVal('')
+                  }
+                  if (e.key === 'Escape') { setEditing(null); setEditVal('') }
+                }}
+              />
+            ) : (
+              <button
+                className="font-mono font-black rounded transition-all hover:scale-105"
+                style={{
+                  fontSize: 12, color: '#f0f6fc', minWidth: 36,
+                  background: '#21262d', border: '1px solid #30363d',
+                  padding: '1px 6px',
+                }}
+                onClick={() => { setEditing('lot'); setEditVal(state.lot.toFixed(2)) }}
+                title="Clique para editar o lote"
+              >
+                {state.lot.toFixed(2)}
+              </button>
+            )}
+            {/* Presets rápidos */}
+            {([0.01, 0.10, 0.50, 1.00] as number[]).map(l => (
+              <button
+                key={l}
+                onClick={() => onChange({ ...state, lot: l })}
+                className="font-mono rounded transition-all hover:scale-105 active:scale-95"
+                style={{
+                  fontSize: 9, padding: '2px 4px',
+                  background: state.lot === l ? '#3b82f620' : 'transparent',
+                  border: `1px solid ${state.lot === l ? '#3b82f680' : '#30363d'}`,
+                  color: state.lot === l ? '#3b82f6' : '#484f58',
+                }}
+              >
+                {l === 1 ? '1L' : l === 0.5 ? '.5' : l === 0.1 ? '.10' : '.01'}
+              </button>
+            ))}
           </div>
 
           {/* Botões VENDA / COMPRA */}
