@@ -24,6 +24,8 @@ interface OCOLineProps {
   sublabel?:     string        // linha secundária menor
   lineColor:     string
   isDragging:    boolean
+  draggable?:    boolean       // exibe handle de arraste (false na linha de entrada)
+  onClose?:      () => void    // botão X — só na linha de entrada
   onPointerDown: (e: React.PointerEvent) => void
   onPointerMove: (e: React.PointerEvent) => void
   onPointerUp:   (e: React.PointerEvent) => void
@@ -31,7 +33,8 @@ interface OCOLineProps {
 
 function OCOLine({
   y, price, label, sublabel, lineColor,
-  isDragging, onPointerDown, onPointerMove, onPointerUp,
+  isDragging, draggable = true, onClose,
+  onPointerDown, onPointerMove, onPointerUp,
 }: OCOLineProps) {
   return (
     <div
@@ -49,50 +52,108 @@ function OCOLine({
 
       {/* Badge principal — esquerda */}
       <div
-        className="absolute left-3 flex flex-col justify-center px-3 py-1 rounded-lg whitespace-nowrap"
+        className="absolute left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-lg whitespace-nowrap"
         style={{
-          pointerEvents:   'none',
+          pointerEvents:   onClose ? 'all' : 'none',
           backgroundColor: `${lineColor}1a`,
           border:          `1px solid ${lineColor}45`,
           minWidth:        64,
         }}
       >
-        <span
-          className="font-mono font-black leading-tight"
-          style={{ color: lineColor, fontSize: 13 }}
-        >
-          {label}
-        </span>
-        {sublabel && (
-          <span className="text-[9px] font-medium text-[#8b949e] leading-tight mt-0.5">
-            {sublabel}
+        <div className="flex flex-col justify-center">
+          <span
+            className="font-mono font-black leading-tight"
+            style={{ color: lineColor, fontSize: 13 }}
+          >
+            {label}
           </span>
+          {sublabel && (
+            <span className="text-[9px] font-medium text-[#8b949e] leading-tight mt-0.5">
+              {sublabel}
+            </span>
+          )}
+        </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="flex items-center justify-center rounded transition-all hover:scale-110 active:scale-95 ml-0.5"
+            style={{
+              width: 16, height: 16,
+              backgroundColor: `${lineColor}25`,
+              border: `1px solid ${lineColor}50`,
+              color: lineColor,
+              flexShrink: 0,
+            }}
+            title="Cancelar OCO"
+          >
+            <X size={9} strokeWidth={3} />
+          </button>
         )}
       </div>
 
-      {/* Handle de arraste — direita */}
-      <div
-        className={cn(
-          'absolute right-0 flex items-center gap-1 px-2 py-1.5 rounded-l-lg',
-          'font-mono text-[11px] font-bold border-l border-t border-b',
-          'cursor-ns-resize select-none transition-all',
-          isDragging ? 'opacity-100 scale-105 shadow-xl' : 'opacity-50 hover:opacity-100',
-        )}
-        style={{
-          pointerEvents:   'all',
-          backgroundColor: `${lineColor}1e`,
-          borderColor:     `${lineColor}70`,
-          color:           lineColor,
-          touchAction:     'none',
-        }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-      >
-        <GripVertical size={10} />
-        {price.toFixed(5)}
-      </div>
+      {/* Handle de arraste — direita (apenas em SL e TP) */}
+      {draggable && (
+        <div
+          className={cn(
+            'absolute right-0 flex items-center gap-1.5 px-2.5 py-2 rounded-l-lg',
+            'font-mono text-[11px] font-bold border-l border-t border-b',
+            'cursor-ns-resize select-none transition-all',
+            isDragging
+              ? 'opacity-100 scale-105 shadow-xl'
+              : 'opacity-70 hover:opacity-100 hover:scale-105',
+          )}
+          style={{
+            pointerEvents:   'all',
+            backgroundColor: isDragging ? `${lineColor}35` : `${lineColor}1e`,
+            borderColor:     `${lineColor}70`,
+            color:           lineColor,
+            touchAction:     'none',
+          }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+        >
+          <div className="flex flex-col items-center gap-px" style={{ opacity: 0.8 }}>
+            <GripVertical size={12} />
+          </div>
+          <div className="flex flex-col items-center" style={{ lineHeight: 1 }}>
+            <span style={{ fontSize: 9, opacity: 0.7 }}>↕ arraste</span>
+            <span style={{ fontSize: 11 }}>{price.toFixed(5)}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Handle de arraste — entrada (arrasta todas as 3 linhas juntas) */}
+      {!draggable && (
+        <div
+          className={cn(
+            'absolute right-0 flex items-center gap-1.5 px-2.5 py-2 rounded-l-lg',
+            'font-mono text-[11px] font-bold border-l border-t border-b',
+            'cursor-ns-resize select-none transition-all',
+            isDragging
+              ? 'opacity-100 scale-105 shadow-xl'
+              : 'opacity-70 hover:opacity-100 hover:scale-105',
+          )}
+          style={{
+            pointerEvents:   'all',
+            backgroundColor: isDragging ? `${lineColor}35` : `${lineColor}1e`,
+            borderColor:     `${lineColor}70`,
+            color:           lineColor,
+            touchAction:     'none',
+          }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+        >
+          <GripVertical size={12} />
+          <div className="flex flex-col items-center" style={{ lineHeight: 1 }}>
+            <span style={{ fontSize: 9, opacity: 0.7 }}>↕ mover tudo</span>
+            <span style={{ fontSize: 11 }}>{price.toFixed(5)}</span>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -224,6 +285,7 @@ export function OCOOverlay({
           label={`+$${tpUSD.toFixed(2)}`}
           sublabel={rr > 0 ? `ALVO · R:R 1:${rr.toFixed(1)}` : 'ALVO'}
           lineColor="#22c55e"
+          draggable={true}
           isDragging={dragging === 'tp'}
           onPointerDown={e => startDrag(e, 'tp')}
           onPointerMove={moveDrag}
@@ -231,7 +293,7 @@ export function OCOOverlay({
         />
       )}
 
-      {/* Linha ENTRADA — mostra o preço de entrada */}
+      {/* Linha ENTRADA — mostra o preço de entrada + botão X para cancelar */}
       {ok(yPos.entry) && (
         <OCOLine
           y={yPos.entry}
@@ -239,6 +301,8 @@ export function OCOOverlay({
           label={state.entry.toFixed(5)}
           sublabel={`${isBuy ? '▲ COMPRA' : '▼ VENDA'} · ${state.lot.toFixed(2)}L · ${state.leverage}×`}
           lineColor={isBuy ? '#3b82f6' : '#f59e0b'}
+          draggable={false}
+          onClose={onClose}
           isDragging={dragging === 'entry'}
           onPointerDown={e => startDrag(e, 'entry')}
           onPointerMove={moveDrag}
@@ -254,6 +318,7 @@ export function OCOOverlay({
           label={`-$${slUSD.toFixed(2)}`}
           sublabel="STOP LOSS"
           lineColor="#ef4444"
+          draggable={true}
           isDragging={dragging === 'sl'}
           onPointerDown={e => startDrag(e, 'sl')}
           onPointerMove={moveDrag}
