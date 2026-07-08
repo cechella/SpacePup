@@ -26,7 +26,7 @@ function parseMT5Time(date: string, time: string): number {
   return Math.floor(new Date(`${yyyy}-${mm}-${dd}T${hh}:${min}:00Z`).getTime() / 1000)
 }
 
-function detectTimeframe(candles: CandleData[]): string {
+export function detectTimeframe(candles: CandleData[]): string {
   if (candles.length < 2) return 'M5'
   const avg = (candles[candles.length - 1].time - candles[0].time) / (candles.length - 1)
   if (avg <=   70) return 'M1'
@@ -37,7 +37,7 @@ function detectTimeframe(candles: CandleData[]): string {
   return 'D1'
 }
 
-function fmtDate(unix: number): string {
+export function fmtDate(unix: number): string {
   return new Date(unix * 1000).toLocaleDateString('pt-BR', {
     day: '2-digit', month: '2-digit', year: 'numeric',
   })

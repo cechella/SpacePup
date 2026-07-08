@@ -4,7 +4,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { generateDemoData, type Timeframe } from '@/lib/demo-data'
 import { calcRAFI, calcSRLevels, calcBollingerBands } from '@/lib/indicators'
-import { parseCSV, type LoadResult } from '@/lib/csv-loader'
+import { parseCSV, detectTimeframe, fmtDate, type LoadResult } from '@/lib/csv-loader'
 import { TradePanel, type ManualTrade } from '@/components/trade-panel'
 import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
@@ -62,21 +62,47 @@ export default function ChartPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const files = Array.from(e.target.files ?? [])
+    if (files.length === 0) return
     setCsvError(null)
-    const reader = new FileReader()
-    reader.onload = ev => {
+
+    // Lê todos os arquivos em paralelo e mescla os candles
+    Promise.all(
+      files.map(f => new Promise<{ text: string; name: string }>((res, rej) => {
+        const r = new FileReader()
+        r.onload  = ev => res({ text: ev.target?.result as string, name: f.name })
+        r.onerror = () => rej(new Error(`Erro ao ler ${f.name}`))
+        r.readAsText(f, 'utf-8')
+      }))
+    ).then(results => {
       try {
-        const result = parseCSV(ev.target?.result as string, file.name)
-        setCsvData(result)
+        if (results.length === 1) {
+          // Arquivo único — comportamento original
+          const result = parseCSV(results[0].text, results[0].name)
+          setCsvData(result)
+        } else {
+          // Múltiplos arquivos — mescla e ordena por tempo
+          const allCandles = results.flatMap(r => parseCSV(r.text, r.name).candles)
+          allCandles.sort((a, b) => a.time - b.time)
+          // Remove duplicatas exatas de timestamp
+          const deduped = allCandles.filter((c, i) => i === 0 || c.time !== allCandles[i - 1].time)
+          setCsvData({
+            candles:   deduped,
+            filename:  `${results.length} arquivos`,
+            dateFrom:  fmtDate(deduped[0].time),
+            dateTo:    fmtDate(deduped[deduped.length - 1].time),
+            timeframe: detectTimeframe(deduped),
+            count:     deduped.length,
+          })
+        }
         setTrades([])
       } catch (err: any) {
         setCsvError(err?.message ?? 'Erro desconhecido')
         setCsvData(null)
       }
-    }
-    reader.readAsText(file, 'utf-8')
+    }).catch((err: any) => {
+      setCsvError(err?.message ?? 'Erro ao ler arquivos')
+    })
     e.target.value = ''
   }, [])
 
@@ -219,6 +245,7 @@ export default function ChartPage() {
                 ref={fileInputRef}
                 type="file"
                 accept=".csv,.txt"
+                multiple
                 className="hidden"
                 onChange={handleFileChange}
               />
