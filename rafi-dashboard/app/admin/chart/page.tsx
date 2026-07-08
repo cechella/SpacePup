@@ -49,24 +49,6 @@ function makeOCO(price: number, time?: number): OCOState {
 
 const STORAGE_KEY = 'rafi-trade-log'
 
-// Captura miniatura 240×80 JPEG do canvas principal do gráfico (~4KB)
-function captureChartSnapshot(container: HTMLElement | null): string | null {
-  if (!container) return null
-  const canvases = Array.from(container.querySelectorAll('canvas'))
-  if (!canvases.length) return null
-  // Pega o canvas com maior altura (gráfico principal, não o RAFI)
-  const main = canvases.reduce((a, b) => a.height >= b.height ? a : b)
-  const W = 240, H = 80
-  const thumb = document.createElement('canvas')
-  thumb.width = W; thumb.height = H
-  const ctx = thumb.getContext('2d')
-  if (!ctx) return null
-  try {
-    ctx.drawImage(main, 0, 0, W, H)
-    return thumb.toDataURL('image/jpeg', 0.5)
-  } catch { return null }
-}
-
 export default function ChartPage() {
   const [trades,       setTrades]       = useState<ManualTrade[]>([])
   const [tf,           setTf]           = useState<Timeframe>('M5')
@@ -77,8 +59,8 @@ export default function ChartPage() {
   const [csvData,      setCsvData]      = useState<LoadResult | null>(null)
   const [csvError,     setCsvError]     = useState<string | null>(null)
   const [panMode,      setPanMode]      = useState(false)   // true = navegar; false = colocar OCO
-  const fileInputRef     = useRef<HTMLInputElement>(null)
-  const chartContainerRef = useRef<HTMLDivElement>(null)
+  const fileInputRef        = useRef<HTMLInputElement>(null)
+  const snapshotCaptureRef  = useRef<((entryTime: number) => string | null) | null>(null)
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
@@ -210,7 +192,7 @@ export default function ChartPage() {
       rafi:       lastRafi?.value,
       rafiDir:    lastRafi?.dir,
       bbWidth,
-      snapshot:   captureChartSnapshot(chartContainerRef.current) ?? undefined,
+      snapshot:   snapshotCaptureRef.current?.(ocoState.entryTime ?? lastTime) ?? undefined,
     })
     setOcoState(prev => prev ? { ...prev, direction, tp: p(tp), sl: p(sl) } : null)
   }, [ocoState, lastTime, rafiData, bbBands, handleAdd])
@@ -385,7 +367,7 @@ export default function ChartPage() {
           </div>
 
           {/* Chart */}
-          <div className="flex-1 min-h-0" ref={chartContainerRef}>
+          <div className="flex-1 min-h-0">
             <RAFIChart
               candles={candles}
               rafiData={rafiData}
@@ -408,6 +390,7 @@ export default function ChartPage() {
               onOCOChange={setOcoState}
               onOCOExecute={handleOCOExecute}
               onOCOClose={handleOCOClose}
+              snapshotCaptureRef={snapshotCaptureRef}
             />
           </div>
         </div>
