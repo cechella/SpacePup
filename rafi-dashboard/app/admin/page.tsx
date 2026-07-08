@@ -110,6 +110,65 @@ function KPI({ label, value, sub, color, icon: Icon }: {
   )
 }
 
+// ── Chips de observação ML por trade ──────────────────────────────────────────
+function MLChips({ t }: { t: ManualTrade }) {
+  const r  = riskPips(t.entry, t.stopLoss, t.direction)
+  const w  = rewardPips(t.entry, t.takeProfit, t.direction)
+  const rr = r > 0 ? w / r : 0
+
+  const chips: { label: string; color: string; note: string }[] = []
+
+  // RAFI
+  if (t.rafi !== undefined) {
+    if (t.rafi >= 2.5)
+      chips.push({ label: `RAFI ${t.rafi.toFixed(1)} ✓`, color: '#10b981', note: 'sinal forte — padrão ideal para o ML' })
+    else if (t.rafi >= 1)
+      chips.push({ label: `RAFI ${t.rafi.toFixed(1)} ⚠`, color: '#f59e0b', note: 'abaixo de 2.5 — ML aprende a filtrar este sinal fraco' })
+    else
+      chips.push({ label: `RAFI ${t.rafi.toFixed(1)} ✗`, color: '#ef4444', note: 'RAFI muito fraco — contra-exemplo valioso para o ML' })
+  }
+
+  // R:R
+  if (rr >= 2)
+    chips.push({ label: `R:R ${rr.toFixed(1)}× excelente`, color: '#10b981', note: 'acima de 2:1 — risco/retorno ótimo' })
+  else if (rr >= 1.5)
+    chips.push({ label: `R:R ${rr.toFixed(1)}× ok`, color: '#3b82f6', note: 'acima da meta 1.5× — aceitável' })
+  else if (rr > 0)
+    chips.push({ label: `R:R ${rr.toFixed(1)}× ⚠`, color: '#f59e0b', note: 'abaixo da meta 1.5× — ML aprende que este setup é arriscado' })
+
+  // Alinhamento direção x RAFI
+  if (t.rafiDir) {
+    const aligned = (t.direction === 'buy' && t.rafiDir === 'bull') ||
+                    (t.direction === 'sell' && t.rafiDir === 'bear')
+    if (aligned)
+      chips.push({ label: 'Direção ✓', color: '#10b981', note: 'RAFI confirma a direção do trade' })
+    else
+      chips.push({ label: 'Divergência ✗', color: '#ef4444', note: 'RAFI aponta direção oposta — sinal de alerta' })
+  }
+
+  // BB Width
+  if (t.bbWidth !== undefined) {
+    if (t.bbWidth > 0.0015)
+      chips.push({ label: 'BB aberto ✓', color: '#10b981', note: 'Bollinger expandindo — timing de entrada favorável' })
+    else
+      chips.push({ label: 'BB estreito ⚠', color: '#f59e0b', note: 'Bollinger estreito — mercado lateral, timing ruim' })
+  }
+
+  if (!chips.length) return null
+
+  return (
+    <div className="flex flex-wrap items-center gap-1 px-4 pb-2.5 border-b border-[#21262d]">
+      <span className="text-[8px] text-[#484f58] mr-1 uppercase tracking-wider shrink-0">ML →</span>
+      {chips.map((c, i) => (
+        <span key={i} title={c.note} style={{ background: `${c.color}12`, border: `1px solid ${c.color}35`, color: c.color }}
+          className="text-[8px] px-1.5 py-0.5 rounded font-mono cursor-help">
+          {c.label}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 // ── Trade recente ─────────────────────────────────────────────────────────────
 function TradeRow({ t, onLabel }: { t: ManualTrade; onLabel?: (id: string, r: 'win' | 'loss') => void }) {
   const r       = riskPips(t.entry, t.stopLoss, t.direction)
@@ -122,40 +181,42 @@ function TradeRow({ t, onLabel }: { t: ManualTrade; onLabel?: (id: string, r: 'w
   const isPending = !t.result || t.result === 'pending'
   return (
     <div className={cn(
-      'flex items-center gap-2 px-4 py-2 border-b border-[#21262d] text-xs font-mono',
       t.result === 'win'  && 'bg-[#10b981]/5',
       t.result === 'loss' && 'bg-[#ef4444]/5',
     )}>
-      <span className="text-[#484f58] w-24 shrink-0">{ds}</span>
-      {t.direction === 'buy'
-        ? <span className="flex items-center gap-1 text-[#3b82f6] w-12 shrink-0"><TrendingUp size={10} />BUY</span>
-        : <span className="flex items-center gap-1 text-[#f59e0b] w-12 shrink-0"><TrendingDown size={10} />SELL</span>
-      }
-      <span className="text-[#f0f6fc] w-20 shrink-0">{t.entry.toFixed(5)}</span>
-      <span className="text-[#10b981] w-14 text-right shrink-0 font-bold">+${gainUSD.toFixed(0)}</span>
-      <span className="text-[#ef4444] w-14 text-right shrink-0">-${riskUSD.toFixed(0)}</span>
-      <span className={cn('w-9 text-right shrink-0 font-bold',
-        parseFloat(rr) >= 1.5 ? 'text-[#10b981]' : parseFloat(rr) >= 1 ? 'text-[#f59e0b]' : 'text-[#ef4444]')}>
-        {rr}×
-      </span>
-      <div className="ml-auto flex items-center gap-1 shrink-0">
-        {isPending && onLabel ? (
-          <>
-            <button onClick={() => onLabel(t.id, 'win')}
-              className="px-2 py-0.5 rounded text-[9px] font-bold bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/30 hover:bg-[#10b981]/30 transition-colors cursor-pointer">
-              WIN
-            </button>
-            <button onClick={() => onLabel(t.id, 'loss')}
-              className="px-2 py-0.5 rounded text-[9px] font-bold bg-[#ef4444]/15 text-[#ef4444] border border-[#ef4444]/30 hover:bg-[#ef4444]/30 transition-colors cursor-pointer">
-              LOSS
-            </button>
-          </>
-        ) : t.result === 'win' ? (
-          <span className="px-1.5 py-0.5 rounded text-[9px] bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/25">WIN</span>
-        ) : t.result === 'loss' ? (
-          <span className="px-1.5 py-0.5 rounded text-[9px] bg-[#ef4444]/15 text-[#ef4444] border border-[#ef4444]/25">LOSS</span>
-        ) : null}
+      <div className="flex items-center gap-2 px-4 py-2 text-xs font-mono">
+        <span className="text-[#484f58] w-24 shrink-0">{ds}</span>
+        {t.direction === 'buy'
+          ? <span className="flex items-center gap-1 text-[#3b82f6] w-12 shrink-0"><TrendingUp size={10} />BUY</span>
+          : <span className="flex items-center gap-1 text-[#f59e0b] w-12 shrink-0"><TrendingDown size={10} />SELL</span>
+        }
+        <span className="text-[#f0f6fc] w-20 shrink-0">{t.entry.toFixed(5)}</span>
+        <span className="text-[#10b981] w-14 text-right shrink-0 font-bold">+${gainUSD.toFixed(0)}</span>
+        <span className="text-[#ef4444] w-14 text-right shrink-0">-${riskUSD.toFixed(0)}</span>
+        <span className={cn('w-9 text-right shrink-0 font-bold',
+          parseFloat(rr) >= 1.5 ? 'text-[#10b981]' : parseFloat(rr) >= 1 ? 'text-[#f59e0b]' : 'text-[#ef4444]')}>
+          {rr}×
+        </span>
+        <div className="ml-auto flex items-center gap-1 shrink-0">
+          {isPending && onLabel ? (
+            <>
+              <button onClick={() => onLabel(t.id, 'win')}
+                className="px-2 py-0.5 rounded text-[9px] font-bold bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/30 hover:bg-[#10b981]/30 transition-colors cursor-pointer">
+                WIN
+              </button>
+              <button onClick={() => onLabel(t.id, 'loss')}
+                className="px-2 py-0.5 rounded text-[9px] font-bold bg-[#ef4444]/15 text-[#ef4444] border border-[#ef4444]/30 hover:bg-[#ef4444]/30 transition-colors cursor-pointer">
+                LOSS
+              </button>
+            </>
+          ) : t.result === 'win' ? (
+            <span className="px-1.5 py-0.5 rounded text-[9px] bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/25">WIN</span>
+          ) : t.result === 'loss' ? (
+            <span className="px-1.5 py-0.5 rounded text-[9px] bg-[#ef4444]/15 text-[#ef4444] border border-[#ef4444]/25">LOSS</span>
+          ) : null}
+        </div>
       </div>
+      <MLChips t={t} />
     </div>
   )
 }
