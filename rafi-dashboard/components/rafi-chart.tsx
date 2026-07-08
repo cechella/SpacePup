@@ -15,6 +15,7 @@ interface Props {
   trades:        ManualTrade[]
   bbBands?:      BBBands
   onPriceClick?: (price: number) => void
+  panMode?:      boolean
   ocoState?:     OCOState | null
   onOCOChange?:  (s: OCOState) => void
   onOCOExecute?: (dir: 'buy' | 'sell') => void
@@ -22,7 +23,7 @@ interface Props {
 }
 
 export function RAFIChart({
-  candles, rafiData, srLevels, trades, bbBands, onPriceClick,
+  candles, rafiData, srLevels, trades, bbBands, onPriceClick, panMode,
   ocoState, onOCOChange, onOCOExecute, onOCOClose,
 }: Props) {
   const mainRef         = useRef<HTMLDivElement>(null)
@@ -239,7 +240,11 @@ export function RAFIChart({
   return (
     <div className="flex flex-col h-full">
       {/* Área principal — relative para o overlay OCO */}
-      <div className="flex-[7] min-h-0 relative" ref={mainWrapperRef}>
+      <div
+        className="flex-[7] min-h-0 relative"
+        ref={mainWrapperRef}
+        style={{ cursor: panMode ? 'grab' : 'crosshair' }}
+      >
         <div ref={mainRef} className="absolute inset-0" />
         {ocoState && chartReady && (
           <OCOOverlay

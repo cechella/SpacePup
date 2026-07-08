@@ -8,7 +8,7 @@ import { parseCSV, type LoadResult } from '@/lib/csv-loader'
 import { TradePanel, type ManualTrade } from '@/components/trade-panel'
 import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
-import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon } from 'lucide-react'
+import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, MousePointer2 } from 'lucide-react'
 
 const RAFIChart = dynamic(
   () => import('@/components/rafi-chart').then(m => m.RAFIChart),
@@ -56,6 +56,7 @@ export default function ChartPage() {
   const [ocoVisible,   setOcoVisible]   = useState(true)
   const [csvData,      setCsvData]      = useState<LoadResult | null>(null)
   const [csvError,     setCsvError]     = useState<string | null>(null)
+  const [panMode,      setPanMode]      = useState(false)   // true = navegar; false = colocar OCO
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -283,35 +284,51 @@ export default function ChartPage() {
 
               <span className="text-[#30363d]">|</span>
 
-              {/* Botão OCO */}
-              <button
-                onClick={() => {
-                  if (!ocoVisible && ocoState) {
-                    setOcoVisible(true)
-                  } else if (!ocoVisible) {
-                    setOcoState(makeOCO(lastPrice))
-                    setOcoVisible(true)
-                  } else {
-                    setOcoVisible(false)
-                  }
-                }}
-                className={cn(
-                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-all',
-                  ocoVisible
-                    ? 'bg-[#f59e0b]/15 border-[#f59e0b]/40 text-[#f59e0b]'
-                    : 'text-[#484f58] border-[#30363d] hover:text-[#8b949e] hover:bg-[#21262d]',
-                )}
-              >
-                <Crosshair size={10} />
-                OCO
-                {ocoVisible && <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b] inline-block" />}
-              </button>
+              {/* Modo: Navegar / OCO */}
+              <div className="flex items-center gap-0.5 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]">
+                {/* Navegar */}
+                <button
+                  onClick={() => setPanMode(true)}
+                  className={cn(
+                    'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all',
+                    panMode
+                      ? 'bg-[#3b82f6] text-white'
+                      : 'text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
+                  )}
+                  title="Modo navegar: clique e arraste para mover o gráfico"
+                >
+                  <Hand size={10} />
+                  Navegar
+                </button>
+                {/* OCO */}
+                <button
+                  onClick={() => {
+                    setPanMode(false)
+                    if (!ocoVisible && ocoState) {
+                      setOcoVisible(true)
+                    } else if (!ocoVisible) {
+                      setOcoState(makeOCO(lastPrice))
+                      setOcoVisible(true)
+                    }
+                  }}
+                  className={cn(
+                    'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all',
+                    !panMode
+                      ? 'bg-[#f59e0b]/15 border border-[#f59e0b]/40 text-[#f59e0b]'
+                      : 'text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
+                  )}
+                  title="Modo OCO: clique no gráfico para posicionar entrada"
+                >
+                  <Crosshair size={10} />
+                  OCO
+                  {ocoVisible && !panMode && <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b] inline-block" />}
+                </button>
+              </div>
             </div>
 
             <div className="flex items-center gap-1 text-[10px] text-[#484f58]">
               <Info size={10} />
-              Arraste para navegar · scroll para zoom
-            </div>
+              {panMode ? 'Arraste para navegar · scroll para zoom' : 'Clique no gráfico para mover entrada OCO'}</div>
           </div>
 
           {/* Chart */}
@@ -322,8 +339,9 @@ export default function ChartPage() {
               srLevels={srLevels}
               trades={trades}
               bbBands={bbBands}
-              onPriceClick={setClickedEntry}
-              ocoState={ocoVisible ? ocoState : null}
+              onPriceClick={panMode ? undefined : setClickedEntry}
+              panMode={panMode}
+              ocoState={ocoVisible && !panMode ? ocoState : null}
               onOCOChange={setOcoState}
               onOCOExecute={handleOCOExecute}
               onOCOClose={handleOCOClose}
