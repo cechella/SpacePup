@@ -5,9 +5,46 @@ import Link from 'next/link'
 import {
   TrendingUp, TrendingDown, BarChart2, Activity,
   Target, AlertTriangle, ChevronRight, Download,
-  Zap, Clock, Award,
+  Zap, Clock, Award, X as XIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+// ── Modal de preview do screenshot ───────────────────────────────────────────
+function SnapshotModal({ src, onClose }: { src: string; onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.85)' }}
+      onClick={onClose}
+    >
+      <div
+        className="relative rounded-xl overflow-hidden border border-[#30363d] shadow-2xl"
+        style={{ maxWidth: '90vw', maxHeight: '80vh' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <button
+          onClick={onClose}
+          className="absolute top-2 right-2 z-10 p-1 rounded-full bg-[#161b22] border border-[#30363d] text-[#8b949e] hover:text-[#f0f6fc] transition-colors"
+        >
+          <XIcon size={14} />
+        </button>
+        <div className="bg-[#0d1117] px-4 py-2 text-[10px] text-[#484f58] border-b border-[#30363d]">
+          Captura do gráfico no momento da execução
+        </div>
+        <img
+          src={src}
+          alt="Gráfico no trade"
+          style={{ display: 'block', width: '100%', imageRendering: 'pixelated' }}
+        />
+      </div>
+    </div>
+  )
+}
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 interface ManualTrade {
@@ -112,7 +149,7 @@ function KPI({ label, value, sub, color, icon: Icon }: {
 }
 
 // ── Chips de observação ML por trade ──────────────────────────────────────────
-function MLChips({ t }: { t: ManualTrade }) {
+function MLChips({ t, onSnapClick }: { t: ManualTrade; onSnapClick?: (src: string) => void }) {
   const r  = riskPips(t.entry, t.stopLoss, t.direction)
   const w  = rewardPips(t.entry, t.takeProfit, t.direction)
   const rr = r > 0 ? w / r : 0
@@ -159,22 +196,29 @@ function MLChips({ t }: { t: ManualTrade }) {
 
   return (
     <div className="flex flex-wrap items-center gap-1 px-4 pb-2.5 border-b border-[#21262d]">
-      {/* Miniatura do gráfico no momento do trade */}
+      {/* Miniatura clicável do gráfico */}
       {t.snapshot && (
-        <img
-          src={t.snapshot}
-          alt="gráfico no trade"
-          title="Captura do gráfico no momento da execução"
-          style={{
-            width: 120, height: 40,
-            borderRadius: 4,
-            border: '1px solid #30363d',
-            objectFit: 'cover',
-            opacity: 0.85,
-            marginRight: 6,
-            flexShrink: 0,
-          }}
-        />
+        <button
+          onClick={() => onSnapClick?.(t.snapshot!)}
+          title="Clique para ampliar"
+          style={{ flexShrink: 0, marginRight: 6, padding: 0, border: 'none', background: 'none', cursor: 'zoom-in' }}
+        >
+          <img
+            src={t.snapshot}
+            alt="gráfico no trade"
+            style={{
+              width: 120, height: 40,
+              borderRadius: 4,
+              border: '1px solid #30363d',
+              objectFit: 'cover',
+              opacity: 0.85,
+              display: 'block',
+              transition: 'opacity 0.15s',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+            onMouseLeave={e => (e.currentTarget.style.opacity = '0.85')}
+          />
+        </button>
       )}
       {chips.length > 0 && (
         <span className="text-[8px] text-[#484f58] mr-1 uppercase tracking-wider shrink-0">ML →</span>
@@ -190,7 +234,7 @@ function MLChips({ t }: { t: ManualTrade }) {
 }
 
 // ── Trade recente ─────────────────────────────────────────────────────────────
-function TradeRow({ t, onLabel }: { t: ManualTrade; onLabel?: (id: string, r: 'win' | 'loss') => void }) {
+function TradeRow({ t, onLabel, onSnapClick }: { t: ManualTrade; onLabel?: (id: string, r: 'win' | 'loss') => void; onSnapClick?: (src: string) => void }) {
   const r       = riskPips(t.entry, t.stopLoss, t.direction)
   const w       = rewardPips(t.entry, t.takeProfit, t.direction)
   const rr      = r > 0 ? (w / r).toFixed(1) : '—'
@@ -236,7 +280,7 @@ function TradeRow({ t, onLabel }: { t: ManualTrade; onLabel?: (id: string, r: 'w
           ) : null}
         </div>
       </div>
-      <MLChips t={t} />
+      <MLChips t={t} onSnapClick={onSnapClick} />
     </div>
   )
 }
@@ -244,8 +288,9 @@ function TradeRow({ t, onLabel }: { t: ManualTrade; onLabel?: (id: string, r: 'w
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function AdminDashboard() {
-  const [trades,  setTrades]  = useState<ManualTrade[]>([])
-  const [mounted, setMounted] = useState(false)
+  const [trades,       setTrades]       = useState<ManualTrade[]>([])
+  const [mounted,      setMounted]      = useState(false)
+  const [activeSnap,   setActiveSnap]   = useState<string | null>(null)
 
   useEffect(() => {
     setMounted(true)
@@ -302,6 +347,7 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-[#0d1117] p-5 space-y-5">
+      {activeSnap && <SnapshotModal src={activeSnap} onClose={() => setActiveSnap(null)} />}
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between">
@@ -422,7 +468,7 @@ export default function AdminDashboard() {
                 <span className="w-9 shrink-0 text-right">R:R</span>
                 <span className="ml-auto">Resultado</span>
               </div>
-              {recent.map(t => <TradeRow key={t.id} t={t} onLabel={handleLabel} />)}
+              {recent.map(t => <TradeRow key={t.id} t={t} onLabel={handleLabel} onSnapClick={setActiveSnap} />)}
             </div>
           )}
         </div>
