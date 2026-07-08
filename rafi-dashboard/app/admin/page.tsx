@@ -322,41 +322,80 @@ function TradeRow({ t, onLabel, onSnapClick }: { t: ManualTrade; onLabel?: (id: 
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ── Gráfico de projeção de composição ────────────────────────────────────────
-function CompoundingChart({ pts1, pts2, pts3, initCapital, height = 100 }: {
-  pts1: number[]; pts2: number[]; pts3: number[]; initCapital: number; height?: number
+// Tiers de escalonamento agressivo: dobra o lote conforme o capital sobe
+const SCALE_TIERS = [
+  { minCap: 0,       lot: 0.20,  label: '$100'  },
+  { minCap: 150,     lot: 0.40,  label: '$150'  },
+  { minCap: 200,     lot: 0.80,  label: '$200'  },
+  { minCap: 300,     lot: 1.00,  label: '$300'  },
+  { minCap: 600,     lot: 2.00,  label: '$600'  },
+  { minCap: 1_200,   lot: 4.00,  label: '$1.2k' },
+  { minCap: 2_500,   lot: 8.00,  label: '$2.5k' },
+  { minCap: 5_000,   lot: 15.00, label: '$5k'   },
+  { minCap: 10_000,  lot: 30.00, label: '$10k'  },
+  { minCap: 25_000,  lot: 60.00, label: '$25k'  },
+  { minCap: 50_000,  lot: 120.00,label: '$50k'  },
+  { minCap: 100_000, lot: 250.00,label: '$100k' },
+  { minCap: 200_000, lot: 500.00,label: '$200k' },
+]
+
+function getLot(c: number): number {
+  let lot = SCALE_TIERS[0].lot
+  for (const t of SCALE_TIERS) { if (c >= t.minCap) lot = t.lot }
+  return lot
+}
+
+function fmtK(v: number): string {
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`
+  if (v >= 1_000)     return `$${(v / 1_000).toFixed(1)}k`
+  return `$${v.toFixed(0)}`
+}
+
+// Gráfico em escala log (eixo Y) para mostrar crescimento exponencial
+function ExpChart({ pts1, pts2, pts3, height = 120 }: {
+  pts1: number[]; pts2: number[]; pts3: number[]; height?: number
 }) {
-  const all  = [...pts1, ...pts2, ...pts3]
-  const W    = 400, H = height
-  const minV = Math.min(...all, 0)
-  const maxV = Math.max(...all, initCapital * 1.01)
-  const rng  = maxV - minV || 1
-  const n    = pts1.length
-  const toY  = (v: number) => H - ((v - minV) / rng) * (H - 14) - 7
-  const toX  = (i: number) => (i / (n - 1)) * W
-  const path = (pts: number[]) =>
+  const W = 500, H = height
+  const allVals = [...pts1, ...pts2, ...pts3].filter(v => v > 0)
+  const logMin  = Math.log10(Math.max(1, Math.min(...allVals)))
+  const logMax  = Math.log10(Math.max(...allVals, 1))
+  const rng     = logMax - logMin || 1
+  const n       = pts1.length
+  const toY = (v: number) => {
+    const safe = Math.max(1, v)
+    return H - ((Math.log10(safe) - logMin) / rng) * (H - 16) - 8
+  }
+  const toX = (i: number) => (i / (n - 1)) * W
+  const makePath = (pts: number[]) =>
     pts.map((v, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(' ')
-  const baseY = toY(initCapital).toFixed(1)
+
+  // Grid lines para 1k, 10k, 100k, 300k
+  const gridLines = [1_000, 10_000, 100_000, 300_000].filter(v => {
+    const y = toY(v); return y > 4 && y < H - 4
+  })
+
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height }} preserveAspectRatio="none">
-      <line x1="0" y1={baseY} x2={W} y2={baseY} stroke="#30363d" strokeWidth="1" strokeDasharray="4 3" />
-      <path d={path(pts3)} fill="none" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="5 3" opacity="0.5" />
-      <path d={path(pts2)} fill="none" stroke="#f59e0b" strokeWidth="2" />
-      <path d={path(pts1)} fill="none" stroke="#10b981" strokeWidth="2.5" />
-      <circle cx={toX(n - 1)} cy={toY(pts1[n - 1])} r="4" fill="#10b981" />
+      {gridLines.map(v => (
+        <g key={v}>
+          <line x1="0" y1={toY(v)} x2={W} y2={toY(v)} stroke="#30363d" strokeWidth="1" strokeDasharray="3 3" />
+          <text x="4" y={toY(v) - 3} fill="#484f58" fontSize="8" fontFamily="monospace">{fmtK(v)}</text>
+        </g>
+      ))}
+      <path d={makePath(pts3)} fill="none" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="5 3" opacity="0.6" />
+      <path d={makePath(pts2)} fill="none" stroke="#f59e0b" strokeWidth="2" />
+      <path d={makePath(pts1)} fill="none" stroke="#10b981" strokeWidth="2.5" />
+      <circle cx={toX(n - 1)} cy={toY(pts1[n - 1])} r="4"   fill="#10b981" />
       <circle cx={toX(n - 1)} cy={toY(pts2[n - 1])} r="3.5" fill="#f59e0b" />
       <circle cx={toX(n - 1)} cy={toY(pts3[n - 1])} r="3"   fill="#ef4444" />
     </svg>
   )
 }
 
-// ── Simulador de escalonamento de lote ───────────────────────────────────────
+// ── Simulador de crescimento exponencial ─────────────────────────────────────
 function LotScalingWidget({ trades }: { trades: ManualTrade[] }) {
-  const [capital, setCapital] = useState(100)
-  const [riskPct, setRiskPct] = useState(2)
-
-  const LOT_TIERS = [0.01, 0.05, 0.10, 0.20, 0.50, 1.00, 2.00, 5.00]
-  const N_SIM     = 20
+  const [winRate, setWinRate] = useState(60)
+  const N_SIM = 200  // trades simulados
 
   const avgRiskP = useMemo(() => {
     if (!trades.length) return 5
@@ -368,137 +407,131 @@ function LotScalingWidget({ trades }: { trades: ManualTrade[] }) {
     return trades.reduce((s, t) => s + rewardPips(t.entry, t.takeProfit, t.direction), 0) / trades.length
   }, [trades])
 
-  const recLot = useMemo(() => {
-    const maxRisk = capital * riskPct / 100
-    return Math.max(0.01, Math.floor(maxRisk / (avgRiskP * 10) * 100) / 100)
-  }, [capital, riskPct, avgRiskP])
-
-  // Capital mínimo para operar 0.20L dentro do risco configurado
-  const minCapFor020 = useMemo(() =>
-    Math.ceil(0.20 * avgRiskP * 10 / (riskPct / 100) / 50) * 50,
-  [avgRiskP, riskPct])
-
-  const compound = useCallback((pattern: boolean[]): number[] => {
-    const pts = [capital]
-    let c = capital
-    for (const win of pattern) {
-      const lot = Math.max(0.01, Math.floor((c * riskPct / 100) / (avgRiskP * 10) * 100) / 100)
-      c = Math.max(0, c + (win ? avgRewardP * lot * 10 : -(avgRiskP * lot * 10)))
+  // Simulação determinística com padrão de win/loss
+  const simulate = useCallback((wr: number): number[] => {
+    const pts = [100]
+    let c = 100
+    const period = 100
+    const wins   = Math.round(wr)  // ex: 60 wins em 100 trades
+    for (let i = 0; i < N_SIM; i++) {
+      const lot   = getLot(c)
+      const isWin = (i % period) < wins
+      c = Math.max(0, c + (isWin ? avgRewardP * lot * 10 : -(avgRiskP * lot * 10)))
       pts.push(c)
+      if (c <= 0) { for (let j = pts.length; j <= N_SIM; j++) pts.push(0); break }
     }
     return pts
-  }, [capital, riskPct, avgRiskP, avgRewardP])
+  }, [avgRiskP, avgRewardP])
 
-  const ptAllWin  = useMemo(() => compound(Array(N_SIM).fill(true)),  [compound])
-  const pt60      = useMemo(() => compound(Array.from({ length: N_SIM }, (_, i) => i % 5 < 3)), [compound])
-  const ptAllLoss = useMemo(() => compound(Array(N_SIM).fill(false)), [compound])
+  const pt70 = useMemo(() => simulate(70), [simulate])
+  const pt60 = useMemo(() => simulate(60), [simulate])
+  const pt50 = useMemo(() => simulate(50), [simulate])
 
-  const nTrades = trades.length || 1
+  // Quantos trades para $300k no cenário selecionado
+  const tradesTo300k = useMemo(() => {
+    const pts = simulate(winRate)
+    const idx = pts.findIndex(v => v >= 300_000)
+    return idx === -1 ? null : idx
+  }, [simulate, winRate])
+
+  const currentPts = useMemo(() => simulate(winRate), [simulate, winRate])
+  const finalCap   = currentPts[currentPts.length - 1]
 
   return (
     <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-5 space-y-5">
-      <div className="flex items-center justify-between">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2">
           <Layers size={14} className="text-[#f59e0b]" />
-          <span className="text-sm font-semibold text-[#f0f6fc]">Simulador de Escalonamento de Lote</span>
-        </div>
-        <span className="text-[9px] text-[#484f58]">baseado nos {trades.length} trades mapeados · EURUSD</span>
-      </div>
-
-      {/* Controles */}
-      <div className="flex flex-wrap items-end gap-5">
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[9px] uppercase tracking-wider text-[#484f58]">Capital (USD)</label>
-          <div className="flex items-center gap-2 flex-wrap">
-            <input
-              type="number" min={50} step={50} value={capital}
-              onChange={e => setCapital(Math.max(50, Number(e.target.value)))}
-              className="w-24 bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-1.5 text-sm font-mono text-[#f0f6fc] focus:outline-none focus:border-[#3b82f6]"
-            />
-            {[100, 500, 1000, 5000].map(c => (
-              <button key={c} onClick={() => setCapital(c)}
-                className={cn('px-2.5 py-1.5 rounded text-[10px] font-mono font-bold transition-all border',
-                  capital === c ? 'border-[#3b82f6]/50 bg-[#3b82f6]/10 text-[#3b82f6]'
-                               : 'border-[#30363d] text-[#484f58] hover:text-[#8b949e]')}>
-                ${c >= 1000 ? `${c / 1000}k` : c}
-              </button>
-            ))}
+          <div>
+            <span className="text-sm font-semibold text-[#f0f6fc]">Escalonamento Exponencial de Lote</span>
+            <span className="ml-2 text-[9px] text-[#484f58]">$100 → $300k · EURUSD</span>
           </div>
         </div>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[9px] uppercase tracking-wider text-[#484f58]">Risco/trade</label>
-          <div className="flex gap-1">
-            {[1, 2, 3].map(p => (
-              <button key={p} onClick={() => setRiskPct(p)}
-                className={cn('px-3 py-1.5 rounded-lg text-xs font-bold transition-all border',
-                  riskPct === p ? 'bg-[#f59e0b]/15 border-[#f59e0b]/40 text-[#f59e0b]'
-                               : 'border-[#30363d] text-[#484f58] hover:text-[#8b949e]')}>
-                {p}%
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="ml-auto text-right">
-          <div className="text-[9px] uppercase tracking-wider text-[#484f58] mb-0.5">Lote recomendado</div>
-          <div className="text-3xl font-black font-mono text-[#f59e0b]">{recLot.toFixed(2)}L</div>
-          <div className="text-[9px] text-[#484f58]">máx ${(capital * riskPct / 100).toFixed(2)} risco/trade</div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[9px] text-[#484f58] mr-1">Win rate:</span>
+          {[50, 60, 70].map(w => (
+            <button key={w} onClick={() => setWinRate(w)}
+              className={cn('px-3 py-1.5 rounded-lg text-xs font-bold transition-all border',
+                winRate === w ? 'bg-[#3b82f6]/15 border-[#3b82f6]/40 text-[#3b82f6]'
+                             : 'border-[#30363d] text-[#484f58] hover:text-[#8b949e]')}>
+              {w}%
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Tabela de escalonamento */}
+      {/* KPIs da simulação */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-[#0d1117] rounded-lg p-3 text-center">
+          <div className="text-[9px] uppercase tracking-wider text-[#484f58] mb-1">Capital após {N_SIM} trades</div>
+          <div className={cn('text-xl font-black font-mono', finalCap >= 300_000 ? 'text-[#10b981]' : finalCap > 100 ? 'text-[#f59e0b]' : 'text-[#ef4444]')}>
+            {fmtK(finalCap)}
+          </div>
+          <div className="text-[8px] text-[#484f58] mt-0.5">com {winRate}% win rate</div>
+        </div>
+        <div className="bg-[#0d1117] rounded-lg p-3 text-center">
+          <div className="text-[9px] uppercase tracking-wider text-[#484f58] mb-1">Trades p/ $300k</div>
+          <div className={cn('text-xl font-black font-mono', tradesTo300k ? 'text-[#10b981]' : 'text-[#ef4444]')}>
+            {tradesTo300k ? tradesTo300k : '> ' + N_SIM}
+          </div>
+          <div className="text-[8px] text-[#484f58] mt-0.5">
+            {tradesTo300k ? `≈ ${Math.ceil(tradesTo300k / 3)} dias (3/dia)` : 'não atingido'}
+          </div>
+        </div>
+        <div className="bg-[#0d1117] rounded-lg p-3 text-center">
+          <div className="text-[9px] uppercase tracking-wider text-[#484f58] mb-1">Lote atual ($100)</div>
+          <div className="text-xl font-black font-mono text-[#f59e0b]">0.20L</div>
+          <div className="text-[8px] text-[#484f58] mt-0.5">
+            +${(avgRewardP * 0.20 * 10).toFixed(0)}/WIN · -${(avgRiskP * 0.20 * 10).toFixed(0)}/LOSS
+          </div>
+        </div>
+      </div>
+
+      {/* Tabela de tiers */}
       <div className="overflow-x-auto">
         <table className="w-full text-xs font-mono">
           <thead>
             <tr className="text-[8px] uppercase tracking-wider text-[#484f58] border-b border-[#30363d]">
-              <th className="text-left py-2 pr-3 font-medium">Lote</th>
-              <th className="text-right py-2 px-2 font-medium">Risco/trade</th>
-              <th className="text-right py-2 px-2 font-medium">% capital</th>
-              <th className="text-right py-2 px-2 font-medium">Ganho/trade</th>
-              <th className="text-right py-2 px-2 font-medium text-[#10b981]">
-                {nTrades} trades WIN
-              </th>
-              <th className="text-right py-2 px-2 font-medium text-[#ef4444]">
-                {nTrades} trades LOSS
-              </th>
-              <th className="text-right py-2 pl-2 font-medium">Capital (WIN)</th>
+              <th className="text-left py-2 pr-3 font-medium">Capital</th>
+              <th className="text-right py-2 px-2 font-medium">Lote</th>
+              <th className="text-right py-2 px-2 font-medium text-[#10b981]">WIN/trade</th>
+              <th className="text-right py-2 px-2 font-medium text-[#ef4444]">LOSS/trade</th>
+              <th className="text-right py-2 px-2 font-medium">% risco</th>
+              <th className="text-right py-2 pl-2 font-medium">EV/trade</th>
             </tr>
           </thead>
           <tbody>
-            {LOT_TIERS.map(lot => {
-              const riskPerT  = avgRiskP   * lot * 10
-              const gainPerT  = avgRewardP * lot * 10
-              const pctRisk   = riskPerT / capital * 100
-              const totalWin  = gainPerT  * nTrades
-              const totalLoss = riskPerT  * nTrades
-              const isRec     = lot === recLot
-              const isCurrent = Math.abs(lot - 0.20) < 0.001
-              const isDanger  = pctRisk > 5
+            {SCALE_TIERS.map((tier, i) => {
+              const gain    = avgRewardP * tier.lot * 10
+              const loss    = avgRiskP   * tier.lot * 10
+              const midCap  = i + 1 < SCALE_TIERS.length
+                ? (tier.minCap + SCALE_TIERS[i + 1].minCap) / 2
+                : tier.minCap * 1.5
+              const refCap  = Math.max(tier.minCap || 100, midCap)
+              const pctRisk = (loss / refCap) * 100
+              const ev      = (winRate / 100) * gain - ((100 - winRate) / 100) * loss
+              const isActive = finalCap >= tier.minCap && (i + 1 >= SCALE_TIERS.length || finalCap < SCALE_TIERS[i + 1].minCap)
               return (
-                <tr key={lot} className={cn(
-                  'border-b border-[#30363d]/40 transition-colors',
-                  isRec     && 'bg-[#f59e0b]/5',
-                  isCurrent && !isRec && 'bg-[#3b82f6]/5',
-                  isDanger  && 'opacity-35',
+                <tr key={tier.minCap} className={cn(
+                  'border-b border-[#30363d]/40',
+                  isActive && 'bg-[#f59e0b]/8',
                 )}>
-                  <td className="py-2 pr-3">
-                    <span className={cn('font-bold',
-                      isRec ? 'text-[#f59e0b]' : isCurrent ? 'text-[#3b82f6]' : 'text-[#8b949e]')}>
-                      {lot.toFixed(2)}L
+                  <td className="py-1.5 pr-3">
+                    <span className={cn('font-bold', isActive ? 'text-[#f59e0b]' : 'text-[#8b949e]')}>
+                      {tier.label}
                     </span>
-                    {isRec     && <span className="ml-1.5 text-[8px] bg-[#f59e0b]/20 text-[#f59e0b] px-1 py-px rounded">REC</span>}
-                    {isCurrent && <span className="ml-1.5 text-[8px] bg-[#3b82f6]/20 text-[#3b82f6] px-1 py-px rounded">0.20</span>}
-                    {isDanger  && <span className="ml-1.5 text-[8px] text-[#ef4444]">⚠</span>}
+                    {isActive && <span className="ml-1.5 text-[8px] bg-[#f59e0b]/20 text-[#f59e0b] px-1 py-px rounded">AGORA</span>}
                   </td>
-                  <td className="py-2 px-2 text-right text-[#ef4444]">-${riskPerT.toFixed(2)}</td>
-                  <td className={cn('py-2 px-2 text-right font-bold',
-                    pctRisk > 5 ? 'text-[#ef4444]' : pctRisk > 2 ? 'text-[#f59e0b]' : 'text-[#10b981]')}>
-                    {pctRisk.toFixed(1)}%
+                  <td className="py-1.5 px-2 text-right font-bold text-[#f0f6fc]">{tier.lot.toFixed(2)}L</td>
+                  <td className="py-1.5 px-2 text-right text-[#10b981] font-bold">+${gain.toFixed(0)}</td>
+                  <td className="py-1.5 px-2 text-right text-[#ef4444]">-${loss.toFixed(0)}</td>
+                  <td className={cn('py-1.5 px-2 text-right',
+                    pctRisk > 50 ? 'text-[#ef4444]' : pctRisk > 20 ? 'text-[#f59e0b]' : 'text-[#8b949e]')}>
+                    {pctRisk.toFixed(0)}%
                   </td>
-                  <td className="py-2 px-2 text-right text-[#10b981]">+${gainPerT.toFixed(2)}</td>
-                  <td className="py-2 px-2 text-right font-bold text-[#10b981]">+${totalWin.toFixed(2)}</td>
-                  <td className="py-2 px-2 text-right text-[#ef4444]">-${totalLoss.toFixed(2)}</td>
-                  <td className="py-2 pl-2 text-right font-bold text-[#f0f6fc]">
-                    ${(capital + totalWin).toFixed(0)}
+                  <td className={cn('py-1.5 pl-2 text-right font-bold', ev >= 0 ? 'text-[#10b981]' : 'text-[#ef4444]')}>
+                    {ev >= 0 ? '+' : ''}${ev.toFixed(0)}
                   </td>
                 </tr>
               )
@@ -507,38 +540,26 @@ function LotScalingWidget({ trades }: { trades: ManualTrade[] }) {
         </table>
       </div>
 
-      {/* Projeção de composição */}
+      {/* Gráfico exponencial log */}
       <div>
         <div className="flex items-center justify-between mb-2">
           <span className="text-[10px] uppercase tracking-wider text-[#484f58]">
-            Projeção — próximos {N_SIM} trades com lote escalando com capital
+            Projeção — {N_SIM} trades · escala logarítmica
           </span>
           <div className="flex items-center gap-4 text-[9px] text-[#484f58]">
-            <span className="flex items-center gap-1.5"><span className="w-5 h-0.5 bg-[#10b981] inline-block rounded" />Tudo WIN</span>
-            <span className="flex items-center gap-1.5"><span className="w-5 h-0.5 bg-[#f59e0b] inline-block rounded" />60% win</span>
-            <span className="flex items-center gap-1.5"><span className="w-5 h-0.5 bg-[#ef4444] inline-block rounded" style={{ borderTop: '1px dashed #ef4444', background: 'none', height: 0, marginTop: 2 }} />Tudo LOSS</span>
+            <span className="flex items-center gap-1.5"><span className="w-5 h-0.5 bg-[#10b981] inline-block" />70%</span>
+            <span className="flex items-center gap-1.5"><span className="w-5 h-0.5 bg-[#f59e0b] inline-block" />60%</span>
+            <span className="flex items-center gap-1.5"><span className="w-5 h-0.5 bg-[#ef4444] inline-block" />50%</span>
           </div>
         </div>
         <div className="bg-[#0d1117] rounded-lg px-3 py-2">
-          <CompoundingChart pts1={ptAllWin} pts2={pt60} pts3={ptAllLoss} initCapital={capital} height={88} />
+          <ExpChart pts1={pt70} pts2={pt60} pts3={pt50} height={120} />
         </div>
-        <div className="grid grid-cols-4 text-[9px] font-mono mt-1">
-          <span className="text-[#484f58]">Início: ${capital}</span>
-          <span className="text-[#10b981] text-center">WIN: ${ptAllWin[ptAllWin.length - 1].toFixed(0)}</span>
-          <span className="text-[#f59e0b] text-center">60%: ${pt60[pt60.length - 1].toFixed(0)}</span>
-          <span className="text-[#ef4444] text-right">LOSS: ${ptAllLoss[ptAllLoss.length - 1].toFixed(0)}</span>
+        <div className="grid grid-cols-3 gap-2 text-[9px] font-mono mt-1">
+          <span className="text-[#10b981]">70%: {fmtK(pt70[pt70.length - 1])}</span>
+          <span className="text-[#f59e0b] text-center">60%: {fmtK(pt60[pt60.length - 1])}</span>
+          <span className="text-[#ef4444] text-right">50%: {fmtK(pt50[pt50.length - 1])}</span>
         </div>
-      </div>
-
-      {/* Alerta de gestão */}
-      <div className="flex items-start gap-2 bg-[#0d1117] rounded-lg p-3 text-[9px] text-[#484f58] leading-relaxed">
-        <AlertTriangle size={10} className="text-[#f59e0b] shrink-0 mt-0.5" />
-        <span>
-          O lote de <strong className="text-[#3b82f6]">0.20L</strong> só é seguro com capital ≥{' '}
-          <strong className="text-[#f59e0b]">${minCapFor020}</strong> a {riskPct}% de risco/trade.
-          Com ${capital}, o ideal é <strong className="text-[#f59e0b]">{recLot.toFixed(2)}L</strong>.
-          Ao dobrar o capital, o lote recomendado dobra junto — esse é o efeito de composição.
-        </span>
       </div>
     </div>
   )
