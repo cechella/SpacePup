@@ -49,6 +49,7 @@ tamanho_lote_minimo: 0.01      # lote mínimo permitido pela XM
 #   TESTE AE:  RSI(3) mean-reversion puro — RSI<5 buy, RSI>95 sell, TP=15p/SL=10p → WR=28.9%, PF=0.655, blowup Jan2023 (risco 10% demasiado!)
 #   TESTE AF:  RSI(3) mean-rev + EMA200 filtro + risco=2% — RSI<5 buy acima EMA200 ← ATUAL
 lote_proporcional: false       # Kelly % real
+modo_lote: "faixa"             # 'faixa'=escalonamento por faixa de capital | 'proporcional'=Kelly | 'fixo' | 'kelly'
 risco_por_trade: 0.02          # 2% por trade — conservador para ver estatísticas reais sem blowup
 lote_base: 0.10               # não usado com proporcional=false; mantido p/ referência
 capital_base: 200.0            # não usado com proporcional=false; mantido p/ referência
@@ -84,7 +85,7 @@ slippage_pips: 0.5             # slippage estimado em pontos
 # 'epm'     = EMA Pullback Momentum (TESTE Y/Z — abandonado)
 # 'scalp'   = alta frequência EMA9/21/50 + ATR + RSI (TESTE AB — WR=36%, falhou)
 # 'rsi_rev' = mean-reversion RSI(3) extremos (TESTE AC — atual)
-estrategia_modo: "rsi_rev"
+estrategia_modo: "rafi"
 
 # --- Parâmetros EPM (EMA Pullback Momentum) ---
 # Lógica: EMA21 acima de EMA55 (tendência de alta) → preço recua até tocar
@@ -143,7 +144,7 @@ ma_lenta: 50                   # MA50
 ma_threshold: 0.0003           # 3 pips de diferença MA20-MA50
 
 # --- Bandas de Bollinger (timing — usado no modo 'rafi') ---
-bb_filtro_ativo: false
+bb_filtro_ativo: true
 bb_periodo: 8
 bb_desvios: 2.0
 bb_limiar_estreita: 0.0020

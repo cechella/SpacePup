@@ -8,7 +8,7 @@ import { parseCSV, type LoadResult } from '@/lib/csv-loader'
 import { TradePanel, type ManualTrade } from '@/components/trade-panel'
 import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
-import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon } from 'lucide-react'
+import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, MousePointer2 } from 'lucide-react'
 
 const RAFIChart = dynamic(
   () => import('@/components/rafi-chart').then(m => m.RAFIChart),
@@ -34,7 +34,7 @@ const OCO_PV       = OCO_LOT * 10          // $2/pip
 const OCO_SL_OFF   = (5  / OCO_PV) * 0.0001  // 2.5 pips = 0.00025
 const OCO_TP_OFF   = (15 / OCO_PV) * 0.0001  // 7.5 pips = 0.00075
 
-function makeOCO(price: number): OCOState {
+function makeOCO(price: number, time?: number): OCOState {
   const p = (v: number) => Math.round(v * 100000) / 100000
   return {
     lot:       OCO_LOT,
@@ -43,6 +43,7 @@ function makeOCO(price: number): OCOState {
     entry:     p(price),
     sl:        p(price - OCO_SL_OFF),
     tp:        p(price + OCO_TP_OFF),
+    entryTime: time,
   }
 }
 
@@ -52,10 +53,12 @@ export default function ChartPage() {
   const [trades,       setTrades]       = useState<ManualTrade[]>([])
   const [tf,           setTf]           = useState<Timeframe>('M5')
   const [clickedEntry, setClickedEntry] = useState<number | null>(null)
+  const [clickedTime,  setClickedTime]  = useState<number | undefined>(undefined)
   const [ocoState,     setOcoState]     = useState<OCOState | null>(null)
   const [ocoVisible,   setOcoVisible]   = useState(true)
   const [csvData,      setCsvData]      = useState<LoadResult | null>(null)
   const [csvError,     setCsvError]     = useState<string | null>(null)
+  const [panMode,      setPanMode]      = useState(false)   // true = navegar; false = colocar OCO
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -151,7 +154,7 @@ export default function ChartPage() {
       stopLoss:   p(sl),
       takeProfit: p(tp),
       label:      `OCO ${direction === 'buy' ? '▲ COMPRA' : '▼ VENDA'} @ ${formatPrice(entry)} | ${ocoState.lot.toFixed(2)}L`,
-      time:       lastTime,
+      time:       ocoState.entryTime ?? lastTime,
       lot:        ocoState.lot,
       leverage:   ocoState.leverage,
       result:     'pending',
@@ -283,35 +286,51 @@ export default function ChartPage() {
 
               <span className="text-[#30363d]">|</span>
 
-              {/* Botão OCO */}
-              <button
-                onClick={() => {
-                  if (!ocoVisible && ocoState) {
-                    setOcoVisible(true)
-                  } else if (!ocoVisible) {
-                    setOcoState(makeOCO(lastPrice))
-                    setOcoVisible(true)
-                  } else {
-                    setOcoVisible(false)
-                  }
-                }}
-                className={cn(
-                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-all',
-                  ocoVisible
-                    ? 'bg-[#f59e0b]/15 border-[#f59e0b]/40 text-[#f59e0b]'
-                    : 'text-[#484f58] border-[#30363d] hover:text-[#8b949e] hover:bg-[#21262d]',
-                )}
-              >
-                <Crosshair size={10} />
-                OCO
-                {ocoVisible && <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b] inline-block" />}
-              </button>
+              {/* Modo: Navegar / OCO */}
+              <div className="flex items-center gap-0.5 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]">
+                {/* Navegar */}
+                <button
+                  onClick={() => setPanMode(true)}
+                  className={cn(
+                    'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all',
+                    panMode
+                      ? 'bg-[#3b82f6] text-white'
+                      : 'text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
+                  )}
+                  title="Modo navegar: clique e arraste para mover o gráfico"
+                >
+                  <Hand size={10} />
+                  Navegar
+                </button>
+                {/* OCO */}
+                <button
+                  onClick={() => {
+                    setPanMode(false)
+                    if (!ocoVisible && ocoState) {
+                      setOcoVisible(true)
+                    } else if (!ocoVisible) {
+                      setOcoState(makeOCO(lastPrice))
+                      setOcoVisible(true)
+                    }
+                  }}
+                  className={cn(
+                    'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all',
+                    !panMode
+                      ? 'bg-[#f59e0b]/15 border border-[#f59e0b]/40 text-[#f59e0b]'
+                      : 'text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
+                  )}
+                  title="Modo OCO: clique no gráfico para posicionar entrada"
+                >
+                  <Crosshair size={10} />
+                  OCO
+                  {ocoVisible && !panMode && <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b] inline-block" />}
+                </button>
+              </div>
             </div>
 
             <div className="flex items-center gap-1 text-[10px] text-[#484f58]">
               <Info size={10} />
-              Arraste para navegar · scroll para zoom
-            </div>
+              {panMode ? 'Arraste para navegar · scroll para zoom' : 'Clique no gráfico para mover entrada OCO'}</div>
           </div>
 
           {/* Chart */}
@@ -322,8 +341,19 @@ export default function ChartPage() {
               srLevels={srLevels}
               trades={trades}
               bbBands={bbBands}
-              onPriceClick={setClickedEntry}
-              ocoState={ocoVisible ? ocoState : null}
+              onPriceClick={panMode ? undefined : (price, time) => {
+                setClickedEntry(price)
+                setClickedTime(time)
+                setOcoState(prev => {
+                  if (!prev) return makeOCO(price, time)
+                  const p = (v: number) => Math.round(v * 100000) / 100000
+                  const dSL = prev.sl - prev.entry
+                  const dTP = prev.tp - prev.entry
+                  return { ...prev, entry: p(price), sl: p(price + dSL), tp: p(price + dTP), entryTime: time }
+                })
+              }}
+              panMode={panMode}
+              ocoState={ocoVisible && !panMode ? ocoState : null}
               onOCOChange={setOcoState}
               onOCOExecute={handleOCOExecute}
               onOCOClose={handleOCOClose}
