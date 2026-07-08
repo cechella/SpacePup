@@ -47,11 +47,17 @@ export function parseCSV(text: string, filename: string): LoadResult {
   const lines = text.replace(/\r/g, '').split('\n').filter(l => l.trim())
   if (lines.length < 2) throw new Error('Arquivo vazio ou inválido')
 
-  const header = lines[0].toLowerCase()
+  const header  = lines[0].toLowerCase()
+  const firstTs = lines[1]?.split(/[,\t]/)[0]?.trim() ?? ''
   const candles: CandleData[] = []
 
-  // ── Dukascopy ──────────────────────────────────────────────────────────────
-  if (header.includes('gmt time') || (header.includes('open') && header.includes('high') && header.split(',').length >= 5)) {
+  // Detecta formato pelo timestamp da 1ª linha de dados
+  const isDukascopyClassic = /^\d{2}\.\d{2}\.\d{4}/.test(firstTs)   // 23.06.2026 00:00:00.000
+  const isISO8601          = /^\d{4}-\d{2}-\d{2}T/.test(firstTs)    // 2026-06-23T00:00:00-03:00
+  const isMT5Tab           = lines[0].includes('\t')
+
+  // ── Dukascopy clássico (GMT time, DD.MM.YYYY HH:MM:SS.mmm) ────────────────
+  if (header.includes('gmt time') || isDukascopyClassic) {
     for (let i = 1; i < lines.length; i++) {
       const c = lines[i].split(',')
       if (c.length < 5) continue
@@ -68,8 +74,28 @@ export function parseCSV(text: string, filename: string): LoadResult {
     }
   }
 
+  // ── Dukascopy novo (fuso local, ISO 8601: YYYY-MM-DDTHH:MM:SS±HH:MM) ─────
+  else if (isISO8601) {
+    for (let i = 1; i < lines.length; i++) {
+      const c = lines[i].split(',')
+      if (c.length < 5) continue
+      try {
+        const ts = Date.parse(c[0].trim())
+        if (!isFinite(ts)) continue
+        const time  = Math.floor(ts / 1000)
+        const open  = parseFloat(c[1])
+        const high  = parseFloat(c[2])
+        const low   = parseFloat(c[3])
+        const close = parseFloat(c[4])
+        const vol   = c[5] ? parseFloat(c[5]) : undefined
+        if (!isFinite(open)) continue
+        candles.push({ time, open, high, low, close, volume: vol })
+      } catch { /* ignora linha inválida */ }
+    }
+  }
+
   // ── MT5 (tab-separado) ─────────────────────────────────────────────────────
-  else if (header.includes('<date>') || header.includes('date') && header.includes('time') && lines[0].includes('\t')) {
+  else if (header.includes('<date>') || (isMT5Tab && header.includes('time'))) {
     for (let i = 1; i < lines.length; i++) {
       const c = lines[i].split('\t')
       if (c.length < 6) continue
