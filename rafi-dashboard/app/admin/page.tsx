@@ -16,6 +16,7 @@ interface ManualTrade {
   time: number; lot: number; leverage: number
   result?: 'win' | 'loss' | 'pending'
   rafi?: number; rafiDir?: 'bull' | 'bear'; bbWidth?: number
+  snapshot?: string
 }
 
 const STORAGE_KEY = 'rafi-trade-log'
