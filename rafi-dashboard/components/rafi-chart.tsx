@@ -10,22 +10,24 @@ import { OCOOverlay, type OCOState } from './oco-overlay'
 import { TradesOverlay } from './trades-overlay'
 
 interface Props {
-  candles:       CandleData[]
-  rafiData:      RAFIPoint[]
-  srLevels:      SRLevel[]
-  trades:        ManualTrade[]
-  bbBands?:      BBBands
-  onPriceClick?: (price: number, time?: number) => void
-  panMode?:      boolean
-  ocoState?:     OCOState | null
-  onOCOChange?:  (s: OCOState) => void
-  onOCOExecute?: (dir: 'buy' | 'sell') => void
-  onOCOClose?:   () => void
+  candles:            CandleData[]
+  rafiData:           RAFIPoint[]
+  srLevels:           SRLevel[]
+  trades:             ManualTrade[]
+  bbBands?:           BBBands
+  onPriceClick?:      (price: number, time?: number) => void
+  panMode?:           boolean
+  ocoState?:          OCOState | null
+  onOCOChange?:       (s: OCOState) => void
+  onOCOExecute?:      (dir: 'buy' | 'sell') => void
+  onOCOClose?:        () => void
+  // Ref para captura focada no candle de entrada
+  snapshotCaptureRef?: React.MutableRefObject<((entryTime: number) => string | null) | null>
 }
 
 export function RAFIChart({
   candles, rafiData, srLevels, trades, bbBands, onPriceClick, panMode,
-  ocoState, onOCOChange, onOCOExecute, onOCOClose,
+  ocoState, onOCOChange, onOCOExecute, onOCOClose, snapshotCaptureRef,
 }: Props) {
   const mainRef         = useRef<HTMLDivElement>(null)
   const mainWrapperRef  = useRef<HTMLDivElement>(null)
@@ -116,6 +118,30 @@ export function RAFIChart({
       candleSeriesRef.current = candleSeries
       chartRef.current        = mChart
       setChartReady(true)
+
+      // Expõe função de captura focada no candle de entrada (usado pelo OCO execute)
+      if (snapshotCaptureRef) {
+        snapshotCaptureRef.current = (entryTime: number) => {
+          try {
+            const x = mChart.timeScale().timeToCoordinate(entryTime as any)
+            if (x === null || x === undefined) return null
+            const canvases = Array.from(mainEl.querySelectorAll('canvas'))
+            if (!canvases.length) return null
+            const src = canvases.reduce((a, b) => a.height >= b.height ? a : b)
+            // Recorte: janela de 500px centrada no candle de entrada
+            const W_out = 480, H_out = 180
+            const half  = 250
+            const sx    = Math.max(0, Math.round(x) - half)
+            const sw    = Math.min(500, src.width - sx)
+            const thumb = document.createElement('canvas')
+            thumb.width = W_out; thumb.height = H_out
+            const ctx = thumb.getContext('2d')
+            if (!ctx) return null
+            ctx.drawImage(src, sx, 0, sw, src.height, 0, 0, W_out, H_out)
+            return thumb.toDataURL('image/jpeg', 0.75)
+          } catch { return null }
+        }
+      }
 
       // Clique no gráfico → captura preço E tempo do candle
       mChart.subscribeClick((param) => {

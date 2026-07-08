@@ -11,36 +11,71 @@ import { cn } from '@/lib/utils'
 
 // ── Modal de preview do screenshot ───────────────────────────────────────────
 function SnapshotModal({ src, onClose }: { src: string; onClose: () => void }) {
+  const [zoom, setZoom] = useState(1)
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [onClose])
+
+  const clampZoom = (v: number) => Math.min(6, Math.max(0.5, Math.round(v * 10) / 10))
+
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault()
+    setZoom(z => clampZoom(z - e.deltaY * 0.001))
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.85)' }}
+      style={{ background: 'rgba(0,0,0,0.88)' }}
       onClick={onClose}
     >
       <div
-        className="relative rounded-xl overflow-hidden border border-[#30363d] shadow-2xl"
-        style={{ maxWidth: '90vw', maxHeight: '80vh' }}
+        className="relative rounded-xl overflow-hidden border border-[#30363d] shadow-2xl flex flex-col"
+        style={{ maxWidth: '92vw', maxHeight: '85vh' }}
         onClick={e => e.stopPropagation()}
       >
-        <button
-          onClick={onClose}
-          className="absolute top-2 right-2 z-10 p-1 rounded-full bg-[#161b22] border border-[#30363d] text-[#8b949e] hover:text-[#f0f6fc] transition-colors"
-        >
-          <XIcon size={14} />
-        </button>
-        <div className="bg-[#0d1117] px-4 py-2 text-[10px] text-[#484f58] border-b border-[#30363d]">
-          Captura do gráfico no momento da execução
+        {/* Toolbar */}
+        <div className="bg-[#0d1117] px-4 py-2 text-[10px] text-[#484f58] border-b border-[#30363d] flex items-center justify-between shrink-0">
+          <span>Captura do gráfico no momento da execução</span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setZoom(z => clampZoom(z - 0.25))}
+              className="w-6 h-6 rounded bg-[#21262d] border border-[#30363d] text-[#8b949e] hover:text-[#f0f6fc] flex items-center justify-center text-xs font-bold"
+            >−</button>
+            <span className="font-mono text-[#8b949e] w-10 text-center">{Math.round(zoom * 100)}%</span>
+            <button
+              onClick={() => setZoom(z => clampZoom(z + 0.25))}
+              className="w-6 h-6 rounded bg-[#21262d] border border-[#30363d] text-[#8b949e] hover:text-[#f0f6fc] flex items-center justify-center text-xs font-bold"
+            >+</button>
+            <button
+              onClick={onClose}
+              className="ml-2 p-1 rounded-full bg-[#21262d] border border-[#30363d] text-[#8b949e] hover:text-[#f0f6fc] transition-colors"
+            >
+              <XIcon size={12} />
+            </button>
+          </div>
         </div>
-        <img
-          src={src}
-          alt="Gráfico no trade"
-          style={{ display: 'block', width: '100%', imageRendering: 'pixelated' }}
-        />
+        {/* Image area — scrollable when zoomed */}
+        <div
+          className="overflow-auto bg-[#0d1117]"
+          style={{ maxHeight: 'calc(85vh - 40px)' }}
+          onWheel={handleWheel}
+        >
+          <img
+            src={src}
+            alt="Gráfico no trade"
+            style={{
+              display: 'block',
+              width: `${zoom * 100}%`,
+              minWidth: zoom < 1 ? undefined : '100%',
+              imageRendering: zoom > 1.5 ? 'pixelated' : 'auto',
+              transition: 'width 0.1s ease',
+            }}
+          />
+        </div>
       </div>
     </div>
   )
