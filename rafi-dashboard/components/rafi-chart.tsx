@@ -14,7 +14,7 @@ interface Props {
   srLevels:      SRLevel[]
   trades:        ManualTrade[]
   bbBands?:      BBBands
-  onPriceClick?: (price: number) => void
+  onPriceClick?: (price: number, time?: number) => void
   panMode?:      boolean
   ocoState?:     OCOState | null
   onOCOChange?:  (s: OCOState) => void
@@ -31,17 +31,24 @@ export function RAFIChart({
   const rafiRef         = useRef<HTMLDivElement>(null)
   const onPriceClickRef = useRef(onPriceClick)
   const candleSeriesRef = useRef<any>(null)
+  const chartRef        = useRef<any>(null)
   const [chartReady, setChartReady] = useState(false)
 
   useEffect(() => { onPriceClickRef.current = onPriceClick }, [onPriceClick])
 
-  // Funções estáveis para conversão preço ↔ coordenada Y
-  const getY = useCallback((price: number): number | null => {
-    return candleSeriesRef.current?.priceToCoordinate(price) ?? null
+  // Funções estáveis para conversão preço ↔ Y e tempo ↔ X
+  const getY     = useCallback((price: number): number | null =>
+    candleSeriesRef.current?.priceToCoordinate(price) ?? null, [])
+  const getPrice = useCallback((y: number): number | null =>
+    candleSeriesRef.current?.coordinateToPrice(y) ?? null, [])
+  const getX     = useCallback((time: number): number | null => {
+    try { return chartRef.current?.timeScale().timeToCoordinate(time as any) ?? null } catch { return null }
   }, [])
-
-  const getPrice = useCallback((y: number): number | null => {
-    return candleSeriesRef.current?.coordinateToPrice(y) ?? null
+  const getTime  = useCallback((x: number): number | null => {
+    try {
+      const t = chartRef.current?.timeScale().coordinateToTime(x as any)
+      return t !== undefined && t !== null ? Number(t) : null
+    } catch { return null }
   }, [])
 
   useEffect(() => {
@@ -106,13 +113,15 @@ export function RAFIChart({
       candleSeries.setData(applyRAFICandleColors(candles, rafiData) as any)
 
       candleSeriesRef.current = candleSeries
+      chartRef.current        = mChart
       setChartReady(true)
 
-      // Clique no gráfico → define preço de entrada no painel
+      // Clique no gráfico → captura preço E tempo do candle
       mChart.subscribeClick((param) => {
         if (!param.point) return
         const price = candleSeries.coordinateToPrice(param.point.y)
-        if (price !== null) onPriceClickRef.current?.(price)
+        const time  = param.time !== undefined ? Number(param.time) : undefined
+        if (price !== null) onPriceClickRef.current?.(price, time)
       })
 
       // Bandas de Bollinger (8p, 2σ)
@@ -254,6 +263,8 @@ export function RAFIChart({
             onClose={onOCOClose    ?? (() => {})}
             getY={getY}
             getPrice={getPrice}
+            getX={getX}
+            getTime={getTime}
             containerRef={mainRef}
           />
         )}

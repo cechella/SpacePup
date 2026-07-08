@@ -34,7 +34,7 @@ const OCO_PV       = OCO_LOT * 10          // $2/pip
 const OCO_SL_OFF   = (5  / OCO_PV) * 0.0001  // 2.5 pips = 0.00025
 const OCO_TP_OFF   = (15 / OCO_PV) * 0.0001  // 7.5 pips = 0.00075
 
-function makeOCO(price: number): OCOState {
+function makeOCO(price: number, time?: number): OCOState {
   const p = (v: number) => Math.round(v * 100000) / 100000
   return {
     lot:       OCO_LOT,
@@ -43,6 +43,7 @@ function makeOCO(price: number): OCOState {
     entry:     p(price),
     sl:        p(price - OCO_SL_OFF),
     tp:        p(price + OCO_TP_OFF),
+    entryTime: time,
   }
 }
 
@@ -52,6 +53,7 @@ export default function ChartPage() {
   const [trades,       setTrades]       = useState<ManualTrade[]>([])
   const [tf,           setTf]           = useState<Timeframe>('M5')
   const [clickedEntry, setClickedEntry] = useState<number | null>(null)
+  const [clickedTime,  setClickedTime]  = useState<number | undefined>(undefined)
   const [ocoState,     setOcoState]     = useState<OCOState | null>(null)
   const [ocoVisible,   setOcoVisible]   = useState(true)
   const [csvData,      setCsvData]      = useState<LoadResult | null>(null)
@@ -152,7 +154,7 @@ export default function ChartPage() {
       stopLoss:   p(sl),
       takeProfit: p(tp),
       label:      `OCO ${direction === 'buy' ? '▲ COMPRA' : '▼ VENDA'} @ ${formatPrice(entry)} | ${ocoState.lot.toFixed(2)}L`,
-      time:       lastTime,
+      time:       ocoState.entryTime ?? lastTime,
       lot:        ocoState.lot,
       leverage:   ocoState.leverage,
       result:     'pending',
@@ -339,7 +341,17 @@ export default function ChartPage() {
               srLevels={srLevels}
               trades={trades}
               bbBands={bbBands}
-              onPriceClick={panMode ? undefined : setClickedEntry}
+              onPriceClick={panMode ? undefined : (price, time) => {
+                setClickedEntry(price)
+                setClickedTime(time)
+                setOcoState(prev => {
+                  if (!prev) return makeOCO(price, time)
+                  const p = (v: number) => Math.round(v * 100000) / 100000
+                  const dSL = prev.sl - prev.entry
+                  const dTP = prev.tp - prev.entry
+                  return { ...prev, entry: p(price), sl: p(price + dSL), tp: p(price + dTP), entryTime: time }
+                })
+              }}
               panMode={panMode}
               ocoState={ocoVisible && !panMode ? ocoState : null}
               onOCOChange={setOcoState}
