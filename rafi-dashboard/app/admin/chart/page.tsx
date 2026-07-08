@@ -8,7 +8,8 @@ import { parseCSV, detectTimeframe, fmtDate, type LoadResult } from '@/lib/csv-l
 import { TradePanel, type ManualTrade } from '@/components/trade-panel'
 import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
-import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, MousePointer2 } from 'lucide-react'
+import { getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
+import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers } from 'lucide-react'
 
 const RAFIChart = dynamic(
   () => import('@/components/rafi-chart').then(m => m.RAFIChart),
@@ -27,22 +28,22 @@ const RAFIChart = dynamic(
 
 const TIMEFRAMES: Timeframe[] = ['M5', 'M15', 'H1']
 
-// Defaults OCO: 0.20L, SL=$5, TP=$15
-const OCO_LOT      = 0.20
 const OCO_LEVERAGE = 1000
-const OCO_PV       = OCO_LOT * 10          // $2/pip
-const OCO_SL_OFF   = (5  / OCO_PV) * 0.0001  // 2.5 pips = 0.00025
-const OCO_TP_OFF   = (15 / OCO_PV) * 0.0001  // 7.5 pips = 0.00075
+const BASE_CAPITAL = 100  // capital inicial em USD
 
-function makeOCO(price: number, time?: number): OCOState {
-  const p = (v: number) => Math.round(v * 100000) / 100000
+// OCO com lote calculado pela tabela de escalonamento
+function makeOCO(price: number, lot: number, time?: number): OCOState {
+  const p    = (v: number) => Math.round(v * 100000) / 100000
+  const pv   = lot * 10          // pip value em USD
+  const slOff = (5  / pv) * 0.0001  // ~2.5 pips fixos
+  const tpOff = (15 / pv) * 0.0001  // ~7.5 pips fixos
   return {
-    lot:       OCO_LOT,
+    lot,
     leverage:  OCO_LEVERAGE,
     direction: 'buy',
     entry:     p(price),
-    sl:        p(price - OCO_SL_OFF),
-    tp:        p(price + OCO_TP_OFF),
+    sl:        p(price - slOff),
+    tp:        p(price + tpOff),
     entryTime: time,
   }
 }
@@ -147,13 +148,18 @@ export default function ChartPage() {
   const strongBullBars = rafiData.filter(p => p.value >= 2.5 && p.dir === 'bull').length
   const strongBearBars = rafiData.filter(p => p.value >= 2.5 && p.dir === 'bear').length
 
-  // Inicializa/reseta OCO quando o timeframe muda (lastPrice muda junto)
+  // Capital atual = base + P&L dos trades rotulados → determina lote pela tabela
+  const currentCapital = useMemo(() => calcCapital(trades, BASE_CAPITAL), [trades])
+  const currentLot     = useMemo(() => getLotForCapital(currentCapital),   [currentCapital])
+  const nextTier       = useMemo(() => getNextTier(currentCapital),        [currentCapital])
+
+  // Inicializa/reseta OCO quando o timeframe ou o lote calculado muda
   useEffect(() => {
     if (lastPrice > 0) {
-      setOcoState(makeOCO(lastPrice))
+      setOcoState(makeOCO(lastPrice, currentLot))
       setOcoVisible(true)
     }
-  }, [lastPrice])
+  }, [lastPrice, currentLot])
 
   const handleAdd    = useCallback((t: ManualTrade) => setTrades(p => [...p, t]),    [])
   const handleRemove = useCallback((id: string)     => setTrades(p => p.filter(t => t.id !== id)), [])
@@ -342,7 +348,7 @@ export default function ChartPage() {
                     if (!ocoVisible && ocoState) {
                       setOcoVisible(true)
                     } else if (!ocoVisible) {
-                      setOcoState(makeOCO(lastPrice))
+                      setOcoState(makeOCO(lastPrice, currentLot))
                       setOcoVisible(true)
                     }
                   }}
@@ -361,9 +367,21 @@ export default function ChartPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-1 text-[10px] text-[#484f58]">
-              <Info size={10} />
-              {panMode ? 'Arraste para navegar · scroll para zoom' : 'Clique no gráfico para mover entrada OCO'}</div>
+            {/* Indicador de capital e lote atual */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#f59e0b]/8 border border-[#f59e0b]/25 text-[10px]">
+                <Layers size={9} className="text-[#f59e0b]" />
+                <span className="text-[#f59e0b] font-bold font-mono">{currentLot.toFixed(2)}L</span>
+                <span className="text-[#484f58]">· cap ${currentCapital.toFixed(0)}</span>
+                {nextTier && (
+                  <span className="text-[#484f58]">· próx: {nextTier.lot.toFixed(2)}L em ${nextTier.minCap.toLocaleString()}</span>
+                )}
+              </div>
+              <div className="flex items-center gap-1 text-[10px] text-[#484f58]">
+                <Info size={10} />
+                {panMode ? 'Arraste para navegar · scroll para zoom' : 'Clique no gráfico para mover entrada OCO'}
+              </div>
+            </div>
           </div>
 
           {/* Chart */}
@@ -378,7 +396,7 @@ export default function ChartPage() {
                 setClickedEntry(price)
                 setClickedTime(time)
                 setOcoState(prev => {
-                  if (!prev) return makeOCO(price, time)
+                  if (!prev) return makeOCO(price, currentLot, time)
                   const p = (v: number) => Math.round(v * 100000) / 100000
                   const dSL = prev.sl - prev.entry
                   const dTP = prev.tp - prev.entry
