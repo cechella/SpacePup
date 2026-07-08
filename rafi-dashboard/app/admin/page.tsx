@@ -1,184 +1,355 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import dynamic from 'next/dynamic'
-import { generateDemoWeek } from '@/lib/demo-data'
-import { runRAFI } from '@/lib/rafi'
-import { StatsCards } from '@/components/stats-cards'
-import { SignalsTable } from '@/components/signals-table'
-import { cn, formatPrice } from '@/lib/utils'
-import { RefreshCw, Info, ChevronDown } from 'lucide-react'
+import { useEffect, useState, useMemo } from 'react'
+import Link from 'next/link'
+import {
+  TrendingUp, TrendingDown, BarChart2, Activity,
+  Target, AlertTriangle, ChevronRight, Download,
+  Zap, Clock, Award,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
 
-// Chart só carrega no cliente (window dependency)
-const TradingChart = dynamic(
-  () => import('@/components/trading-chart').then(m => m.TradingChart),
-  { ssr: false, loading: () => <ChartSkeleton /> },
-)
-const EquityCurve = dynamic(
-  () => import('@/components/equity-curve').then(m => m.EquityCurve),
-  { ssr: false, loading: () => <div className="w-full h-full animate-pulse bg-[#161b22] rounded" /> },
-)
+// ── Tipos ────────────────────────────────────────────────────────────────────
+interface ManualTrade {
+  id: string; direction: 'buy' | 'sell'; entry: number
+  stopLoss: number; takeProfit: number; label: string
+  time: number; lot: number; leverage: number
+  result?: 'win' | 'loss' | 'pending'
+  rafi?: number; rafiDir?: 'bull' | 'bear'; bbWidth?: number
+}
 
-function ChartSkeleton() {
+const STORAGE_KEY = 'rafi-trade-log'
+const ML_TARGET   = 300
+
+function riskPips(e: number, s: number, dir: 'buy' | 'sell') {
+  return dir === 'buy' ? Math.round((e - s) * 10000) : Math.round((s - e) * 10000)
+}
+function rewardPips(e: number, t: number, dir: 'buy' | 'sell') {
+  return dir === 'buy' ? Math.round((t - e) * 10000) : Math.round((e - t) * 10000)
+}
+function pipValueUSD(lot: number) { return lot * 10 }
+
+// ── Curva de capital mini SVG ─────────────────────────────────────────────────
+function EquityCurve({ trades, height = 64 }: { trades: ManualTrade[]; height?: number }) {
+  const decided = trades.filter(t => t.result === 'win' || t.result === 'loss')
+  if (decided.length < 2) return (
+    <div className="flex items-center justify-center h-full text-[10px] text-[#484f58]">
+      Rotule W/L para ver a curva
+    </div>
+  )
+  const pts: number[] = [0]
+  for (const t of decided) {
+    const r = riskPips(t.entry, t.stopLoss, t.direction)
+    const w = rewardPips(t.entry, t.takeProfit, t.direction)
+    const pv = pipValueUSD(t.lot)
+    const last = pts[pts.length - 1]
+    pts.push(t.result === 'win' ? last + w * pv : last - r * pv)
+  }
+  const W = 400, H = height
+  const min = Math.min(...pts), max = Math.max(...pts)
+  const range = max - min || 1
+  const toY = (v: number) => H - ((v - min) / range) * (H - 8) - 4
+  const toX = (i: number) => (i / (pts.length - 1)) * W
+  const path = pts.map((v, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(' ')
+  const fill = `${path} L${W},${H} L0,${H} Z`
+  const finalPnl = pts[pts.length - 1]
+  const color = finalPnl >= 0 ? '#10b981' : '#ef4444'
   return (
-    <div className="w-full h-full flex items-center justify-center bg-[#0d1117] rounded-xl">
-      <div className="flex flex-col items-center gap-3 text-[#484f58]">
-        <RefreshCw size={20} className="animate-spin" />
-        <span className="text-sm">Carregando gráfico…</span>
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="dash-eq" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+          <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+        </linearGradient>
+      </defs>
+      <line x1="0" y1={toY(0).toFixed(1)} x2={W} y2={toY(0).toFixed(1)}
+        stroke="#30363d" strokeWidth="1" strokeDasharray="3 3" />
+      <path d={fill} fill="url(#dash-eq)" />
+      <path d={path} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" />
+      <circle cx={toX(pts.length - 1)} cy={toY(finalPnl)} r="4" fill={color} />
+    </svg>
+  )
+}
+
+// ── Progress bar do ML ────────────────────────────────────────────────────────
+function MLProgress({ current }: { current: number }) {
+  const pct = Math.min((current / ML_TARGET) * 100, 100)
+  const color = pct >= 100 ? '#10b981' : pct >= 50 ? '#3b82f6' : '#f59e0b'
+  const phase = pct >= 100 ? 'Pronto para treinar!' : pct >= 50 ? 'Fase 1B quase lá' : 'Fase 1A — mapeando'
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-[#8b949e] font-medium">{phase}</span>
+        <span className="font-mono font-bold" style={{ color }}>{current} / {ML_TARGET}</span>
+      </div>
+      <div className="h-2 bg-[#21262d] rounded-full overflow-hidden">
+        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: color }} />
+      </div>
+      <div className="flex items-center justify-between text-[9px] text-[#484f58]">
+        <span>0</span>
+        <span>Treinar XGBoost</span>
+        <span>{ML_TARGET}</span>
       </div>
     </div>
   )
 }
 
-// Parâmetros configuráveis da estratégia
-const DEFAULT_CFG = {
-  srLookback:        50,
-  swingStopLookback: 150,
-  maFast:            20,
-  maSlow:            50,
-  maThreshold:       0.0003,
-  rrRatio:           2.0,
-  spreadPips:        1.3,
-  riskPct:           0.02,
-  capital:           100,
+// ── Stat card do cockpit ──────────────────────────────────────────────────────
+function KPI({ label, value, sub, color, icon: Icon }: {
+  label: string; value: string | number; sub?: string; color?: string; icon?: any
+}) {
+  return (
+    <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4 flex flex-col gap-1">
+      <div className="flex items-center justify-between">
+        <span className="text-[9px] uppercase tracking-widest text-[#484f58]">{label}</span>
+        {Icon && <Icon size={13} style={{ color: color ?? '#484f58' }} />}
+      </div>
+      <div className="text-2xl font-black font-mono" style={{ color: color ?? '#f0f6fc' }}>{value}</div>
+      {sub && <div className="text-[10px] text-[#484f58]">{sub}</div>}
+    </div>
+  )
 }
 
-export default function AdminDashboard() {
-  const [cfg, setCfg] = useState(DEFAULT_CFG)
-  const [showParams, setShowParams] = useState(false)
-
-  const candles = useMemo(() => generateDemoWeek(), [])
-
-  const { signals, ma20, ma50, equityCurve, stats } = useMemo(
-    () => runRAFI(candles, cfg),
-    [candles, cfg],
+// ── Trade recente ─────────────────────────────────────────────────────────────
+function TradeRow({ t }: { t: ManualTrade }) {
+  const r  = riskPips(t.entry, t.stopLoss, t.direction)
+  const w  = rewardPips(t.entry, t.takeProfit, t.direction)
+  const rr = r > 0 ? (w / r).toFixed(1) : '—'
+  const dt = new Date(t.time * 1000)
+  const ds = `${dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} ${dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+  return (
+    <div className={cn(
+      'flex items-center gap-3 px-4 py-2.5 border-b border-[#21262d] text-xs font-mono',
+      t.result === 'win'  && 'bg-[#10b981]/5',
+      t.result === 'loss' && 'bg-[#ef4444]/5',
+    )}>
+      <span className="text-[#484f58] w-28 shrink-0">{ds}</span>
+      {t.direction === 'buy'
+        ? <span className="flex items-center gap-1 text-[#3b82f6] w-14 shrink-0"><TrendingUp size={10} />BUY</span>
+        : <span className="flex items-center gap-1 text-[#f59e0b] w-14 shrink-0"><TrendingDown size={10} />SELL</span>
+      }
+      <span className="text-[#f0f6fc]">{t.entry.toFixed(5)}</span>
+      <span className={cn('ml-auto font-bold text-[11px]',
+        parseFloat(rr) >= 1.5 ? 'text-[#10b981]' : parseFloat(rr) >= 1 ? 'text-[#f59e0b]' : 'text-[#ef4444]')}>
+        {rr}×
+      </span>
+      {t.rafi !== undefined && (
+        <span className={cn('w-10 text-right', t.rafi >= 2.5 ? 'text-[#10b981]' : 'text-[#f59e0b]')}>
+          {t.rafi.toFixed(1)}
+        </span>
+      )}
+      <div className="w-14 flex justify-end">
+        {t.result === 'win'  && <span className="px-1.5 py-0.5 rounded text-[9px] bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/25">WIN</span>}
+        {t.result === 'loss' && <span className="px-1.5 py-0.5 rounded text-[9px] bg-[#ef4444]/15 text-[#ef4444] border border-[#ef4444]/25">LOSS</span>}
+        {(!t.result || t.result === 'pending') && <span className="text-[#484f58] text-[9px]">pendente</span>}
+      </div>
+    </div>
   )
+}
 
-  const lastPrice = candles[candles.length - 1]?.close ?? 0
-  const firstTs   = candles[0]?.time ?? 0
-  const lastTs    = candles[candles.length - 1]?.time ?? 0
-  const dateRange = `${new Date(firstTs * 1000).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' })} → ${new Date(lastTs * 1000).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' })}`
+// ─────────────────────────────────────────────────────────────────────────────
+
+export default function AdminDashboard() {
+  const [trades,  setTrades]  = useState<ManualTrade[]>([])
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) setTrades(parsed)
+      }
+    } catch {}
+  }, [])
+
+  const wins    = trades.filter(t => t.result === 'win').length
+  const losses  = trades.filter(t => t.result === 'loss').length
+  const pending = trades.filter(t => !t.result || t.result === 'pending').length
+  const decided = wins + losses
+  const winRate = decided > 0 ? Math.round(wins / decided * 100) : null
+
+  const pnl = useMemo(() => trades.reduce((acc, t) => {
+    if (t.result === 'win')  return acc + rewardPips(t.entry, t.takeProfit, t.direction) * pipValueUSD(t.lot)
+    if (t.result === 'loss') return acc - riskPips(t.entry, t.stopLoss, t.direction)    * pipValueUSD(t.lot)
+    return acc
+  }, 0), [trades])
+
+  const avgRR = useMemo(() => {
+    const valid = trades.filter(t => riskPips(t.entry, t.stopLoss, t.direction) > 0)
+    if (!valid.length) return null
+    const sum = valid.reduce((acc, t) => {
+      const r = riskPips(t.entry, t.stopLoss, t.direction)
+      const w = rewardPips(t.entry, t.takeProfit, t.direction)
+      return acc + w / r
+    }, 0)
+    return (sum / valid.length).toFixed(1)
+  }, [trades])
+
+  const rafiStrong = trades.filter(t => (t.rafi ?? 0) >= 2.5).length
+  const recent = [...trades].reverse().slice(0, 8)
+
+  const winRateColor = winRate === null ? '#f0f6fc'
+    : winRate >= 60 ? '#10b981' : winRate >= 50 ? '#f59e0b' : '#ef4444'
+
+  if (!mounted) return null
 
   return (
-    <div className="flex flex-col h-full p-5 gap-4">
+    <div className="min-h-screen bg-[#0d1117] p-5 space-y-5">
 
-      {/* Header */}
-      <div className="flex items-center justify-between shrink-0">
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-lg font-bold text-[#f0f6fc]">Dashboard RAFI</h1>
-          <div className="flex items-center gap-3 mt-0.5">
-            <span className="text-xs text-[#8b949e]">EURUSD · M5 · {dateRange}</span>
-            <span className="text-xs bg-[#21262d] border border-[#30363d] px-2 py-0.5 rounded-full text-[#8b949e] mono">
-              {formatPrice(lastPrice)}
-            </span>
-            <span className="flex items-center gap-1 text-xs text-emerald-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Demo ativo
-            </span>
-          </div>
+          <h1 className="text-xl font-black text-[#f0f6fc] flex items-center gap-2">
+            <Activity size={20} className="text-[#3b82f6]" />
+            RAFI Trading Bot
+          </h1>
+          <p className="text-xs text-[#484f58] mt-0.5">
+            Cockpit de mapeamento · EURUSD M5 · XM Ultra Low
+          </p>
         </div>
-
-        <button
-          onClick={() => setShowParams(p => !p)}
-          className={cn(
-            'flex items-center gap-2 px-3 py-2 rounded-lg text-xs border transition-all',
-            showParams
-              ? 'bg-[#3b82f6]/15 border-[#3b82f6]/30 text-[#3b82f6]'
-              : 'bg-[#161b22] border-[#30363d] text-[#8b949e] hover:text-[#f0f6fc]',
-          )}
-        >
-          Parâmetros
-          <ChevronDown size={12} className={cn('transition-transform', showParams && 'rotate-180')} />
-        </button>
-      </div>
-
-      {/* Painel de parâmetros */}
-      {showParams && (
-        <div className="shrink-0 rounded-xl border border-[#30363d] bg-[#161b22] p-4">
-          <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-3">
-            {[
-              { key: 'srLookback',        label: 'SR Lookback',   step: 10, min: 10,   max: 200,  dec: 0 },
-              { key: 'swingStopLookback', label: 'Swing Stop',    step: 10, min: 20,   max: 500,  dec: 0 },
-              { key: 'maFast',            label: 'MA Rápida',     step: 1,  min: 5,    max: 50,   dec: 0 },
-              { key: 'maSlow',            label: 'MA Lenta',      step: 5,  min: 20,   max: 200,  dec: 0 },
-              { key: 'maThreshold',       label: 'MA Threshold',  step: 0.0001, min: 0, max: 0.002, dec: 4 },
-              { key: 'rrRatio',           label: 'R:R Ratio',     step: 0.5, min: 1,   max: 5,    dec: 1 },
-              { key: 'spreadPips',        label: 'Spread (pips)', step: 0.1, min: 0.5, max: 3,    dec: 1 },
-              { key: 'riskPct',           label: 'Risco %',       step: 0.01, min: 0.01, max: 0.20, dec: 2 },
-              { key: 'capital',           label: 'Capital $',     step: 50, min: 50,   max: 10000, dec: 0 },
-            ].map(({ key, label, step, min, max, dec }) => (
-              <div key={key} className="flex flex-col gap-1">
-                <label className="text-[10px] text-[#484f58] uppercase tracking-wide">{label}</label>
-                <input
-                  type="number"
-                  step={step}
-                  min={min}
-                  max={max}
-                  value={cfg[key as keyof typeof cfg]}
-                  onChange={e => setCfg(p => ({ ...p, [key]: parseFloat(e.target.value) || 0 }))}
-                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-2 py-1.5 text-xs text-[#f0f6fc] mono focus:outline-none focus:border-[#3b82f6]"
-                />
-              </div>
-            ))}
-          </div>
-          <div className="flex items-center gap-1.5 mt-3 text-[10px] text-[#484f58]">
-            <Info size={11} />
-            Altere qualquer parâmetro — o backtest recalcula automaticamente.
-          </div>
-        </div>
-      )}
-
-      {/* Stats */}
-      <div className="shrink-0">
-        <StatsCards stats={stats} capital={cfg.capital} />
-      </div>
-
-      {/* Gráfico principal */}
-      <div className="flex-1 min-h-0 rounded-xl border border-[#30363d] overflow-hidden" style={{ minHeight: 380 }}>
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#30363d] bg-[#161b22]">
-          <div className="flex items-center gap-4 text-xs">
-            <span className="text-[#f0f6fc] font-medium">EURUSD M5</span>
-            <span className="flex items-center gap-1 text-[#3b82f6]">
-              <span className="w-3 h-0.5 bg-[#3b82f6] inline-block" />MA{cfg.maFast}
-            </span>
-            <span className="flex items-center gap-1 text-[#f59e0b]">
-              <span className="w-3 h-0.5 bg-[#f59e0b] inline-block" />MA{cfg.maSlow}
-            </span>
-            <span className="flex items-center gap-1 text-[#10b981]">
-              <span className="w-3 h-0.5 bg-[#10b981] border-dashed inline-block" />Take Profit
-            </span>
-            <span className="flex items-center gap-1 text-[#ef4444]">
-              <span className="w-3 h-0.5 bg-[#ef4444] border-dashed inline-block" />Stop Loss
-            </span>
-          </div>
-          <span className="text-[10px] text-[#484f58]">{signals.length} sinais</span>
-        </div>
-        <div className="h-[calc(100%-41px)]">
-          <TradingChart candles={candles} signals={signals} ma20={ma20} ma50={ma50} />
+        <div className="flex items-center gap-2">
+          <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-[#f59e0b]/10 border border-[#f59e0b]/25 text-[#f59e0b]">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b] animate-pulse" />
+            Fase 1A — Mapeamento
+          </span>
+          <Link href="/admin/chart"
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[#3b82f6] text-white hover:bg-[#2563eb] transition-all font-semibold">
+            <BarChart2 size={12} /> Mapear Trade
+          </Link>
         </div>
       </div>
 
-      {/* Bottom row: equity + tabela */}
-      <div className="shrink-0 grid grid-cols-1 lg:grid-cols-3 gap-4">
+      {/* ── KPIs ───────────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+        <KPI label="Trades Mapeados" value={trades.length}
+          sub={`${pending} aguardando W/L`} color="#3b82f6" icon={Target} />
+        <KPI label="Win Rate"
+          value={winRate !== null ? `${winRate}%` : '—'}
+          sub={`${wins}W · ${losses}L`} color={winRateColor} icon={Award} />
+        <KPI label="P&L Simulado"
+          value={`${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`}
+          sub="trades rotulados" color={pnl >= 0 ? '#10b981' : '#ef4444'} icon={Zap} />
+        <KPI label="R:R Médio"
+          value={avgRR ? `${avgRR}×` : '—'}
+          sub="meta ≥ 1.5×" icon={TrendingUp} />
+        <KPI label="RAFI ≥ 2.5"
+          value={rafiStrong}
+          sub={`${trades.length > 0 ? Math.round(rafiStrong / trades.length * 100) : 0}% dos trades`}
+          color="#10b981" icon={BarChart2} />
+        <KPI label="Pendentes"
+          value={pending}
+          sub="rotule W ou L" color={pending > 0 ? '#f59e0b' : '#484f58'} icon={Clock} />
+      </div>
+
+      {/* ── Progresso ML ────────────────────────────────────────────────────── */}
+      <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Zap size={14} className="text-[#3b82f6]" />
+            <span className="text-sm font-semibold text-[#f0f6fc]">Progresso para Treinar o ML</span>
+          </div>
+          <span className="text-[10px] text-[#484f58]">Meta: {ML_TARGET} trades rotulados</span>
+        </div>
+        <MLProgress current={trades.length} />
+        {trades.length === 0 && (
+          <p className="text-[10px] text-[#484f58] mt-3 text-center">
+            Vá para <Link href="/admin/chart" className="text-[#3b82f6] hover:underline">Gráfico RAFI</Link> e comece a mapear os setups da semana de Jun 23-26.
+          </p>
+        )}
+      </div>
+
+      {/* ── Curva de capital + Trades recentes ──────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
         {/* Equity curve */}
-        <div className="lg:col-span-1 rounded-xl border border-[#30363d] overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-[#30363d] bg-[#161b22] flex items-center justify-between">
-            <span className="text-xs font-medium text-[#f0f6fc]">Curva de Capital</span>
-            <span className={cn(
-              'text-xs mono font-semibold',
-              stats.netPnlUsd >= 0 ? 'text-emerald-400' : 'text-red-400',
-            )}>
-              ${(cfg.capital + stats.netPnlUsd).toFixed(2)}
+        <div className="lg:col-span-1 bg-[#161b22] border border-[#30363d] rounded-xl p-4 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-widest text-[#484f58]">Curva de Capital</span>
+            <span className={cn('text-sm font-mono font-bold', pnl >= 0 ? 'text-[#10b981]' : 'text-[#ef4444]')}>
+              {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
             </span>
           </div>
-          <div className="h-[180px]">
-            <EquityCurve data={equityCurve} initialCapital={cfg.capital} />
+          <div className="flex-1 min-h-[80px]">
+            <EquityCurve trades={trades} />
+          </div>
+          {/* Mini donut distribuição */}
+          <div className="border-t border-[#30363d] pt-3 grid grid-cols-3 text-center">
+            <div>
+              <div className="text-lg font-black font-mono text-[#10b981]">{wins}</div>
+              <div className="text-[9px] text-[#484f58] uppercase">WIN</div>
+            </div>
+            <div>
+              <div className="text-lg font-black font-mono text-[#ef4444]">{losses}</div>
+              <div className="text-[9px] text-[#484f58] uppercase">LOSS</div>
+            </div>
+            <div>
+              <div className="text-lg font-black font-mono text-[#484f58]">{pending}</div>
+              <div className="text-[9px] text-[#484f58] uppercase">PEND.</div>
+            </div>
           </div>
         </div>
 
-        {/* Tabela de trades */}
-        <div className="lg:col-span-2">
-          <SignalsTable signals={signals} />
+        {/* Trades recentes */}
+        <div className="lg:col-span-2 bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-[#30363d] flex items-center justify-between bg-[#0d1117]">
+            <span className="text-[10px] uppercase tracking-widest text-[#484f58]">Trades Recentes</span>
+            <Link href="/admin/export"
+              className="flex items-center gap-1 text-[9px] text-[#3b82f6] hover:text-[#93c5fd] transition-colors">
+              Ver todos <ChevronRight size={10} />
+            </Link>
+          </div>
+          {trades.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <BarChart2 size={32} className="text-[#30363d] mb-3" />
+              <p className="text-[#484f58] text-xs">Nenhum trade mapeado ainda.</p>
+            </div>
+          ) : (
+            <div>
+              <div className="grid grid-cols-[7rem_3.5rem_1fr_2rem_2.5rem_3.5rem] px-4 py-2 text-[8px] uppercase tracking-wider text-[#484f58] border-b border-[#30363d]">
+                <span>Data/Hora</span><span>Dir</span><span>Entrada</span><span className="text-right">R:R</span><span className="text-right">RAFI</span><span className="text-right">Resultado</span>
+              </div>
+              {recent.map(t => <TradeRow key={t.id} t={t} />)}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Ações rápidas ───────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Link href="/admin/chart"
+          className="flex items-center gap-3 p-4 bg-[#161b22] border border-[#30363d] rounded-xl hover:border-[#3b82f6]/50 hover:bg-[#3b82f6]/5 transition-all group">
+          <div className="w-10 h-10 rounded-lg bg-[#3b82f6]/15 flex items-center justify-center shrink-0">
+            <BarChart2 size={18} className="text-[#3b82f6]" />
+          </div>
+          <div>
+            <div className="text-sm font-semibold text-[#f0f6fc]">Gráfico RAFI</div>
+            <div className="text-[10px] text-[#484f58]">Mapear novos trades com OCO</div>
+          </div>
+          <ChevronRight size={14} className="ml-auto text-[#484f58] group-hover:text-[#3b82f6] transition-colors" />
+        </Link>
+
+        <Link href="/admin/export"
+          className="flex items-center gap-3 p-4 bg-[#161b22] border border-[#30363d] rounded-xl hover:border-[#10b981]/50 hover:bg-[#10b981]/5 transition-all group">
+          <div className="w-10 h-10 rounded-lg bg-[#10b981]/15 flex items-center justify-center shrink-0">
+            <Download size={18} className="text-[#10b981]" />
+          </div>
+          <div>
+            <div className="text-sm font-semibold text-[#f0f6fc]">Dataset ML</div>
+            <div className="text-[10px] text-[#484f58]">Rotular W/L · exportar CSV</div>
+          </div>
+          <ChevronRight size={14} className="ml-auto text-[#484f58] group-hover:text-[#10b981] transition-colors" />
+        </Link>
+
+        <div className="flex items-center gap-3 p-4 bg-[#161b22] border border-[#30363d] rounded-xl opacity-50 cursor-not-allowed">
+          <div className="w-10 h-10 rounded-lg bg-[#484f58]/15 flex items-center justify-center shrink-0">
+            <AlertTriangle size={18} className="text-[#484f58]" />
+          </div>
+          <div>
+            <div className="text-sm font-semibold text-[#484f58]">Bot Automático</div>
+            <div className="text-[10px] text-[#30363d]">Disponível após Fase 2 (ML)</div>
+          </div>
         </div>
       </div>
     </div>
