@@ -82,10 +82,14 @@ export default function ChartPage() {
           setCsvData(result)
         } else {
           // Múltiplos arquivos — mescla e ordena por tempo
-          const allCandles = results.flatMap(r => parseCSV(r.text, r.name).candles)
+          // Arquivos vazios (ex: sábado) são ignorados silenciosamente
+          const allCandles = results.flatMap(r => {
+            try { return parseCSV(r.text, r.name).candles } catch { return [] }
+          })
           allCandles.sort((a, b) => a.time - b.time)
           // Remove duplicatas exatas de timestamp
           const deduped = allCandles.filter((c, i) => i === 0 || c.time !== allCandles[i - 1].time)
+          if (deduped.length === 0) throw new Error('Nenhum candle válido nos arquivos selecionados')
           setCsvData({
             candles:   deduped,
             filename:  `${results.length} arquivos`,
