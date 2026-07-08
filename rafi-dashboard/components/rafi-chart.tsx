@@ -7,6 +7,7 @@ import { applyRAFICandleColors } from '@/lib/indicators'
 import type { RAFIPoint, SRLevel, BBBands } from '@/lib/indicators'
 import type { ManualTrade } from './trade-panel'
 import { OCOOverlay, type OCOState } from './oco-overlay'
+import { TradesOverlay } from './trades-overlay'
 
 interface Props {
   candles:       CandleData[]
@@ -143,37 +144,19 @@ export function RAFIChart({
         })
       }
 
-      // Trades executados
+      // Marcadores de trades: seta no candle correto (tempo real do trade)
       if (trades.length > 0) {
-        const lastTime = candles[candles.length - 1].time
-        const markers = trades.map((t, i) => ({
-          time:     (lastTime - (trades.length - 1 - i) * 300) as any,
-          position: t.direction === 'buy' ? 'belowBar' as const : 'aboveBar' as const,
-          color:    t.direction === 'buy' ? '#10b981' : '#ef4444',
-          shape:    t.direction === 'buy' ? 'arrowUp' as const : 'arrowDown' as const,
-          text:     `${t.direction === 'buy' ? '▲' : '▼'} ${t.lot.toFixed(2)}L`,
-          size:     2,
-        }))
+        const markers = trades
+          .filter(t => t.time > 0)
+          .map(t => ({
+            time:     t.time as any,
+            position: t.direction === 'buy' ? 'belowBar' as const : 'aboveBar' as const,
+            color:    t.direction === 'buy' ? '#3b82f6' : '#f59e0b',
+            shape:    t.direction === 'buy' ? 'arrowUp' as const : 'arrowDown' as const,
+            text:     '',
+            size:     2,
+          }))
         candleSeries.setMarkers(markers)
-
-        for (const t of trades) {
-          const dirColor = t.direction === 'buy' ? '#10b981' : '#ef4444'
-          candleSeries.createPriceLine({
-            price: t.entry, color: `${dirColor}99`, lineWidth: 2,
-            lineStyle: LineStyle.Solid, axisLabelVisible: true,
-            title: `${t.direction === 'buy' ? '▲' : '▼'} Entrada`,
-          })
-          candleSeries.createPriceLine({
-            price: t.stopLoss, color: '#ef444490', lineWidth: 1,
-            lineStyle: LineStyle.Dashed, axisLabelVisible: true,
-            title: `SL  ${t.lot.toFixed(2)}L`,
-          })
-          candleSeries.createPriceLine({
-            price: t.takeProfit, color: '#10b98190', lineWidth: 1,
-            lineStyle: LineStyle.Dashed, axisLabelVisible: true,
-            title: `TP  ${t.lot.toFixed(2)}L`,
-          })
-        }
       }
 
       mChart.timeScale().fitContent()
@@ -255,6 +238,9 @@ export function RAFIChart({
         style={{ cursor: panMode ? 'grab' : 'crosshair' }}
       >
         <div ref={mainRef} className="absolute inset-0" />
+        {chartReady && trades.length > 0 && (
+          <TradesOverlay trades={trades} getX={getX} getY={getY} />
+        )}
         {ocoState && chartReady && (
           <OCOOverlay
             state={ocoState}
