@@ -154,11 +154,30 @@ function MLChips({ t }: { t: ManualTrade }) {
       chips.push({ label: 'BB estreito ⚠', color: '#f59e0b', note: 'Bollinger estreito — mercado lateral, timing ruim' })
   }
 
-  if (!chips.length) return null
+  if (!chips.length && !t.snapshot) return null
 
   return (
     <div className="flex flex-wrap items-center gap-1 px-4 pb-2.5 border-b border-[#21262d]">
-      <span className="text-[8px] text-[#484f58] mr-1 uppercase tracking-wider shrink-0">ML →</span>
+      {/* Miniatura do gráfico no momento do trade */}
+      {t.snapshot && (
+        <img
+          src={t.snapshot}
+          alt="gráfico no trade"
+          title="Captura do gráfico no momento da execução"
+          style={{
+            width: 120, height: 40,
+            borderRadius: 4,
+            border: '1px solid #30363d',
+            objectFit: 'cover',
+            opacity: 0.85,
+            marginRight: 6,
+            flexShrink: 0,
+          }}
+        />
+      )}
+      {chips.length > 0 && (
+        <span className="text-[8px] text-[#484f58] mr-1 uppercase tracking-wider shrink-0">ML →</span>
+      )}
       {chips.map((c, i) => (
         <span key={i} title={c.note} style={{ background: `${c.color}12`, border: `1px solid ${c.color}35`, color: c.color }}
           className="text-[8px] px-1.5 py-0.5 rounded font-mono cursor-help">

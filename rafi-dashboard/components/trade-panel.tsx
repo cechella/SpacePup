@@ -22,6 +22,7 @@ export interface ManualTrade {
   rafi?:      number
   rafiDir?:   'bull' | 'bear'
   bbWidth?:   number
+  snapshot?:  string  // miniatura JPEG base64 do gráfico no momento do trade
 }
 
 interface Props {
