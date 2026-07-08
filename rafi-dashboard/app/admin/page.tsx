@@ -8,6 +8,7 @@ import {
   Zap, Clock, Award, X as XIcon, Layers,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { SCALE_TIERS, getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
 
 // ── Modal de preview do screenshot ───────────────────────────────────────────
 function SnapshotModal({ src, onClose }: { src: string; onClose: () => void }) {
@@ -322,28 +323,12 @@ function TradeRow({ t, onLabel, onSnapClick }: { t: ManualTrade; onLabel?: (id: 
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Tiers de escalonamento agressivo: dobra o lote conforme o capital sobe
-const SCALE_TIERS = [
-  { minCap: 0,       lot: 0.20,  label: '$100'  },
-  { minCap: 150,     lot: 0.40,  label: '$150'  },
-  { minCap: 200,     lot: 0.80,  label: '$200'  },
-  { minCap: 300,     lot: 1.00,  label: '$300'  },
-  { minCap: 600,     lot: 2.00,  label: '$600'  },
-  { minCap: 1_200,   lot: 4.00,  label: '$1.2k' },
-  { minCap: 2_500,   lot: 8.00,  label: '$2.5k' },
-  { minCap: 5_000,   lot: 15.00, label: '$5k'   },
-  { minCap: 10_000,  lot: 30.00, label: '$10k'  },
-  { minCap: 25_000,  lot: 60.00, label: '$25k'  },
-  { minCap: 50_000,  lot: 120.00,label: '$50k'  },
-  { minCap: 100_000, lot: 250.00,label: '$100k' },
-  { minCap: 200_000, lot: 500.00,label: '$200k' },
+// Labels para exibição na tabela do dashboard
+const SCALE_TIER_LABELS = [
+  '$100','$150','$200','$300','$600','$1.2k','$2.5k','$5k','$10k','$25k','$50k','$100k','$200k',
 ]
 
-function getLot(c: number): number {
-  let lot = SCALE_TIERS[0].lot
-  for (const t of SCALE_TIERS) { if (c >= t.minCap) lot = t.lot }
-  return lot
-}
+const getLot = getLotForCapital
 
 function fmtK(v: number): string {
   if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`
@@ -519,7 +504,7 @@ function LotScalingWidget({ trades }: { trades: ManualTrade[] }) {
                 )}>
                   <td className="py-1.5 pr-3">
                     <span className={cn('font-bold', isActive ? 'text-[#f59e0b]' : 'text-[#8b949e]')}>
-                      {tier.label}
+                      {SCALE_TIER_LABELS[i]}
                     </span>
                     {isActive && <span className="ml-1.5 text-[8px] bg-[#f59e0b]/20 text-[#f59e0b] px-1 py-px rounded">AGORA</span>}
                   </td>
