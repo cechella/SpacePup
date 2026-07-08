@@ -284,16 +284,42 @@ export function OCOOverlay({
   return (
     <div className="absolute inset-0 overflow-hidden" style={{ pointerEvents: 'none', zIndex: 10 }}>
 
-      {/* Linha vertical do candle de entrada */}
+      {/* Linha vertical do candle de entrada + label de tempo */}
       {okX(entryX) && (
-        <div
-          className="absolute top-0 bottom-0 w-px"
-          style={{
-            left:       entryX,
-            background: 'rgba(59,130,246,0.25)',
-            pointerEvents: 'none',
-          }}
-        />
+        <>
+          <div
+            className="absolute top-0 bottom-0 w-px"
+            style={{
+              left:       entryX,
+              background: isBuy ? 'rgba(59,130,246,0.35)' : 'rgba(245,158,11,0.35)',
+              pointerEvents: 'none',
+            }}
+          />
+          {state.entryTime && (
+            <div
+              className="absolute flex items-center justify-center"
+              style={{
+                left:        entryX,
+                bottom:      0,
+                transform:   'translateX(-50%)',
+                background:  isBuy ? '#3b82f6' : '#f59e0b',
+                color:       '#0d1117',
+                fontSize:    9,
+                fontWeight:  800,
+                fontFamily:  'monospace',
+                padding:     '1px 5px',
+                borderRadius: '3px 3px 0 0',
+                whiteSpace:  'nowrap',
+                pointerEvents: 'none',
+              }}
+            >
+              {(() => {
+                const d = new Date(state.entryTime * 1000)
+                return `${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+              })()}
+            </div>
+          )}
+        </>
       )}
 
       {/* Zona vermelha: risco */}
@@ -480,6 +506,25 @@ export function OCOOverlay({
             <span style={{ fontSize: 9, color: '#484f58', letterSpacing: '0.8px' }}>MOVER</span>
             <GripVertical size={11} style={{ color: '#484f58' }} />
           </div>
+
+          {/* Linha de contexto: data/hora + preço de entrada */}
+          {state.entryTime && (
+            <div
+              className="flex items-center justify-between px-3"
+              style={{ borderBottom: '1px solid #30363d', background: '#0d1117', padding: '4px 12px' }}
+            >
+              <span style={{ fontSize: 9, color: '#484f58', fontFamily: 'monospace' }}>
+                {(() => {
+                  const d = new Date(state.entryTime * 1000)
+                  const dias = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
+                  return `${dias[d.getDay()]} ${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+                })()}
+              </span>
+              <span style={{ fontSize: 9, color: isBuy ? '#3b82f6' : '#f59e0b', fontFamily: 'monospace', fontWeight: 700 }}>
+                {state.entry.toFixed(5)}
+              </span>
+            </div>
+          )}
 
           {/* Stats: GAIN | STOP | R:R */}
           <div className="grid grid-cols-3" style={{ borderBottom: '1px solid #30363d' }}>
