@@ -210,7 +210,7 @@ export default function ChartPage() {
       rafi:       lastRafi?.value,
       rafiDir:    lastRafi?.dir,
       bbWidth,
-      snapshot:   captureChartSnapshot(chartContainerRef.current),
+      snapshot:   captureChartSnapshot(chartContainerRef.current) ?? undefined,
     })
     setOcoState(prev => prev ? { ...prev, direction, tp: p(tp), sl: p(sl) } : null)
   }, [ocoState, lastTime, rafiData, bbBands, handleAdd])
