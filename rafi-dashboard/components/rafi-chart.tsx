@@ -21,8 +21,8 @@ interface Props {
   onOCOChange?:       (s: OCOState) => void
   onOCOExecute?:      (dir: 'buy' | 'sell') => void
   onOCOClose?:        () => void
-  // Ref para captura focada no candle de entrada
-  snapshotCaptureRef?: React.MutableRefObject<((entryTime: number) => string | null) | null>
+  // Ref para captura focada no candle de entrada com overlay OCO desenhado
+  snapshotCaptureRef?: React.MutableRefObject<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>
 }
 
 export function RAFIChart({
@@ -121,7 +121,7 @@ export function RAFIChart({
 
       // Expõe função de captura focada no candle de entrada (usado pelo OCO execute)
       if (snapshotCaptureRef) {
-        snapshotCaptureRef.current = (entryTime: number) => {
+        snapshotCaptureRef.current = (entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => {
           try {
             const x = mChart.timeScale().timeToCoordinate(entryTime as any)
             if (x === null || x === undefined) return null
@@ -138,7 +138,51 @@ export function RAFIChart({
             const ctx = thumb.getContext('2d')
             if (!ctx) return null
             ctx.drawImage(src, sx, 0, sw, src.height, 0, 0, W_out, H_out)
-            return thumb.toDataURL('image/jpeg', 0.75)
+
+            // Overlay das linhas OCO desenhadas diretamente no thumbnail
+            if (oco) {
+              const scaleY = H_out / src.height
+              const xEntry = ((Math.round(x) - sx) / sw) * W_out
+
+              const priceToY = (price: number): number | null => {
+                const yRaw = candleSeries.priceToCoordinate(price)
+                return yRaw !== null ? Math.round(yRaw * scaleY) : null
+              }
+
+              const drawHLine = (price: number, color: string, label: string) => {
+                const y = priceToY(price)
+                if (y === null || y < 0 || y > H_out) return
+                ctx.save()
+                ctx.setLineDash([5, 3])
+                ctx.strokeStyle = color
+                ctx.lineWidth = 1.5
+                ctx.globalAlpha = 0.9
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W_out, y); ctx.stroke()
+                // Label à direita
+                ctx.globalAlpha = 1
+                ctx.setLineDash([])
+                ctx.font = 'bold 10px monospace'
+                ctx.fillStyle = color
+                ctx.textAlign = 'right'
+                ctx.fillText(label, W_out - 4, y - 3)
+                ctx.restore()
+              }
+
+              // Linha vertical no candle de entrada
+              ctx.save()
+              ctx.setLineDash([3, 3])
+              ctx.strokeStyle = '#3b82f6'
+              ctx.lineWidth = 1
+              ctx.globalAlpha = 0.6
+              ctx.beginPath(); ctx.moveTo(xEntry, 0); ctx.lineTo(xEntry, H_out); ctx.stroke()
+              ctx.restore()
+
+              drawHLine(oco.entry, '#3b82f6', `E ${oco.entry.toFixed(5)}`)
+              drawHLine(oco.tp,    '#10b981', `TP ${oco.tp.toFixed(5)}`)
+              drawHLine(oco.sl,    '#ef4444', `SL ${oco.sl.toFixed(5)}`)
+            }
+
+            return thumb.toDataURL('image/jpeg', 0.82)
           } catch { return null }
         }
       }
