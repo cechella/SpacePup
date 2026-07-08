@@ -111,37 +111,50 @@ function KPI({ label, value, sub, color, icon: Icon }: {
 }
 
 // ── Trade recente ─────────────────────────────────────────────────────────────
-function TradeRow({ t }: { t: ManualTrade }) {
-  const r  = riskPips(t.entry, t.stopLoss, t.direction)
-  const w  = rewardPips(t.entry, t.takeProfit, t.direction)
-  const rr = r > 0 ? (w / r).toFixed(1) : '—'
+function TradeRow({ t, onLabel }: { t: ManualTrade; onLabel?: (id: string, r: 'win' | 'loss') => void }) {
+  const r       = riskPips(t.entry, t.stopLoss, t.direction)
+  const w       = rewardPips(t.entry, t.takeProfit, t.direction)
+  const rr      = r > 0 ? (w / r).toFixed(1) : '—'
+  const gainUSD = w * pipValueUSD(t.lot)
+  const riskUSD = r * pipValueUSD(t.lot)
   const dt = new Date(t.time * 1000)
   const ds = `${dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} ${dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+  const isPending = !t.result || t.result === 'pending'
   return (
     <div className={cn(
-      'flex items-center gap-3 px-4 py-2.5 border-b border-[#21262d] text-xs font-mono',
+      'flex items-center gap-2 px-4 py-2 border-b border-[#21262d] text-xs font-mono',
       t.result === 'win'  && 'bg-[#10b981]/5',
       t.result === 'loss' && 'bg-[#ef4444]/5',
     )}>
-      <span className="text-[#484f58] w-28 shrink-0">{ds}</span>
+      <span className="text-[#484f58] w-24 shrink-0">{ds}</span>
       {t.direction === 'buy'
-        ? <span className="flex items-center gap-1 text-[#3b82f6] w-14 shrink-0"><TrendingUp size={10} />BUY</span>
-        : <span className="flex items-center gap-1 text-[#f59e0b] w-14 shrink-0"><TrendingDown size={10} />SELL</span>
+        ? <span className="flex items-center gap-1 text-[#3b82f6] w-12 shrink-0"><TrendingUp size={10} />BUY</span>
+        : <span className="flex items-center gap-1 text-[#f59e0b] w-12 shrink-0"><TrendingDown size={10} />SELL</span>
       }
-      <span className="text-[#f0f6fc]">{t.entry.toFixed(5)}</span>
-      <span className={cn('ml-auto font-bold text-[11px]',
+      <span className="text-[#f0f6fc] w-20 shrink-0">{t.entry.toFixed(5)}</span>
+      <span className="text-[#10b981] w-14 text-right shrink-0 font-bold">+${gainUSD.toFixed(0)}</span>
+      <span className="text-[#ef4444] w-14 text-right shrink-0">-${riskUSD.toFixed(0)}</span>
+      <span className={cn('w-9 text-right shrink-0 font-bold',
         parseFloat(rr) >= 1.5 ? 'text-[#10b981]' : parseFloat(rr) >= 1 ? 'text-[#f59e0b]' : 'text-[#ef4444]')}>
         {rr}×
       </span>
-      {t.rafi !== undefined && (
-        <span className={cn('w-10 text-right', t.rafi >= 2.5 ? 'text-[#10b981]' : 'text-[#f59e0b]')}>
-          {t.rafi.toFixed(1)}
-        </span>
-      )}
-      <div className="w-14 flex justify-end">
-        {t.result === 'win'  && <span className="px-1.5 py-0.5 rounded text-[9px] bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/25">WIN</span>}
-        {t.result === 'loss' && <span className="px-1.5 py-0.5 rounded text-[9px] bg-[#ef4444]/15 text-[#ef4444] border border-[#ef4444]/25">LOSS</span>}
-        {(!t.result || t.result === 'pending') && <span className="text-[#484f58] text-[9px]">pendente</span>}
+      <div className="ml-auto flex items-center gap-1 shrink-0">
+        {isPending && onLabel ? (
+          <>
+            <button onClick={() => onLabel(t.id, 'win')}
+              className="px-2 py-0.5 rounded text-[9px] font-bold bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/30 hover:bg-[#10b981]/30 transition-colors cursor-pointer">
+              WIN
+            </button>
+            <button onClick={() => onLabel(t.id, 'loss')}
+              className="px-2 py-0.5 rounded text-[9px] font-bold bg-[#ef4444]/15 text-[#ef4444] border border-[#ef4444]/30 hover:bg-[#ef4444]/30 transition-colors cursor-pointer">
+              LOSS
+            </button>
+          </>
+        ) : t.result === 'win' ? (
+          <span className="px-1.5 py-0.5 rounded text-[9px] bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/25">WIN</span>
+        ) : t.result === 'loss' ? (
+          <span className="px-1.5 py-0.5 rounded text-[9px] bg-[#ef4444]/15 text-[#ef4444] border border-[#ef4444]/25">LOSS</span>
+        ) : null}
       </div>
     </div>
   )
@@ -164,6 +177,12 @@ export default function AdminDashboard() {
     } catch {}
   }, [])
 
+  const handleLabel = (id: string, result: 'win' | 'loss') => {
+    const updated = trades.map(t => t.id === id ? { ...t, result } : t)
+    setTrades(updated)
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)) } catch {}
+  }
+
   const wins    = trades.filter(t => t.result === 'win').length
   const losses  = trades.filter(t => t.result === 'loss').length
   const pending = trades.filter(t => !t.result || t.result === 'pending').length
@@ -175,6 +194,11 @@ export default function AdminDashboard() {
     if (t.result === 'loss') return acc - riskPips(t.entry, t.stopLoss, t.direction)    * pipValueUSD(t.lot)
     return acc
   }, 0), [trades])
+
+  const pnlPotential = useMemo(() => trades
+    .filter(t => !t.result || t.result === 'pending')
+    .reduce((acc, t) => acc + rewardPips(t.entry, t.takeProfit, t.direction) * pipValueUSD(t.lot), 0),
+  [trades])
 
   const avgRR = useMemo(() => {
     const valid = trades.filter(t => riskPips(t.entry, t.stopLoss, t.direction) > 0)
@@ -230,7 +254,8 @@ export default function AdminDashboard() {
           sub={`${wins}W · ${losses}L`} color={winRateColor} icon={Award} />
         <KPI label="P&L Simulado"
           value={`${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`}
-          sub="trades rotulados" color={pnl >= 0 ? '#10b981' : '#ef4444'} icon={Zap} />
+          sub={pending > 0 ? `+$${pnlPotential.toFixed(0)} potencial (${pending} pend.)` : 'trades rotulados'}
+          color={pnl >= 0 ? '#10b981' : '#ef4444'} icon={Zap} />
         <KPI label="R:R Médio"
           value={avgRR ? `${avgRR}×` : '—'}
           sub="meta ≥ 1.5×" icon={TrendingUp} />
@@ -307,10 +332,16 @@ export default function AdminDashboard() {
             </div>
           ) : (
             <div>
-              <div className="grid grid-cols-[7rem_3.5rem_1fr_2rem_2.5rem_3.5rem] px-4 py-2 text-[8px] uppercase tracking-wider text-[#484f58] border-b border-[#30363d]">
-                <span>Data/Hora</span><span>Dir</span><span>Entrada</span><span className="text-right">R:R</span><span className="text-right">RAFI</span><span className="text-right">Resultado</span>
+              <div className="flex gap-2 px-4 py-2 text-[8px] uppercase tracking-wider text-[#484f58] border-b border-[#30363d]">
+                <span className="w-24 shrink-0">Data/Hora</span>
+                <span className="w-12 shrink-0">Dir</span>
+                <span className="w-20 shrink-0">Entrada</span>
+                <span className="w-14 shrink-0 text-right text-[#10b981]">Ganho</span>
+                <span className="w-14 shrink-0 text-right text-[#ef4444]">Risco</span>
+                <span className="w-9 shrink-0 text-right">R:R</span>
+                <span className="ml-auto">Resultado</span>
               </div>
-              {recent.map(t => <TradeRow key={t.id} t={t} />)}
+              {recent.map(t => <TradeRow key={t.id} t={t} onLabel={handleLabel} />)}
             </div>
           )}
         </div>
