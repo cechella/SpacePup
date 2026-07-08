@@ -60,7 +60,7 @@ export default function ChartPage() {
   const [csvError,     setCsvError]     = useState<string | null>(null)
   const [panMode,      setPanMode]      = useState(false)   // true = navegar; false = colocar OCO
   const fileInputRef        = useRef<HTMLInputElement>(null)
-  const snapshotCaptureRef  = useRef<((entryTime: number) => string | null) | null>(null)
+  const snapshotCaptureRef  = useRef<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>(null)
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
@@ -192,7 +192,7 @@ export default function ChartPage() {
       rafi:       lastRafi?.value,
       rafiDir:    lastRafi?.dir,
       bbWidth,
-      snapshot:   snapshotCaptureRef.current?.(ocoState.entryTime ?? lastTime) ?? undefined,
+      snapshot:   snapshotCaptureRef.current?.(ocoState.entryTime ?? lastTime, { entry: p(entry), sl: p(sl), tp: p(tp), direction }) ?? undefined,
     })
     setOcoState(prev => prev ? { ...prev, direction, tp: p(tp), sl: p(sl) } : null)
   }, [ocoState, lastTime, rafiData, bbBands, handleAdd])
