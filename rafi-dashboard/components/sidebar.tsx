@@ -5,17 +5,18 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, LineChart, Users, Settings,
-  TrendingUp, LogOut, ChevronRight, BarChart2,
+  TrendingUp, LogOut, ChevronRight, BarChart2, Download,
 } from 'lucide-react'
 
 interface NavItem { label: string; href: string; icon: React.ElementType }
 
 const adminNav: NavItem[] = [
-  { label: 'Dashboard',  href: '/admin',         icon: LayoutDashboard },
-  { label: 'Gráfico RAFI', href: '/admin/chart', icon: BarChart2       },
-  { label: 'Estratégia', href: '/admin/strategy', icon: TrendingUp      },
-  { label: 'Clientes',   href: '/admin/clients',  icon: Users           },
-  { label: 'Config',     href: '/admin/config',   icon: Settings        },
+  { label: 'Dashboard',    href: '/admin',          icon: LayoutDashboard },
+  { label: 'Gráfico RAFI', href: '/admin/chart',    icon: BarChart2       },
+  { label: 'Exportar ML',  href: '/admin/export',   icon: Download        },
+  { label: 'Estratégia',   href: '/admin/strategy', icon: TrendingUp      },
+  { label: 'Clientes',     href: '/admin/clients',  icon: Users           },
+  { label: 'Config',       href: '/admin/config',   icon: Settings        },
 ]
 
 const clientNav: NavItem[] = [
