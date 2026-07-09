@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import {
   TrendingUp, TrendingDown, BarChart2, Activity,
   Target, AlertTriangle, ChevronRight, Download,
-  Zap, Clock, Award, X as XIcon, Layers,
+  Zap, Clock, Award, X as XIcon, Layers, Upload,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SCALE_TIERS, getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
@@ -556,6 +556,8 @@ export default function AdminDashboard() {
   const [trades,       setTrades]       = useState<ManualTrade[]>([])
   const [mounted,      setMounted]      = useState(false)
   const [activeSnap,   setActiveSnap]   = useState<string | null>(null)
+  const [importMsg,    setImportMsg]    = useState<{ text: string; ok: boolean } | null>(null)
+  const importRef                       = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setMounted(true)
@@ -567,6 +569,38 @@ export default function AdminDashboard() {
       }
     } catch {}
   }, [])
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      try {
+        const parsed = JSON.parse(ev.target?.result as string)
+        if (!Array.isArray(parsed)) throw new Error('JSON deve ser um array')
+        const valid = parsed.filter((t: any) =>
+          t && typeof t.id === 'string' &&
+          typeof t.direction === 'string' &&
+          typeof t.entry === 'number'
+        ) as ManualTrade[]
+        if (!valid.length) throw new Error('Nenhum trade válido encontrado')
+        const merged = [...trades]
+        const existingIds = new Set(merged.map(t => t.id))
+        let added = 0
+        for (const t of valid) {
+          if (!existingIds.has(t.id)) { merged.push(t); added++ }
+        }
+        setTrades(merged)
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(merged)) } catch {}
+        setImportMsg({ text: `${added} trades importados (${valid.length - added} duplicatas ignoradas)`, ok: true })
+      } catch (err: any) {
+        setImportMsg({ text: `Erro: ${err.message}`, ok: false })
+      }
+      setTimeout(() => setImportMsg(null), 5000)
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
 
   const handleLabel = (id: string, result: 'win' | 'loss') => {
     const updated = trades.map(t => t.id === id ? { ...t, result } : t)
@@ -614,8 +648,21 @@ export default function AdminDashboard() {
     <div className="min-h-screen bg-[#0d1117] p-5 space-y-5">
       {activeSnap && <SnapshotModal src={activeSnap} onClose={() => setActiveSnap(null)} />}
 
+      {/* Input oculto para importação de JSON */}
+      <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImport} />
+
+      {/* Toast de importação */}
+      {importMsg && (
+        <div className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium shadow-2xl border transition-all
+          ${importMsg.ok
+            ? 'bg-[#10b981]/15 border-[#10b981]/40 text-[#10b981]'
+            : 'bg-[#ef4444]/15 border-[#ef4444]/40 text-[#ef4444]'}`}>
+          {importMsg.ok ? '✓' : '✗'} {importMsg.text}
+        </div>
+      )}
+
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-black text-[#f0f6fc] flex items-center gap-2">
             <Activity size={20} className="text-[#3b82f6]" />
@@ -625,11 +672,17 @@ export default function AdminDashboard() {
             Cockpit de mapeamento · EURUSD M5 · XM Ultra Low
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-[#f59e0b]/10 border border-[#f59e0b]/25 text-[#f59e0b]">
             <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b] animate-pulse" />
             Fase 1A — Mapeamento
           </span>
+          <button
+            onClick={() => importRef.current?.click()}
+            title="Importar JSON gerado pelo export_para_dashboard.py"
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[#10b981]/15 border border-[#10b981]/30 text-[#10b981] hover:bg-[#10b981]/25 transition-all font-semibold">
+            <Upload size={12} /> Importar Backtest
+          </button>
           <Link href="/admin/chart"
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[#3b82f6] text-white hover:bg-[#2563eb] transition-all font-semibold">
             <BarChart2 size={12} /> Mapear Trade
