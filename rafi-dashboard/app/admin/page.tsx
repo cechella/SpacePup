@@ -185,6 +185,9 @@ function KPI({ label, value, sub, color, icon: Icon }: {
 }
 
 // ── Chips de observação ML por trade ──────────────────────────────────────────
+// Filosofia: gráfico + price action = decisão do trader (primário).
+// Chips são DADOS de contexto para treinar o ML — não avaliam se o trade
+// foi certo ou errado. Sem ✗ vermelho: o ML aprende com todos os setups.
 function MLChips({ t, onSnapClick }: { t: ManualTrade; onSnapClick?: (src: string) => void }) {
   const r  = riskPips(t.entry, t.stopLoss, t.direction)
   const w  = rewardPips(t.entry, t.takeProfit, t.direction)
@@ -192,40 +195,48 @@ function MLChips({ t, onSnapClick }: { t: ManualTrade; onSnapClick?: (src: strin
 
   const chips: { label: string; color: string; note: string }[] = []
 
-  // RAFI
+  // RAFI — dado de intensidade, não aprovação. Sempre neutro/informativo.
+  // O ML aprende sozinho quando RAFI alto ou baixo correlaciona com W/L.
   if (t.rafi !== undefined) {
-    if (t.rafi >= 2.5)
-      chips.push({ label: `RAFI ${t.rafi.toFixed(1)} ✓`, color: '#10b981', note: 'sinal forte — padrão ideal para o ML' })
-    else if (t.rafi >= 1)
-      chips.push({ label: `RAFI ${t.rafi.toFixed(1)} ⚠`, color: '#f59e0b', note: 'abaixo de 2.5 — ML aprende a filtrar este sinal fraco' })
-    else
-      chips.push({ label: `RAFI ${t.rafi.toFixed(1)} ✗`, color: '#ef4444', note: 'RAFI muito fraco — contra-exemplo valioso para o ML' })
+    const rafiColor = t.rafi >= 2.5 ? '#10b981' : t.rafi >= 1 ? '#8b949e' : '#484f58'
+    const rafiMark  = t.rafi >= 2.5 ? ' ✓' : ''
+    chips.push({
+      label: `RAFI ${t.rafi.toFixed(1)}${rafiMark}`,
+      color: rafiColor,
+      note: t.rafi >= 2.5
+        ? 'Força forte — padrão ideal (feature ML: rafiStrong=1)'
+        : 'Força moderada/baixa — dado registrado para o ML correlacionar com resultado',
+    })
   }
 
-  // R:R
+  // R:R — objetivo, sem ⚠: qualquer trade tem valor como dado de treino
   if (rr >= 2)
-    chips.push({ label: `R:R ${rr.toFixed(1)}× excelente`, color: '#10b981', note: 'acima de 2:1 — risco/retorno ótimo' })
+    chips.push({ label: `R:R ${rr.toFixed(1)}×`, color: '#10b981', note: `R:R ${rr.toFixed(2)} — favorável` })
   else if (rr >= 1.5)
-    chips.push({ label: `R:R ${rr.toFixed(1)}× ok`, color: '#3b82f6', note: 'acima da meta 1.5× — aceitável' })
+    chips.push({ label: `R:R ${rr.toFixed(1)}×`, color: '#3b82f6', note: `R:R ${rr.toFixed(2)} — acima da meta 1.5×` })
   else if (rr > 0)
-    chips.push({ label: `R:R ${rr.toFixed(1)}× ⚠`, color: '#f59e0b', note: 'abaixo da meta 1.5× — ML aprende que este setup é arriscado' })
+    chips.push({ label: `R:R ${rr.toFixed(1)}×`, color: '#8b949e', note: `R:R ${rr.toFixed(2)} — abaixo de 1.5× (dado para o ML aprender)` })
 
-  // Alinhamento direção x RAFI
+  // Alinhamento RAFI × direção — observação neutra, não veto.
+  // O trader decide pela leitura do gráfico; RAFI é aproximação.
   if (t.rafiDir) {
     const aligned = (t.direction === 'buy' && t.rafiDir === 'bull') ||
                     (t.direction === 'sell' && t.rafiDir === 'bear')
-    if (aligned)
-      chips.push({ label: 'Direção ✓', color: '#10b981', note: 'RAFI confirma a direção do trade' })
-    else
-      chips.push({ label: 'Divergência ✗', color: '#ef4444', note: 'RAFI aponta direção oposta — sinal de alerta' })
+    chips.push({
+      label: aligned ? 'RAFI alinhado' : 'RAFI diverge',
+      color: aligned ? '#10b981' : '#8b949e',
+      note: aligned
+        ? 'Candle e RAFI na mesma direção — feature de alinhamento para ML'
+        : 'Candle diverge da dir. RAFI (approx.) — price action tem prioridade; ML registra o contexto',
+    })
   }
 
-  // BB Width
+  // BB Width — dado de contexto de volatilidade
   if (t.bbWidth !== undefined) {
     if (t.bbWidth > 0.0015)
-      chips.push({ label: 'BB aberto ✓', color: '#10b981', note: 'Bollinger expandindo — timing de entrada favorável' })
+      chips.push({ label: 'BB aberto', color: '#10b981', note: 'Bollinger expandindo — volatilidade crescente no momento da entrada' })
     else
-      chips.push({ label: 'BB estreito ⚠', color: '#f59e0b', note: 'Bollinger estreito — mercado lateral, timing ruim' })
+      chips.push({ label: 'BB estreito', color: '#8b949e', note: 'Bollinger comprimido — dado de contexto para o ML' })
   }
 
   if (!chips.length && !t.snapshot) return null
@@ -257,10 +268,10 @@ function MLChips({ t, onSnapClick }: { t: ManualTrade; onSnapClick?: (src: strin
         </button>
       )}
       {chips.length > 0 && (
-        <span className="text-[8px] text-[#484f58] mr-1 uppercase tracking-wider shrink-0">ML →</span>
+        <span className="text-[8px] text-[#484f58] mr-1 uppercase tracking-wider shrink-0">feat →</span>
       )}
       {chips.map((c, i) => (
-        <span key={i} title={c.note} style={{ background: `${c.color}12`, border: `1px solid ${c.color}35`, color: c.color }}
+        <span key={i} title={c.note} style={{ background: `${c.color}10`, border: `1px solid ${c.color}30`, color: c.color }}
           className="text-[8px] px-1.5 py-0.5 rounded font-mono cursor-help">
           {c.label}
         </span>
