@@ -106,6 +106,34 @@ CREATE POLICY "backtests_admin" ON backtests
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
   );
 
+-- ── Trades manuais RAFI (dataset de mapeamento para ML) ──────────────────────
+CREATE TABLE IF NOT EXISTS rafi_trades (
+  id          TEXT PRIMARY KEY,
+  direction   TEXT NOT NULL CHECK (direction IN ('buy', 'sell')),
+  entry       NUMERIC(10,5) NOT NULL,
+  stop_loss   NUMERIC(10,5) NOT NULL,
+  take_profit NUMERIC(10,5) NOT NULL,
+  label       TEXT,
+  time        BIGINT NOT NULL,
+  lot         NUMERIC(8,2),
+  leverage    INTEGER DEFAULT 1000,
+  result      TEXT DEFAULT 'pending' CHECK (result IN ('win', 'loss', 'pending')),
+  rafi        NUMERIC(6,3),
+  rafi_dir    TEXT CHECK (rafi_dir IN ('bull', 'bear')),
+  bb_width    NUMERIC(10,7),
+  snapshot    TEXT,
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_rafi_trades_time ON rafi_trades(time DESC);
+
+ALTER TABLE rafi_trades ENABLE ROW LEVEL SECURITY;
+
+-- Dashboard pessoal: leitura e escrita públicas via anon key
+CREATE POLICY "rafi_trades_public_all" ON rafi_trades
+  FOR ALL USING (true) WITH CHECK (true);
+
 -- ── Dar role admin ao primeiro usuário ───────────────────────────────────────
 -- Execute manualmente após criar sua conta:
 -- UPDATE profiles SET role = 'admin' WHERE id = (SELECT id FROM auth.users LIMIT 1);
