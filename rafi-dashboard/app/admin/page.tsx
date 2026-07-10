@@ -1,14 +1,15 @@
 'use client'
 
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import {
   TrendingUp, TrendingDown, BarChart2, Activity,
   Target, AlertTriangle, ChevronRight, Download,
-  Zap, Clock, Award, X as XIcon, Layers,
+  Zap, Clock, Award, X as XIcon, Layers, Upload,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SCALE_TIERS, getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
+import { fetchTrades, upsertTrades, updateTradeResult } from '@/lib/trades-db'
 
 // ── Modal de preview do screenshot ───────────────────────────────────────────
 function SnapshotModal({ src, onClose }: { src: string; onClose: () => void }) {
@@ -185,6 +186,9 @@ function KPI({ label, value, sub, color, icon: Icon }: {
 }
 
 // ── Chips de observação ML por trade ──────────────────────────────────────────
+// Filosofia: gráfico + price action = decisão do trader (primário).
+// Chips são DADOS de contexto para treinar o ML — não avaliam se o trade
+// foi certo ou errado. Sem ✗ vermelho: o ML aprende com todos os setups.
 function MLChips({ t, onSnapClick }: { t: ManualTrade; onSnapClick?: (src: string) => void }) {
   const r  = riskPips(t.entry, t.stopLoss, t.direction)
   const w  = rewardPips(t.entry, t.takeProfit, t.direction)
@@ -192,40 +196,48 @@ function MLChips({ t, onSnapClick }: { t: ManualTrade; onSnapClick?: (src: strin
 
   const chips: { label: string; color: string; note: string }[] = []
 
-  // RAFI
+  // RAFI — dado de intensidade, não aprovação. Sempre neutro/informativo.
+  // O ML aprende sozinho quando RAFI alto ou baixo correlaciona com W/L.
   if (t.rafi !== undefined) {
-    if (t.rafi >= 2.5)
-      chips.push({ label: `RAFI ${t.rafi.toFixed(1)} ✓`, color: '#10b981', note: 'sinal forte — padrão ideal para o ML' })
-    else if (t.rafi >= 1)
-      chips.push({ label: `RAFI ${t.rafi.toFixed(1)} ⚠`, color: '#f59e0b', note: 'abaixo de 2.5 — ML aprende a filtrar este sinal fraco' })
-    else
-      chips.push({ label: `RAFI ${t.rafi.toFixed(1)} ✗`, color: '#ef4444', note: 'RAFI muito fraco — contra-exemplo valioso para o ML' })
+    const rafiColor = t.rafi >= 2.5 ? '#10b981' : t.rafi >= 1 ? '#8b949e' : '#484f58'
+    const rafiMark  = t.rafi >= 2.5 ? ' ✓' : ''
+    chips.push({
+      label: `RAFI ${t.rafi.toFixed(1)}${rafiMark}`,
+      color: rafiColor,
+      note: t.rafi >= 2.5
+        ? 'Força forte — padrão ideal (feature ML: rafiStrong=1)'
+        : 'Força moderada/baixa — dado registrado para o ML correlacionar com resultado',
+    })
   }
 
-  // R:R
+  // R:R — objetivo, sem ⚠: qualquer trade tem valor como dado de treino
   if (rr >= 2)
-    chips.push({ label: `R:R ${rr.toFixed(1)}× excelente`, color: '#10b981', note: 'acima de 2:1 — risco/retorno ótimo' })
+    chips.push({ label: `R:R ${rr.toFixed(1)}×`, color: '#10b981', note: `R:R ${rr.toFixed(2)} — favorável` })
   else if (rr >= 1.5)
-    chips.push({ label: `R:R ${rr.toFixed(1)}× ok`, color: '#3b82f6', note: 'acima da meta 1.5× — aceitável' })
+    chips.push({ label: `R:R ${rr.toFixed(1)}×`, color: '#3b82f6', note: `R:R ${rr.toFixed(2)} — acima da meta 1.5×` })
   else if (rr > 0)
-    chips.push({ label: `R:R ${rr.toFixed(1)}× ⚠`, color: '#f59e0b', note: 'abaixo da meta 1.5× — ML aprende que este setup é arriscado' })
+    chips.push({ label: `R:R ${rr.toFixed(1)}×`, color: '#8b949e', note: `R:R ${rr.toFixed(2)} — abaixo de 1.5× (dado para o ML aprender)` })
 
-  // Alinhamento direção x RAFI
+  // Alinhamento RAFI × direção — observação neutra, não veto.
+  // O trader decide pela leitura do gráfico; RAFI é aproximação.
   if (t.rafiDir) {
     const aligned = (t.direction === 'buy' && t.rafiDir === 'bull') ||
                     (t.direction === 'sell' && t.rafiDir === 'bear')
-    if (aligned)
-      chips.push({ label: 'Direção ✓', color: '#10b981', note: 'RAFI confirma a direção do trade' })
-    else
-      chips.push({ label: 'Divergência ✗', color: '#ef4444', note: 'RAFI aponta direção oposta — sinal de alerta' })
+    chips.push({
+      label: aligned ? 'RAFI alinhado' : 'RAFI diverge',
+      color: aligned ? '#10b981' : '#8b949e',
+      note: aligned
+        ? 'Candle e RAFI na mesma direção — feature de alinhamento para ML'
+        : 'Candle diverge da dir. RAFI (approx.) — price action tem prioridade; ML registra o contexto',
+    })
   }
 
-  // BB Width
+  // BB Width — dado de contexto de volatilidade
   if (t.bbWidth !== undefined) {
     if (t.bbWidth > 0.0015)
-      chips.push({ label: 'BB aberto ✓', color: '#10b981', note: 'Bollinger expandindo — timing de entrada favorável' })
+      chips.push({ label: 'BB aberto', color: '#10b981', note: 'Bollinger expandindo — volatilidade crescente no momento da entrada' })
     else
-      chips.push({ label: 'BB estreito ⚠', color: '#f59e0b', note: 'Bollinger estreito — mercado lateral, timing ruim' })
+      chips.push({ label: 'BB estreito', color: '#8b949e', note: 'Bollinger comprimido — dado de contexto para o ML' })
   }
 
   if (!chips.length && !t.snapshot) return null
@@ -257,10 +269,10 @@ function MLChips({ t, onSnapClick }: { t: ManualTrade; onSnapClick?: (src: strin
         </button>
       )}
       {chips.length > 0 && (
-        <span className="text-[8px] text-[#484f58] mr-1 uppercase tracking-wider shrink-0">ML →</span>
+        <span className="text-[8px] text-[#484f58] mr-1 uppercase tracking-wider shrink-0">feat →</span>
       )}
       {chips.map((c, i) => (
-        <span key={i} title={c.note} style={{ background: `${c.color}12`, border: `1px solid ${c.color}35`, color: c.color }}
+        <span key={i} title={c.note} style={{ background: `${c.color}10`, border: `1px solid ${c.color}30`, color: c.color }}
           className="text-[8px] px-1.5 py-0.5 rounded font-mono cursor-help">
           {c.label}
         </span>
@@ -556,9 +568,12 @@ export default function AdminDashboard() {
   const [trades,       setTrades]       = useState<ManualTrade[]>([])
   const [mounted,      setMounted]      = useState(false)
   const [activeSnap,   setActiveSnap]   = useState<string | null>(null)
+  const [importMsg,    setImportMsg]    = useState<{ text: string; ok: boolean } | null>(null)
+  const importRef                       = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setMounted(true)
+    // Carrega localStorage imediatamente (UI responsiva)
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) {
@@ -566,12 +581,57 @@ export default function AdminDashboard() {
         if (Array.isArray(parsed)) setTrades(parsed)
       }
     } catch {}
+    // Supabase é a fonte de verdade — sobrescreve localStorage se tiver dados
+    fetchTrades()
+      .then(data => {
+        if (data.length > 0) {
+          setTrades(data)
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)) } catch {}
+        }
+      })
+      .catch(() => {})
   }, [])
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      try {
+        const parsed = JSON.parse(ev.target?.result as string)
+        if (!Array.isArray(parsed)) throw new Error('JSON deve ser um array')
+        const valid = parsed.filter((t: any) =>
+          t && typeof t.id === 'string' &&
+          typeof t.direction === 'string' &&
+          typeof t.entry === 'number'
+        ) as ManualTrade[]
+        if (!valid.length) throw new Error('Nenhum trade válido encontrado')
+        const merged = [...trades]
+        const existingIds = new Set(merged.map(t => t.id))
+        let added = 0
+        for (const t of valid) {
+          if (!existingIds.has(t.id)) { merged.push(t); added++ }
+        }
+        setTrades(merged)
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(merged)) } catch {}
+        // Sincroniza novos trades com Supabase
+        const newTrades = valid.filter(t => !existingIds.has(t.id))
+        if (newTrades.length > 0) upsertTrades(newTrades).catch(() => {})
+        setImportMsg({ text: `${added} trades importados (${valid.length - added} duplicatas ignoradas)`, ok: true })
+      } catch (err: any) {
+        setImportMsg({ text: `Erro: ${err.message}`, ok: false })
+      }
+      setTimeout(() => setImportMsg(null), 5000)
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
 
   const handleLabel = (id: string, result: 'win' | 'loss') => {
     const updated = trades.map(t => t.id === id ? { ...t, result } : t)
     setTrades(updated)
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)) } catch {}
+    updateTradeResult(id, result).catch(() => {})
   }
 
   const wins    = trades.filter(t => t.result === 'win').length
@@ -614,8 +674,21 @@ export default function AdminDashboard() {
     <div className="min-h-screen bg-[#0d1117] p-5 space-y-5">
       {activeSnap && <SnapshotModal src={activeSnap} onClose={() => setActiveSnap(null)} />}
 
+      {/* Input oculto para importação de JSON */}
+      <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImport} />
+
+      {/* Toast de importação */}
+      {importMsg && (
+        <div className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium shadow-2xl border transition-all
+          ${importMsg.ok
+            ? 'bg-[#10b981]/15 border-[#10b981]/40 text-[#10b981]'
+            : 'bg-[#ef4444]/15 border-[#ef4444]/40 text-[#ef4444]'}`}>
+          {importMsg.ok ? '✓' : '✗'} {importMsg.text}
+        </div>
+      )}
+
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-black text-[#f0f6fc] flex items-center gap-2">
             <Activity size={20} className="text-[#3b82f6]" />
@@ -625,11 +698,17 @@ export default function AdminDashboard() {
             Cockpit de mapeamento · EURUSD M5 · XM Ultra Low
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-[#f59e0b]/10 border border-[#f59e0b]/25 text-[#f59e0b]">
             <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b] animate-pulse" />
             Fase 1A — Mapeamento
           </span>
+          <button
+            onClick={() => importRef.current?.click()}
+            title="Importar JSON gerado pelo export_para_dashboard.py"
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[#10b981]/15 border border-[#10b981]/30 text-[#10b981] hover:bg-[#10b981]/25 transition-all font-semibold">
+            <Upload size={12} /> Importar Backtest
+          </button>
           <Link href="/admin/chart"
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[#3b82f6] text-white hover:bg-[#2563eb] transition-all font-semibold">
             <BarChart2 size={12} /> Mapear Trade
