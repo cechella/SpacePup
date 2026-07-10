@@ -589,7 +589,7 @@ export default function AdminDashboard() {
           try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)) } catch {}
         }
       })
-      .catch(() => {})
+      .catch((err) => console.error('[Supabase] fetchTrades:', err))
   }, [])
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
