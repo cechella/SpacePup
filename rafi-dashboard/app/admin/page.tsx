@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SCALE_TIERS, getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
+import { fetchTrades, upsertTrades, updateTradeResult } from '@/lib/trades-db'
 
 // ── Modal de preview do screenshot ───────────────────────────────────────────
 function SnapshotModal({ src, onClose }: { src: string; onClose: () => void }) {
@@ -572,6 +573,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     setMounted(true)
+    // Carrega localStorage imediatamente (UI responsiva)
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) {
@@ -579,6 +581,15 @@ export default function AdminDashboard() {
         if (Array.isArray(parsed)) setTrades(parsed)
       }
     } catch {}
+    // Supabase é a fonte de verdade — sobrescreve localStorage se tiver dados
+    fetchTrades()
+      .then(data => {
+        if (data.length > 0) {
+          setTrades(data)
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)) } catch {}
+        }
+      })
+      .catch(() => {})
   }, [])
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -603,6 +614,9 @@ export default function AdminDashboard() {
         }
         setTrades(merged)
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(merged)) } catch {}
+        // Sincroniza novos trades com Supabase
+        const newTrades = valid.filter(t => !existingIds.has(t.id))
+        if (newTrades.length > 0) upsertTrades(newTrades).catch(() => {})
         setImportMsg({ text: `${added} trades importados (${valid.length - added} duplicatas ignoradas)`, ok: true })
       } catch (err: any) {
         setImportMsg({ text: `Erro: ${err.message}`, ok: false })
@@ -617,6 +631,7 @@ export default function AdminDashboard() {
     const updated = trades.map(t => t.id === id ? { ...t, result } : t)
     setTrades(updated)
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)) } catch {}
+    updateTradeResult(id, result).catch(() => {})
   }
 
   const wins    = trades.filter(t => t.result === 'win').length

@@ -9,6 +9,7 @@ import { TradePanel, type ManualTrade } from '@/components/trade-panel'
 import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
 import { getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
+import { upsertTrade } from '@/lib/trades-db'
 import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers } from 'lucide-react'
 
 const RAFIChart = dynamic(
@@ -161,7 +162,10 @@ export default function ChartPage() {
     }
   }, [lastPrice, currentLot])
 
-  const handleAdd    = useCallback((t: ManualTrade) => setTrades(p => [...p, t]),    [])
+  const handleAdd = useCallback((t: ManualTrade) => {
+    setTrades(p => [...p, t])
+    upsertTrade(t as any).catch(() => {})
+  }, [])
   const handleRemove = useCallback((id: string)     => setTrades(p => p.filter(t => t.id !== id)), [])
   const handleUpdate = useCallback((id: string, updates: Partial<ManualTrade>) =>
     setTrades(p => p.map(t => t.id === id ? { ...t, ...updates } : t)), [])
