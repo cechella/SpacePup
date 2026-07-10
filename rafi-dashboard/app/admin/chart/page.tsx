@@ -164,7 +164,7 @@ export default function ChartPage() {
 
   const handleAdd = useCallback((t: ManualTrade) => {
     setTrades(p => [...p, t])
-    upsertTrade(t as any).catch(() => {})
+    upsertTrade(t as any).catch((err) => console.error('[Supabase] upsertTrade:', err))
   }, [])
   const handleRemove = useCallback((id: string)     => setTrades(p => p.filter(t => t.id !== id)), [])
   const handleUpdate = useCallback((id: string, updates: Partial<ManualTrade>) =>
