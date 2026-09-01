@@ -453,7 +453,10 @@ class RafiBot:
         Verifica se a perda diária atingiu o limite configurado (5% padrão).
 
         Retorna True se o bot deve parar de operar hoje.
+        Com saldo zero ou negativo, não bloqueia (aguarda depósito).
         """
+        if self.capital <= 0:
+            return False   # conta vazia — aguarda depósito, não bloqueia
         limite_pct = self.cfg.get('risco_maximo_diario', 5.0)
         limite_usd = self.capital * (limite_pct / 100)
         return self._perda_hoje >= limite_usd
@@ -466,13 +469,15 @@ def main() -> None:
     parser.add_argument('--config', default='config.yaml', help='Arquivo de configuração YAML')
     args = parser.parse_args()
 
-    # Carrega variáveis de ambiente do .env (se existir)
-    env_file = Path('.env')
-    if env_file.exists():
-        for linha in env_file.read_text(encoding='utf-8').splitlines():
-            if '=' in linha and not linha.startswith('#'):
-                chave, valor = linha.split('=', 1)
-                os.environ.setdefault(chave.strip(), valor.strip())
+    # Carrega variáveis de ambiente do .env — busca na pasta atual e na raiz do repo
+    for env_path in [Path('.env'), Path(__file__).parent.parent / '.env']:
+        if env_path.exists():
+            for linha in env_path.read_text(encoding='utf-8').splitlines():
+                if '=' in linha and not linha.startswith('#'):
+                    chave, valor = linha.split('=', 1)
+                    os.environ.setdefault(chave.strip(), valor.strip())
+            logger.info(f".env carregado de: {env_path.resolve()}")
+            break
 
     cfg = carregar_config(args.config)
     bot = RafiBot(cfg)
