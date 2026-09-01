@@ -241,28 +241,24 @@ export function autoScanBreakouts(
 
     // ── COMPRA: fecha acima da resistência com candle de alta (verde) ──
     if (c.close > resistance && c.close - resistance >= minBreakout && c.close >= c.open) {
-      const entry   = p(resistance)
-      // TP: baseado no candle de rompimento (mantém alvo pequeno e alcançável)
-      const tpRisk  = entry - (c.low - 0.00015)
-      // Stop: desacoplado — fundo relevante da janela (nível técnico real)
-      const stop    = p(support - 0.00015)
+      const entry  = p(resistance)
+      const stop   = p(c.low - 0.00015)
+      const risk   = entry - stop
       trades.push({
         time: c.time, direction: 'buy',
-        entry, stopLoss: stop, takeProfit: p(entry + tpRisk * rrRatio),
+        entry, stopLoss: stop, takeProfit: p(entry + risk * rrRatio),
         rafi: rafiPt.value, rafiDir: rafiPt.dir, bbWidth: bbCurr.width,
       })
       lastIdx = i
     }
     // ── VENDA: fecha abaixo do suporte com candle de baixa (vermelho) ──
     else if (c.close < support && support - c.close >= minBreakout && c.close < c.open) {
-      const entry   = p(support)
-      // TP: baseado no candle de rompimento (mantém alvo pequeno e alcançável)
-      const tpRisk  = (c.high + 0.00015) - entry
-      // Stop: desacoplado — topo relevante da janela (nível técnico real)
-      const stop    = p(resistance + 0.00015)
+      const entry  = p(support)
+      const stop   = p(c.high + 0.00015)
+      const risk   = stop - entry
       trades.push({
         time: c.time, direction: 'sell',
-        entry, stopLoss: stop, takeProfit: p(entry - tpRisk * rrRatio),
+        entry, stopLoss: stop, takeProfit: p(entry - risk * rrRatio),
         rafi: rafiPt.value, rafiDir: rafiPt.dir, bbWidth: bbCurr.width,
       })
       lastIdx = i
