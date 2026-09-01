@@ -11,6 +11,7 @@ import { cn, formatPrice } from '@/lib/utils'
 import { getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
 import { upsertTrade } from '@/lib/trades-db'
 import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine } from 'lucide-react'
+import { generateTradeSnapshot } from '@/lib/trade-snapshot'
 
 const RAFIChart = dynamic(
   () => import('@/components/rafi-chart').then(m => m.RAFIChart),
@@ -260,11 +261,15 @@ export default function ChartPage() {
         rafi:       scan.rafi,
         rafiDir:    scan.rafiDir,
         bbWidth:    scan.bbWidth,
-        snapshot:   snapshotCaptureRef.current?.(scan.time, {
-          entry:     scan.entry,
-          sl:        scan.stopLoss,
-          tp:        scan.takeProfit,
-          direction: scan.direction,
+        snapshot:   generateTradeSnapshot(candles, {
+          time:       scan.time,
+          direction:  scan.direction,
+          entry:      scan.entry,
+          stopLoss:   scan.stopLoss,
+          takeProfit: scan.takeProfit,
+          result,
+          lot,
+          rafi:       scan.rafi,
         }) ?? undefined,
       })
     })
