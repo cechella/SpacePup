@@ -235,8 +235,8 @@ export function autoScanBreakouts(
 
     const p = (v: number) => Math.round(v * 100000) / 100000
 
-    // ── COMPRA: fecha acima da resistência ──────────────────────────────
-    if (c.close > resistance && c.close - resistance >= minBreakout) {
+    // ── COMPRA: fecha acima da resistência com candle de alta (verde) ──
+    if (c.close > resistance && c.close - resistance >= minBreakout && c.close >= c.open) {
       const entry  = p(resistance)
       const stop   = p(c.low - 0.00015)
       const risk   = entry - stop
@@ -247,8 +247,8 @@ export function autoScanBreakouts(
       })
       lastIdx = i
     }
-    // ── VENDA: fecha abaixo do suporte ──────────────────────────────────
-    else if (c.close < support && support - c.close >= minBreakout) {
+    // ── VENDA: fecha abaixo do suporte com candle de baixa (vermelho) ──
+    else if (c.close < support && support - c.close >= minBreakout && c.close < c.open) {
       const entry  = p(support)
       const stop   = p(c.high + 0.00015)
       const risk   = stop - entry
