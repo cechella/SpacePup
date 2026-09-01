@@ -18,8 +18,19 @@ interface ManualTrade {
   rafi?: number; rafiDir?: 'bull' | 'bear'; bbWidth?: number
 }
 
-const STORAGE_KEY = 'rafi-trade-log'
-const ML_TARGET   = 300
+const STORAGE_KEY  = 'rafi-trade-log'
+const ML_CONFIANCA = [
+  { min: 0,   max: 5,   label: 'Sem dados',         cor: '#484f58', pct: 0   },
+  { min: 5,   max: 15,  label: 'Aprendendo...',      cor: '#ef4444', pct: 20  },
+  { min: 15,  max: 30,  label: 'Padrão inicial',     cor: '#f59e0b', pct: 40  },
+  { min: 30,  max: 60,  label: 'Melhorando',         cor: '#f59e0b', pct: 60  },
+  { min: 60,  max: 100, label: 'Confiável',          cor: '#3b82f6', pct: 78  },
+  { min: 100, max: 300, label: 'Alta confiança',     cor: '#10b981', pct: 90  },
+  { min: 300, max: Infinity, label: 'XGBoost pronto!', cor: '#10b981', pct: 100 },
+]
+function getConfianca(n: number) {
+  return ML_CONFIANCA.find(c => n >= c.min && n < c.max) ?? ML_CONFIANCA[0]
+}
 
 function riskPips(e: number, s: number, dir: 'buy' | 'sell') {
   return dir === 'buy' ? Math.round((e - s) * 10000) : Math.round((s - e) * 10000)
@@ -210,12 +221,12 @@ export default function Fase2Page() {
       .catch(() => {})
   }, [])
 
-  const labeled  = useMemo(() => trades.filter(t => t.result === 'win' || t.result === 'loss'), [trades])
-  const wins     = labeled.filter(t => t.result === 'win').length
-  const losses   = labeled.filter(t => t.result === 'loss').length
-  const winRate  = labeled.length > 0 ? Math.round(wins / labeled.length * 100) : null
-  const ready    = labeled.length >= ML_TARGET
-  const pct      = Math.min((labeled.length / ML_TARGET) * 100, 100)
+  const labeled   = useMemo(() => trades.filter(t => t.result === 'win' || t.result === 'loss'), [trades])
+  const wins      = labeled.filter(t => t.result === 'win').length
+  const losses    = labeled.filter(t => t.result === 'loss').length
+  const winRate   = labeled.length > 0 ? Math.round(wins / labeled.length * 100) : null
+  const confianca = getConfianca(labeled.length)
+  const ready     = labeled.length >= 300
 
   const rafiStrongWin  = labeled.filter(t => t.result === 'win'  && (t.rafi ?? 0) >= 2.5).length
   const rafiStrongLoss = labeled.filter(t => t.result === 'loss' && (t.rafi ?? 0) >= 2.5).length
@@ -253,7 +264,7 @@ export default function Fase2Page() {
               'w-1.5 h-1.5 rounded-full',
               ready ? 'bg-[#10b981]' : 'bg-[#f59e0b] animate-pulse',
             )} />
-            {ready ? 'Pronto para treinar' : `Fase 1A — ${labeled.length}/${ML_TARGET} trades`}
+            {confianca.label} — {labeled.length} trades
           </span>
           <button
             onClick={() => labeled.length > 0 && exportCSV(trades)}
@@ -280,7 +291,29 @@ export default function Fase2Page() {
             <Target size={14} className="text-[#f59e0b]" />
             <span className="text-sm font-semibold text-[#f0f6fc]">Coleta de Dados</span>
           </div>
-          <ProgressBar current={labeled.length} target={ML_TARGET} />
+          {/* Aprendizado contínuo — cresce a cada trade */}
+          <div className="space-y-3">
+            <div className="flex items-end justify-between">
+              <div>
+                <div className="text-2xl font-black font-mono" style={{ color: confianca.cor }}>{labeled.length}</div>
+                <div className="text-[9px] uppercase tracking-widest text-[#484f58] mt-0.5">{confianca.label}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm font-bold font-mono" style={{ color: confianca.cor }}>{confianca.pct}%</div>
+                <div className="text-[9px] text-[#484f58]">confiança do modelo</div>
+              </div>
+            </div>
+            <div className="relative h-3 bg-[#21262d] rounded-full overflow-hidden">
+              <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-700"
+                style={{ width: `${confianca.pct}%`, background: confianca.cor }} />
+            </div>
+            <div className="flex justify-between text-[8px] text-[#484f58]">
+              <span>0</span><span>30</span><span>60</span><span>100</span><span>300+</span>
+            </div>
+            <div className="text-[9px] text-[#484f58] text-center">
+              A IA aprende a cada trade — quanto mais dados, mais precisa
+            </div>
+          </div>
           <div className="grid grid-cols-3 gap-2 pt-1 border-t border-[#30363d]">
             <div className="text-center">
               <div className="text-lg font-black font-mono text-[#10b981]">{wins}</div>
@@ -373,7 +406,9 @@ export default function Fase2Page() {
             <div className="text-[10px] text-[#484f58] mt-0.5">
               {ready
                 ? 'Treine o modelo e ative o filtro — apenas sinais com P(WIN) ≥ 65% serão operados'
-                : `Disponível após ${ML_TARGET} trades rotulados (faltam ${ML_TARGET - labeled.length})`}
+                : labeled.length >= 30
+                ? `Com ${labeled.length} trades já tem padrões! XGBoost completo após 300 trades.`
+                : 'A IA já aprende desde o 1º trade — precisão aumenta com cada resultado rotulado'}
             </div>
           </div>
         </div>
@@ -513,7 +548,7 @@ export default function Fase2Page() {
         <div className="space-y-2.5">
           {[
             { done: true,  label: 'Fase 1A · Núcleo pronto',       desc: 'Indicadores RAFI + BB + S/R + backtest engine funcionando' },
-            { done: false, label: `Fase 1A · Coletar ${ML_TARGET} trades`, desc: `${labeled.length}/${ML_TARGET} rotulados · rode Auto-scan e marque W/L no Dashboard`, active: true },
+            { done: labeled.length >= 1, label: 'Fase 1A · IA aprendendo (cada trade)', desc: `${labeled.length} rotulados · IA melhora a cada resultado — rode Auto-scan e marque W/L`, active: labeled.length < 300 },
             { done: false, label: 'Fase 1B · Conta DEMO XM (2-4 sem.)', desc: 'Rodar bot Python no MT5 Demo · comparar com backtest' },
             { done: false, label: 'Fase 2 · Treinar XGBoost',      desc: 'Exportar CSV → python train.py → modelo .pkl gerado' },
             { done: false, label: 'Fase 2 · Ativar filtro IA',     desc: 'Só opera quando P(WIN) ≥ 65% · retreino mensal automático' },

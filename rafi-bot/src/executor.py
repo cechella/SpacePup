@@ -37,6 +37,7 @@ from .mt5_client   import ClienteMT5
 from .indicators   import (
     calcular_indice_forca,
     calcular_bollinger,
+    detectar_pivotos,
     niveis_sr_ativos,
     rompimento_ocorreu,
 )
@@ -184,7 +185,8 @@ class RafiBot:
         # 6. Calcula indicadores
         indice_forca = calcular_indice_forca(df, periodo=3)
         bb           = calcular_bollinger(df, periodo=8, desvios=2.0)
-        niveis_sr    = niveis_sr_ativos(df, lookback=self.cfg.get('sr_lookback', 20))
+        pivotos      = detectar_pivotos(df, janela=5)
+        niveis_sr    = niveis_sr_ativos(df, pivotos, lookback=self.cfg.get('sr_lookback', 20))
 
         # 7. Verifica sinal de entrada no candle mais recente
         sinal = self._verificar_sinal(df, indice_forca, bb, niveis_sr)
