@@ -242,7 +242,7 @@ export function autoScanBreakouts(
     // ── COMPRA: fecha acima da resistência com candle de alta (verde) ──
     if (c.close > resistance && c.close - resistance >= minBreakout && c.close >= c.open) {
       const entry  = p(resistance)
-      const stop   = p(support - 0.00020)   // fundo relevante da janela − 2 pips
+      const stop   = p(c.low - 0.00050)      // 5p abaixo da mínima do candle de rompimento
       const risk   = entry - stop
       trades.push({
         time: c.time, direction: 'buy',
@@ -254,7 +254,7 @@ export function autoScanBreakouts(
     // ── VENDA: fecha abaixo do suporte com candle de baixa (vermelho) ──
     else if (c.close < support && support - c.close >= minBreakout && c.close < c.open) {
       const entry  = p(support)
-      const stop   = p(resistance + 0.00020) // topo relevante da janela + 2 pips
+      const stop   = p(c.high + 0.00050)     // 5p acima da máxima do candle de rompimento
       const risk   = stop - entry
       trades.push({
         time: c.time, direction: 'sell',
