@@ -1,18 +1,18 @@
-// Tiers de escalonamento de lote — dobra conforme o capital cresce
+// Tiers de escalonamento agressivo — 15% de risco por trade (XM 1:1000)
+// 0.1L = $1/pip; capital mínimo = stop(3p) / 0.15
 export const SCALE_TIERS = [
-  { minCap: 0,        lot: 0.20  },
-  { minCap: 150,      lot: 0.40  },
-  { minCap: 200,      lot: 0.80  },
-  { minCap: 300,      lot: 1.00  },
-  { minCap: 600,      lot: 2.00  },
-  { minCap: 1_200,    lot: 4.00  },
-  { minCap: 2_500,    lot: 8.00  },
-  { minCap: 5_000,    lot: 15.00 },
-  { minCap: 10_000,   lot: 30.00 },
-  { minCap: 25_000,   lot: 60.00 },
-  { minCap: 50_000,   lot: 120.00 },
-  { minCap: 100_000,  lot: 250.00 },
-  { minCap: 200_000,  lot: 500.00 },
+  { minCap: 0,        lot: 0.10  },
+  { minCap: 40,       lot: 0.20  },
+  { minCap: 80,       lot: 0.40  },
+  { minCap: 150,      lot: 0.70  },
+  { minCap: 200,      lot: 1.00  },
+  { minCap: 400,      lot: 2.00  },
+  { minCap: 800,      lot: 4.00  },
+  { minCap: 1_500,    lot: 8.00  },
+  { minCap: 3_000,    lot: 15.00 },
+  { minCap: 6_000,    lot: 30.00 },
+  { minCap: 10_000,   lot: 50.00 },
+  { minCap: 20_000,   lot: 100.00 },
 ]
 
 export function getLotForCapital(capital: number): number {

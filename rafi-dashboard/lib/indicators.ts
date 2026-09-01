@@ -191,12 +191,8 @@ export function autoScanBreakouts(
     squeezeRatio  = 0.0012,
   } = options
 
-  // Só opera nas sobreposições de maior volume:
-  // 07:00–08:00 UTC (Tóquio + Londres) e 12:00–16:00 UTC (Londres + Nova York)
-  const inSession = (ts: number) => {
-    const h = new Date(ts * 1000).getUTCHours()
-    return (h === 7) || (h >= 12 && h < 16)
-  }
+  // Opera 24h nos dias de semana — sem filtro de horário
+  const inSession = (_ts: number) => true
 
   const bb   = calcBollingerBands(candles, bbPeriod)
   const rafi = calcRAFI(candles)
