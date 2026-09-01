@@ -109,7 +109,8 @@ def sincronizar_trade(
         return False
 
 
-def atualizar_resultado(ticket: int, result: str, ts: int) -> bool:
+def atualizar_resultado(ticket: int, result: str, ts: int,
+                        pnl: Optional[float] = None) -> bool:
     """
     Atualiza o resultado (win/loss) de um trade já sincronizado.
 
@@ -120,13 +121,99 @@ def atualizar_resultado(ticket: int, result: str, ts: int) -> bool:
         return False
 
     trade_id = f"{ts}-mt5-{ticket}"
+    patch: dict = {
+        'result':     result,
+        'updated_at': datetime.utcnow().isoformat(),
+    }
+    if pnl is not None:
+        patch['pnl'] = round(pnl, 2)
+
     try:
-        cliente.table('rafi_trades').update({
-            'result':     result,
-            'updated_at': datetime.utcnow().isoformat(),
-        }).eq('id', trade_id).execute()
-        logger.info(f"[Supabase] Ticket #{ticket} → {result.upper()}")
+        cliente.table('rafi_trades').update(patch).eq('id', trade_id).execute()
+        logger.info(f"[Supabase] Ticket #{ticket} → {result.upper()}"
+                    + (f" | P&L: ${pnl:+.2f}" if pnl is not None else ""))
         return True
     except Exception as e:
         logger.error(f"[Supabase] Erro ao atualizar resultado #{ticket}: {e}")
+        return False
+
+
+def publicar_heartbeat(
+    status:         str,
+    balance:        float,
+    equity:         float,
+    open_positions: int,
+    pnl_hoje:       float = 0.0,
+    par:            str   = 'EURUSD',
+    server:         str   = '',
+    account:        int   = 0,
+    last_signal:    Optional[str] = None,
+) -> bool:
+    """
+    Publica o status atual do bot na tabela rafi_bot_status (heartbeat).
+
+    Chamado a cada ciclo para que o dashboard saiba que o bot está vivo.
+    status: 'running' | 'waiting' | 'stopped' | 'error'
+    """
+    cliente = _get_cliente()
+    if cliente is None:
+        return False
+
+    row = {
+        'id':             'main',
+        'status':         status,
+        'balance':        round(balance, 2),
+        'equity':         round(equity, 2),
+        'open_positions': open_positions,
+        'pnl_today':      round(pnl_hoje, 2),
+        'par':            par,
+        'server':         server,
+        'account':        account,
+        'last_signal':    last_signal,
+        'updated_at':     datetime.utcnow().isoformat(),
+    }
+
+    try:
+        cliente.table('rafi_bot_status').upsert(row, on_conflict='id').execute()
+        return True
+    except Exception as e:
+        logger.error(f"[Supabase] Erro ao publicar heartbeat: {e}")
+        return False
+
+
+def verificar_comando_parar() -> bool:
+    """
+    Verifica se há um comando de parada pendente na tabela rafi_bot_commands.
+
+    Consome o primeiro comando 'stop' pendente e retorna True.
+    Retorna False se não houver nenhum.
+    """
+    cliente = _get_cliente()
+    if cliente is None:
+        return False
+
+    try:
+        res = (
+            cliente.table('rafi_bot_commands')
+            .select('id,command')
+            .eq('pending', True)
+            .eq('command', 'stop')
+            .order('created_at')
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return False
+
+        cmd_id = res.data[0].get('id')
+        if cmd_id:
+            cliente.table('rafi_bot_commands').update({
+                'pending':      False,
+                'processed_at': datetime.utcnow().isoformat(),
+            }).eq('id', cmd_id).execute()
+
+        logger.info("[Supabase] Comando STOP recebido do dashboard")
+        return True
+    except Exception as e:
+        logger.error(f"[Supabase] Erro ao verificar comandos: {e}")
         return False

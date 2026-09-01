@@ -42,7 +42,12 @@ from .indicators   import (
     rompimento_ocorreu,
 )
 from .risk_manager import lote_por_faixa
-from .supabase_sync import sincronizar_trade, atualizar_resultado
+from .supabase_sync import (
+    sincronizar_trade,
+    atualizar_resultado,
+    publicar_heartbeat,
+    verificar_comando_parar,
+)
 
 # ── Configuração de logging ───────────────────────────────────────────────────
 logging.basicConfig(
@@ -98,9 +103,14 @@ class RafiBot:
         # Rastreia trades abertos: {ticket: {ts, entry, sl, tp, lot}}
         self._posicoes: dict = {}
 
-        # Controle de perda diária
+        # Controle de perda diária e P&L acumulado do dia
         self._perda_hoje    = 0.0
+        self._pnl_hoje      = 0.0
         self._data_hoje     = datetime.utcnow().date()
+
+        # Info da conta MT5 (preenchida no conectar)
+        self._conta_account = 0
+        self._conta_server  = ''
 
         logger.info(f"RafiBot iniciado | Par: {self.par} | Capital: ${self.capital:.2f}")
 
@@ -123,6 +133,16 @@ class RafiBot:
             logger.error("Não foi possível conectar ao MT5. Verifique o terminal.")
             return
 
+        # Captura informações da conta após conectar
+        try:
+            import MetaTrader5 as _mt5
+            info = _mt5.account_info()
+            if info:
+                self._conta_account = info.login
+                self._conta_server  = info.server
+        except Exception:
+            pass
+
         saldo_real = self.mt5.capital_atual()
         if saldo_real is not None:
             self.capital = saldo_real   # usa saldo real mesmo que seja $0
@@ -133,6 +153,15 @@ class RafiBot:
                 # Kill switch por arquivo
                 if ARQUIVO_STOP.exists():
                     logger.info("Arquivo STOP detectado — encerrando bot.")
+                    break
+
+                # Kill switch por comando do dashboard
+                if verificar_comando_parar():
+                    logger.info("Comando STOP recebido via dashboard — encerrando bot.")
+                    publicar_heartbeat('stopped', self.capital, self.capital, 0,
+                                       pnl_hoje=self._pnl_hoje,
+                                       par=self.par, server=self._conta_server,
+                                       account=self._conta_account)
                     break
 
                 # Reset diário
@@ -166,12 +195,31 @@ class RafiBot:
         # 2. Verifica posições abertas (exaustão / SL/TP atingido)
         self._monitorar_posicoes()
 
-        # 3. Verifica limite diário de perda
+        # 3. Publica heartbeat no Supabase (atualiza dashboard)
+        posicoes_abertas_hb = self.mt5.posicoes_abertas()
+        if self._limite_diario_atingido():
+            status_hb = 'stopped'
+        elif posicoes_abertas_hb:
+            status_hb = 'running'
+        else:
+            status_hb = 'waiting'
+        publicar_heartbeat(
+            status         = status_hb,
+            balance        = self.capital,
+            equity         = self.capital,
+            open_positions = len(posicoes_abertas_hb),
+            pnl_hoje       = self._pnl_hoje,
+            par            = self.par,
+            server         = self._conta_server,
+            account        = self._conta_account,
+        )
+
+        # 4. Verifica limite diário de perda
         if self._limite_diario_atingido():
             logger.warning("Limite de perda diária atingido — sem novas entradas hoje.")
             return
 
-        # 4. Verifica número máximo de posições abertas
+        # 5. Verifica número máximo de posições abertas
         posicoes_abertas = self.mt5.posicoes_abertas()
         max_pos          = self.cfg.get('max_trades_simultaneos', 1)
         if len(posicoes_abertas) >= max_pos:
@@ -361,19 +409,26 @@ class RafiBot:
             if ticket in tickets_abertos:
                 continue  # ainda aberta — aguarda
 
-            # Posição foi fechada — descobre se foi WIN ou LOSS pelo capital
-            cap_novo = self.mt5.capital_atual()
-            resultado = 'win' if cap_novo >= self.capital else 'loss'
+            # Posição foi fechada — calcula P&L real pelo saldo
+            cap_novo  = self.mt5.capital_atual()
+            pnl_trade = (cap_novo - self.capital) if cap_novo is not None else 0.0
+            resultado = 'win' if pnl_trade > 0 else 'loss'
 
-            logger.info(f"Posição #{ticket} fechada → {resultado.upper()} | Capital: ${cap_novo:.2f}")
+            logger.info(
+                f"Posição #{ticket} fechada → {resultado.upper()} "
+                f"| P&L: ${pnl_trade:+.2f} | Saldo: ${cap_novo:.2f}"
+            )
 
-            # Atualiza Supabase
-            atualizar_resultado(ticket=ticket, result=resultado, ts=info['ts'])
-
-            # Atualiza controle de perda diária
+            # Acumula P&L do dia e controle de perda diária
+            self._pnl_hoje += pnl_trade
             if resultado == 'loss':
-                risco_pip = abs(info['entry'] - info['stop_loss']) * 10000
-                self._perda_hoje += risco_pip * info['lot'] * 10
+                self._perda_hoje += abs(pnl_trade)
+
+            # Atualiza saldo e Supabase
+            if cap_novo is not None:
+                self.capital = cap_novo
+            atualizar_resultado(ticket=ticket, result=resultado,
+                                ts=info['ts'], pnl=pnl_trade)
 
             del self._posicoes[ticket]
 
@@ -382,11 +437,15 @@ class RafiBot:
     # ─────────────────────────────────────────────────────────────────────────
 
     def _verificar_reset_diario(self) -> None:
-        """Zera o contador de perda diária à meia-noite UTC."""
+        """Zera os contadores de perda e P&L à meia-noite UTC."""
         hoje = datetime.utcnow().date()
         if hoje != self._data_hoje:
-            logger.info(f"Novo dia UTC — reiniciando contador de perda (era ${self._perda_hoje:.2f})")
+            logger.info(
+                f"Novo dia UTC — reiniciando contadores "
+                f"(perda: ${self._perda_hoje:.2f} | P&L: ${self._pnl_hoje:+.2f})"
+            )
             self._perda_hoje = 0.0
+            self._pnl_hoje   = 0.0
             self._data_hoje  = hoje
 
     def _limite_diario_atingido(self) -> bool:

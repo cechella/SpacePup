@@ -5,19 +5,20 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, LineChart, Users, Settings,
-  TrendingUp, LogOut, ChevronRight, BarChart2, Download, Brain,
+  TrendingUp, LogOut, ChevronRight, BarChart2, Download, Brain, Activity,
 } from 'lucide-react'
 
 interface NavItem { label: string; href: string; icon: React.ElementType; badge?: string }
 
 const adminNav: NavItem[] = [
-  { label: 'Dashboard',    href: '/admin',          icon: LayoutDashboard },
-  { label: 'Gráfico RAFI', href: '/admin/chart',    icon: BarChart2       },
-  { label: 'IA / Fase 2',  href: '/admin/fase2',    icon: Brain, badge: 'BETA' },
-  { label: 'Exportar ML',  href: '/admin/export',   icon: Download        },
-  { label: 'Estratégia',   href: '/admin/strategy', icon: TrendingUp      },
-  { label: 'Clientes',     href: '/admin/clients',  icon: Users           },
-  { label: 'Config',       href: '/admin/config',   icon: Settings        },
+  { label: 'Dashboard',    href: '/admin',           icon: LayoutDashboard              },
+  { label: 'Monitor Bot',  href: '/admin/monitor',   icon: Activity, badge: 'LIVE'      },
+  { label: 'Gráfico RAFI', href: '/admin/chart',     icon: BarChart2                    },
+  { label: 'IA / Fase 2',  href: '/admin/fase2',     icon: Brain, badge: 'BETA'         },
+  { label: 'Exportar ML',  href: '/admin/export',    icon: Download                     },
+  { label: 'Estratégia',   href: '/admin/strategy',  icon: TrendingUp                   },
+  { label: 'Clientes',     href: '/admin/clients',   icon: Users                        },
+  { label: 'Config',       href: '/admin/config',    icon: Settings                     },
 ]
 
 const clientNav: NavItem[] = [
@@ -68,7 +69,12 @@ export function Sidebar({ role }: Props) {
                 <Icon size={15} />
                 {label}
                 {item.badge && (
-                  <span className="text-[7px] px-1 py-px rounded bg-[#3b82f6]/20 text-[#3b82f6] border border-[#3b82f6]/30 font-bold tracking-wider">
+                  <span className={cn(
+                    'text-[7px] px-1 py-px rounded font-bold tracking-wider border',
+                    item.badge === 'LIVE'
+                      ? 'bg-[#10b981]/20 text-[#10b981] border-[#10b981]/30'
+                      : 'bg-[#3b82f6]/20 text-[#3b82f6] border-[#3b82f6]/30',
+                  )}>
                     {item.badge}
                   </span>
                 )}
