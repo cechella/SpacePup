@@ -470,12 +470,14 @@ def main() -> None:
     args = parser.parse_args()
 
     # Carrega variáveis de ambiente do .env — busca na pasta atual e na raiz do repo
+    # utf-8-sig remove o BOM que o PowerShell adiciona automaticamente
     for env_path in [Path('.env'), Path(__file__).parent.parent / '.env']:
         if env_path.exists():
-            for linha in env_path.read_text(encoding='utf-8').splitlines():
+            for linha in env_path.read_text(encoding='utf-8-sig').splitlines():
+                linha = linha.strip()
                 if '=' in linha and not linha.startswith('#'):
                     chave, valor = linha.split('=', 1)
-                    os.environ.setdefault(chave.strip(), valor.strip())
+                    os.environ[chave.strip()] = valor.strip()  # força sobrescrever
             logger.info(f".env carregado de: {env_path.resolve()}")
             break
 
