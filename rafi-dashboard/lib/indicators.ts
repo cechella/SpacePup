@@ -191,10 +191,11 @@ export function autoScanBreakouts(
     squeezeRatio  = 0.0012,
   } = options
 
-  // Só opera em horário de mercado ativo: 07h–21h UTC (Londres + NY)
+  // Só opera nas sobreposições de maior volume:
+  // 07:00–08:00 UTC (Tóquio + Londres) e 12:00–16:00 UTC (Londres + Nova York)
   const inSession = (ts: number) => {
     const h = new Date(ts * 1000).getUTCHours()
-    return h >= 7 && h < 21
+    return (h === 7) || (h >= 12 && h < 16)
   }
 
   const bb   = calcBollingerBands(candles, bbPeriod)
