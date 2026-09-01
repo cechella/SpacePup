@@ -220,9 +220,9 @@ class RafiBot:
         prev = df.iloc[-2]   # candle anterior
 
         # ── Filtro BB: squeeze → abertura ────────────────────────────────────
-        bb_prev_width = bb['upper'].iloc[-2] - bb['lower'].iloc[-2]
-        bb_curr_width = bb['upper'].iloc[-1] - bb['lower'].iloc[-1]
-        bb_mid        = bb['middle'].iloc[-1]
+        bb_prev_width = bb['bb_superior'].iloc[-2] - bb['bb_inferior'].iloc[-2]
+        bb_curr_width = bb['bb_superior'].iloc[-1] - bb['bb_inferior'].iloc[-1]
+        bb_mid        = bb['bb_media'].iloc[-1]
         squeeze_ratio = self.cfg.get('bb_limiar_estreita', 0.0012)
 
         prev_ratio = bb_prev_width / bb_mid if bb_mid else 0
