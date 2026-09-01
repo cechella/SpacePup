@@ -229,6 +229,12 @@ export default function ChartPage() {
         rafi:       scan.rafi,
         rafiDir:    scan.rafiDir,
         bbWidth:    scan.bbWidth,
+        snapshot:   snapshotCaptureRef.current?.(scan.time, {
+          entry:     scan.entry,
+          sl:        scan.stopLoss,
+          tp:        scan.takeProfit,
+          direction: scan.direction,
+        }) ?? undefined,
       })
     })
   }, [candles, currentLot, handleAdd])
