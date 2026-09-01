@@ -5,14 +5,15 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, LineChart, Users, Settings,
-  TrendingUp, LogOut, ChevronRight, BarChart2, Download,
+  TrendingUp, LogOut, ChevronRight, BarChart2, Download, Brain,
 } from 'lucide-react'
 
-interface NavItem { label: string; href: string; icon: React.ElementType }
+interface NavItem { label: string; href: string; icon: React.ElementType; badge?: string }
 
 const adminNav: NavItem[] = [
   { label: 'Dashboard',    href: '/admin',          icon: LayoutDashboard },
   { label: 'Gráfico RAFI', href: '/admin/chart',    icon: BarChart2       },
+  { label: 'IA / Fase 2',  href: '/admin/fase2',    icon: Brain, badge: 'BETA' },
   { label: 'Exportar ML',  href: '/admin/export',   icon: Download        },
   { label: 'Estratégia',   href: '/admin/strategy', icon: TrendingUp      },
   { label: 'Clientes',     href: '/admin/clients',  icon: Users           },
@@ -49,7 +50,8 @@ export function Sidebar({ role }: Props) {
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-0.5">
-        {nav.map(({ label, href, icon: Icon }) => {
+        {nav.map((item) => {
+          const { label, href, icon: Icon } = item
           const active = path === href || (href !== '/admin' && href !== '/client' && path.startsWith(href))
           return (
             <Link
@@ -65,6 +67,11 @@ export function Sidebar({ role }: Props) {
               <div className="flex items-center gap-2.5">
                 <Icon size={15} />
                 {label}
+                {item.badge && (
+                  <span className="text-[7px] px-1 py-px rounded bg-[#3b82f6]/20 text-[#3b82f6] border border-[#3b82f6]/30 font-bold tracking-wider">
+                    {item.badge}
+                  </span>
+                )}
               </div>
               {active && <ChevronRight size={12} className="opacity-60" />}
             </Link>
