@@ -25,22 +25,28 @@ logger = logging.getLogger(__name__)
 # TABELA DE FAIXAS (capital USD → lote padrão EURUSD XM Ultra Low)
 #
 # pip value = lote × $10/pip  |  alavancagem 1:1000  |  capital em USD
-# Padrão: 0.20L por $100 de capital (2% de risco com SL ~10 pips)
+#
+# Faixas de teste ($0–$40):
+#   $0 –$20  → 0.01L  ($0.10/pip)  SL 10p = $1  =  5% risco — seguro para teste
+#   $20–$40  → 0.05L  ($0.50/pip)  SL 10p = $5  = 12% risco — aceitável com consistência
+#   $40+     → faixas normais de escalonamento agressivo
 # ─────────────────────────────────────────────────────────────────────────────
 FAIXAS_LOTE: list[tuple[float, float, float]] = [
     #  capital_min   capital_max    lote
-    (        0,            40,     0.10),
-    (       40,            80,     0.20),
-    (       80,           150,     0.40),
-    (      150,           200,     0.70),
-    (      200,           400,     1.00),
-    (      400,           800,     2.00),
-    (      800,         1_500,     4.00),
-    (    1_500,         3_000,     8.00),
-    (    3_000,         6_000,    15.00),
-    (    6_000,        10_000,    30.00),
-    (   10_000,        20_000,    50.00),
-    (   20_000,   float('inf'),  100.00),
+    (        0,            20,     0.01),   # teste: $0.10/pip — SL 10p = $1 (5%)
+    (       20,            40,     0.05),   # teste: $0.50/pip — SL 10p = $5 (12%)
+    (       40,            80,     0.10),
+    (       80,           150,     0.20),
+    (      150,           200,     0.40),
+    (      200,           400,     0.70),
+    (      400,           800,     1.00),
+    (      800,         1_500,     2.00),
+    (    1_500,         3_000,     4.00),
+    (    3_000,         6_000,     8.00),
+    (    6_000,        10_000,    15.00),
+    (   10_000,        20_000,    30.00),
+    (   20_000,        50_000,    50.00),
+    (   50_000,   float('inf'),  100.00),
 ]
 
 

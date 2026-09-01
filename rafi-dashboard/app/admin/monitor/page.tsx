@@ -16,18 +16,20 @@ const supa = SUPA_URL && SUPA_KEY ? createClient(SUPA_URL, SUPA_KEY) : null
 
 // ── Faixas de lote (espelho da tabela Python) ─────────────────────────────────
 const FAIXAS_LOTE = [
-  { min: 0,      max: 40,     lote: '0.10L' },
-  { min: 40,     max: 80,     lote: '0.20L' },
-  { min: 80,     max: 150,    lote: '0.40L' },
-  { min: 150,    max: 200,    lote: '0.70L' },
-  { min: 200,    max: 400,    lote: '1.00L' },
-  { min: 400,    max: 800,    lote: '2.00L' },
-  { min: 800,    max: 1500,   lote: '4.00L' },
-  { min: 1500,   max: 3000,   lote: '8.00L' },
-  { min: 3000,   max: 6000,   lote: '15.0L' },
-  { min: 6000,   max: 10000,  lote: '30.0L' },
-  { min: 10000,  max: 20000,  lote: '50.0L' },
-  { min: 20000,  max: Infinity, lote: '100L' },
+  { min: 0,      max: 20,      lote: '0.01L' },
+  { min: 20,     max: 40,      lote: '0.05L' },
+  { min: 40,     max: 80,      lote: '0.10L' },
+  { min: 80,     max: 150,     lote: '0.20L' },
+  { min: 150,    max: 200,     lote: '0.40L' },
+  { min: 200,    max: 400,     lote: '0.70L' },
+  { min: 400,    max: 800,     lote: '1.00L' },
+  { min: 800,    max: 1500,    lote: '2.00L' },
+  { min: 1500,   max: 3000,    lote: '4.00L' },
+  { min: 3000,   max: 6000,    lote: '8.00L' },
+  { min: 6000,   max: 10000,   lote: '15.0L' },
+  { min: 10000,  max: 20000,   lote: '30.0L' },
+  { min: 20000,  max: 50000,   lote: '50.0L' },
+  { min: 50000,  max: Infinity, lote: '100L'  },
 ]
 function loteAtual(balance: number) {
   return FAIXAS_LOTE.find(f => balance >= f.min && balance < f.max)?.lote ?? '0.10L'
