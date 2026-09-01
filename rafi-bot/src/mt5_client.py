@@ -150,12 +150,12 @@ class ClienteMT5:
         df = df[['open', 'high', 'low', 'close', 'volume']]
         return df
 
-    def capital_atual(self) -> float:
-        """Retorna o saldo atual da conta em USD."""
+    def capital_atual(self) -> Optional[float]:
+        """Retorna o saldo atual da conta em USD, ou None se não conectado."""
         if not MT5_DISPONIVEL or not self.conectado:
-            return 0.0
+            return None
         info = mt5.account_info()
-        return float(info.balance) if info else 0.0
+        return float(info.balance) if info else None
 
     # ─────────────────────────────────────────────────────────
     # ORDENS

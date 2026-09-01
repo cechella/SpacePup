@@ -123,7 +123,9 @@ class RafiBot:
             logger.error("Não foi possível conectar ao MT5. Verifique o terminal.")
             return
 
-        self.capital = self.mt5.capital_atual() or self.capital
+        saldo_real = self.mt5.capital_atual()
+        if saldo_real is not None:
+            self.capital = saldo_real   # usa saldo real mesmo que seja $0
         logger.info(f"Saldo da conta: ${self.capital:.2f}")
 
         try:
@@ -158,7 +160,7 @@ class RafiBot:
 
         # 1. Atualiza capital
         cap_atual = self.mt5.capital_atual()
-        if cap_atual > 0:
+        if cap_atual is not None:
             self.capital = cap_atual
 
         # 2. Verifica posições abertas (exaustão / SL/TP atingido)
