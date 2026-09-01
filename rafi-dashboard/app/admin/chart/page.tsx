@@ -3,14 +3,14 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { generateDemoData, type Timeframe } from '@/lib/demo-data'
-import { calcRAFI, calcSRLevels, calcBollingerBands } from '@/lib/indicators'
+import { calcRAFI, calcSRLevels, calcBollingerBands, autoScanBreakouts } from '@/lib/indicators'
 import { parseCSV, detectTimeframe, fmtDate, type LoadResult } from '@/lib/csv-loader'
 import { TradePanel, type ManualTrade } from '@/components/trade-panel'
 import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
 import { getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
 import { upsertTrade } from '@/lib/trades-db'
-import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers } from 'lucide-react'
+import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine } from 'lucide-react'
 
 const RAFIChart = dynamic(
   () => import('@/components/rafi-chart').then(m => m.RAFIChart),
@@ -209,6 +209,30 @@ export default function ChartPage() {
 
   const handleOCOClose = useCallback(() => setOcoVisible(false), [])
 
+  // Auto-scan: detecta rompimentos de S/R em todos os candles carregados e adiciona como trades
+  const handleAutoScan = useCallback(() => {
+    const found = autoScanBreakouts(candles)
+    if (found.length === 0) return
+    const lot = currentLot
+    found.forEach(scan => {
+      handleAdd({
+        id:         `${scan.time}-scan-${scan.direction}`,
+        direction:  scan.direction,
+        entry:      scan.entry,
+        stopLoss:   scan.stopLoss,
+        takeProfit: scan.takeProfit,
+        label:      `Auto ${scan.direction === 'buy' ? '▲ COMPRA' : '▼ VENDA'} @ ${formatPrice(scan.entry)} | ${lot.toFixed(2)}L`,
+        time:       scan.time,
+        lot,
+        leverage:   OCO_LEVERAGE,
+        result:     'pending',
+        rafi:       scan.rafi,
+        rafiDir:    scan.rafiDir,
+        bbWidth:    scan.bbWidth,
+      })
+    })
+  }, [candles, currentLot, handleAdd])
+
   return (
     <div className="flex h-full overflow-hidden">
 
@@ -369,6 +393,16 @@ export default function ChartPage() {
                   {ocoVisible && !panMode && <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b] inline-block" />}
                 </button>
               </div>
+
+              {/* Auto-scan */}
+              <button
+                onClick={handleAutoScan}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border border-[#22c55e]/40 bg-[#22c55e]/8 text-[#22c55e] hover:bg-[#22c55e]/15 transition-all"
+                title="Detecta rompimentos de S/R com BB expandindo e adiciona como trades"
+              >
+                <ScanLine size={10} />
+                Auto-scan
+              </button>
             </div>
 
             {/* Indicador de capital e lote atual */}

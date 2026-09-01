@@ -155,6 +155,115 @@ export function calcBollingerBands(
   return { upper, middle, lower }
 }
 
+export interface AutoScanTrade {
+  time:       number
+  direction:  'buy' | 'sell'
+  entry:      number
+  stopLoss:   number
+  takeProfit: number
+  rafi:       number
+  rafiDir:    'bull' | 'bear'
+  bbWidth:    number
+}
+
+/**
+ * Detecta rompimentos de S/R com BB expandindo e gera trades automaticamente.
+ * Replica o padrão manual: entrada no nível rompido, stop no extremo do candle,
+ * alvo com R:R fixo.
+ */
+export function autoScanBreakouts(
+  candles:    CandleData[],
+  options: {
+    srLookback?:     number   // candles para identificar S/R (padrão 20)
+    bbPeriod?:       number   // período BB (padrão 8)
+    rrRatio?:        number   // risco/retorno (padrão 1.5)
+    minBreakout?:    number   // distância mínima do rompimento em preço
+    minGapCandles?:  number   // mínimo de candles entre trades
+    squeezeRatio?:   number   // largura máxima das BB (relativo ao mid) p/ squeeze
+  } = {},
+): AutoScanTrade[] {
+  const {
+    srLookback    = 20,
+    bbPeriod      = 8,
+    rrRatio       = 1.5,
+    minBreakout   = 0.00003,
+    minGapCandles = 8,
+    squeezeRatio  = 0.0012,
+  } = options
+
+  const bb   = calcBollingerBands(candles, bbPeriod)
+  const rafi = calcRAFI(candles)
+
+  // Mapas por timestamp para lookup O(1)
+  const bbMap = new Map<number, { upper: number; lower: number; width: number; mid: number }>()
+  for (let i = 0; i < bb.upper.length; i++) {
+    const t = bb.upper[i].time
+    bbMap.set(t, {
+      upper: bb.upper[i].value,
+      lower: bb.lower[i].value,
+      mid:   bb.middle[i].value,
+      width: bb.upper[i].value - bb.lower[i].value,
+    })
+  }
+  const rafiMap = new Map<number, RAFIPoint>()
+  for (const r of rafi) rafiMap.set(r.time, r)
+
+  const trades: AutoScanTrade[] = []
+  let lastIdx = -minGapCandles
+
+  for (let i = srLookback + bbPeriod; i < candles.length; i++) {
+    if (i - lastIdx < minGapCandles) continue
+
+    const c    = candles[i]
+    const prev = candles[i - 1]
+
+    const bbCurr  = bbMap.get(c.time)
+    const bbPrev  = bbMap.get(prev.time)
+    const rafiPt  = rafiMap.get(c.time)
+    if (!bbCurr || !bbPrev || !rafiPt) continue
+
+    // BB squeeze no candle anterior e expandindo agora
+    const prevRatio = bbPrev.width / bbPrev.mid
+    const currRatio = bbCurr.width / bbCurr.mid
+    if (prevRatio >= squeezeRatio) continue      // não era squeeze
+    if (currRatio <= prevRatio * 1.05) continue  // não está expandindo
+
+    // S/R = máxima/mínima dos N candles anteriores (sem lookahead)
+    const window    = candles.slice(i - srLookback, i)
+    const resistance = Math.max(...window.map(w => w.high))
+    const support    = Math.min(...window.map(w => w.low))
+
+    const p = (v: number) => Math.round(v * 100000) / 100000
+
+    // ── COMPRA: fecha acima da resistência ──────────────────────────────
+    if (c.close > resistance && c.close - resistance >= minBreakout) {
+      const entry  = p(resistance)
+      const stop   = p(c.low - 0.00015)
+      const risk   = entry - stop
+      trades.push({
+        time: c.time, direction: 'buy',
+        entry, stopLoss: stop, takeProfit: p(entry + risk * rrRatio),
+        rafi: rafiPt.value, rafiDir: rafiPt.dir, bbWidth: bbCurr.width,
+      })
+      lastIdx = i
+    }
+    // ── VENDA: fecha abaixo do suporte ──────────────────────────────────
+    else if (c.close < support && support - c.close >= minBreakout) {
+      const entry  = p(support)
+      const stop   = p(c.high + 0.00015)
+      const risk   = stop - entry
+      trades.push({
+        time: c.time, direction: 'sell',
+        entry, stopLoss: stop, takeProfit: p(entry - risk * rrRatio),
+        rafi: rafiPt.value, rafiDir: rafiPt.dir, bbWidth: bbCurr.width,
+      })
+      lastIdx = i
+    }
+  }
+
+  return trades
+}
+
 /**
  * Colore cada vela de acordo com o RAFI (magnitude) + direção do candle:
  *   Verde   = RAFI ≥ 2.5 + candle de alta  (força forte subindo)
