@@ -191,6 +191,12 @@ export function autoScanBreakouts(
     squeezeRatio  = 0.0012,
   } = options
 
+  // Só opera em horário de mercado ativo: 07h–21h UTC (Londres + NY)
+  const inSession = (ts: number) => {
+    const h = new Date(ts * 1000).getUTCHours()
+    return h >= 7 && h < 21
+  }
+
   const bb   = calcBollingerBands(candles, bbPeriod)
   const rafi = calcRAFI(candles)
 
@@ -221,6 +227,7 @@ export function autoScanBreakouts(
     const bbPrev  = bbMap.get(prev.time)
     const rafiPt  = rafiMap.get(c.time)
     if (!bbCurr || !bbPrev || !rafiPt) continue
+    if (!inSession(c.time)) continue
 
     // BB squeeze no candle anterior e expandindo agora
     const prevRatio = bbPrev.width / bbPrev.mid
