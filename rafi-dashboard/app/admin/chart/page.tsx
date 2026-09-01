@@ -209,12 +209,43 @@ export default function ChartPage() {
 
   const handleOCOClose = useCallback(() => setOcoVisible(false), [])
 
-  // Auto-scan: detecta rompimentos de S/R em todos os candles carregados e adiciona como trades
+  // Auto-scan: detecta rompimentos, avalia WIN/LOSS nos candles seguintes e compõe lote
   const handleAutoScan = useCallback(() => {
     const found = autoScanBreakouts(candles)
     if (found.length === 0) return
-    const lot = currentLot
+
+    let capital = BASE_CAPITAL  // compõe capital trade a trade
+
     found.forEach(scan => {
+      const lot = getLotForCapital(capital)
+
+      // Avalia resultado: verifica qual foi atingido primeiro — TP ou SL
+      const entryIdx = candles.findIndex(c => c.time === scan.time)
+      let result: 'win' | 'loss' | 'pending' = 'pending'
+      for (let j = entryIdx + 1; j < candles.length; j++) {
+        const c = candles[j]
+        if (scan.direction === 'buy') {
+          if (c.low  <= scan.stopLoss)   { result = 'loss'; break }
+          if (c.high >= scan.takeProfit) { result = 'win';  break }
+        } else {
+          if (c.high >= scan.stopLoss)   { result = 'loss'; break }
+          if (c.low  <= scan.takeProfit) { result = 'win';  break }
+        }
+      }
+
+      // Atualiza capital para o próximo lote
+      if (result === 'win') {
+        const pips = scan.direction === 'buy'
+          ? (scan.takeProfit - scan.entry) * 10000
+          : (scan.entry - scan.takeProfit) * 10000
+        capital = Math.max(0, capital + pips * lot * 10)
+      } else if (result === 'loss') {
+        const pips = scan.direction === 'buy'
+          ? (scan.entry - scan.stopLoss) * 10000
+          : (scan.stopLoss - scan.entry) * 10000
+        capital = Math.max(0, capital - pips * lot * 10)
+      }
+
       handleAdd({
         id:         `${scan.time}-scan-${scan.direction}`,
         direction:  scan.direction,
@@ -225,7 +256,7 @@ export default function ChartPage() {
         time:       scan.time,
         lot,
         leverage:   OCO_LEVERAGE,
-        result:     'pending',
+        result,
         rafi:       scan.rafi,
         rafiDir:    scan.rafiDir,
         bbWidth:    scan.bbWidth,
@@ -237,7 +268,7 @@ export default function ChartPage() {
         }) ?? undefined,
       })
     })
-  }, [candles, currentLot, handleAdd])
+  }, [candles, handleAdd])
 
   return (
     <div className="flex h-full overflow-hidden">
