@@ -212,7 +212,14 @@ export default function ChartPage() {
 
   // Auto-scan: detecta rompimentos, avalia WIN/LOSS nos candles seguintes e compõe lote
   const handleAutoScan = useCallback(() => {
-    const found = autoScanBreakouts(candles)
+    // Sempre escaneia em M5 quando não há CSV — evita resultado errado ao trocar timeframe
+    const scanCandles = csvData?.candles ?? generateDemoData('M5')
+    if (!csvData && tf !== 'M5') setTf('M5')
+
+    // Remove scans anteriores para evitar acumulação ao re-escanear
+    setTrades(prev => prev.filter(t => !t.id.includes('-scan-')))
+
+    const found = autoScanBreakouts(scanCandles)
     if (found.length === 0) return
 
     let capital = BASE_CAPITAL  // compõe capital trade a trade
@@ -221,10 +228,10 @@ export default function ChartPage() {
       const lot = getLotForCapital(capital)
 
       // Avalia resultado: verifica qual foi atingido primeiro — TP ou SL
-      const entryIdx = candles.findIndex(c => c.time === scan.time)
+      const entryIdx = scanCandles.findIndex(c => c.time === scan.time)
       let result: 'win' | 'loss' | 'pending' = 'pending'
-      for (let j = entryIdx + 1; j < candles.length; j++) {
-        const c = candles[j]
+      for (let j = entryIdx + 1; j < scanCandles.length; j++) {
+        const c = scanCandles[j]
         if (scan.direction === 'buy') {
           if (c.low  <= scan.stopLoss)   { result = 'loss'; break }
           if (c.high >= scan.takeProfit) { result = 'win';  break }
@@ -261,7 +268,7 @@ export default function ChartPage() {
         rafi:       scan.rafi,
         rafiDir:    scan.rafiDir,
         bbWidth:    scan.bbWidth,
-        snapshot:   generateTradeSnapshot(candles, {
+        snapshot:   generateTradeSnapshot(scanCandles, {
           time:       scan.time,
           direction:  scan.direction,
           entry:      scan.entry,
@@ -273,7 +280,7 @@ export default function ChartPage() {
         }) ?? undefined,
       })
     })
-  }, [candles, handleAdd])
+  }, [csvData, tf, handleAdd])
 
   return (
     <div className="flex h-full overflow-hidden">
