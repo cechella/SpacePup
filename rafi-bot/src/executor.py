@@ -40,7 +40,7 @@ from .indicators   import (
     niveis_sr_ativos,
     rompimento_ocorreu,
 )
-from .risk_manager import calcular_lote
+from .risk_manager import lote_por_faixa
 from .supabase_sync import sincronizar_trade, atualizar_resultado
 
 # ── Configuração de logging ───────────────────────────────────────────────────
@@ -293,7 +293,7 @@ class RafiBot:
     def _executar_sinal(self, sinal: dict, df, indice_forca, bb) -> None:
         """Calcula lote, envia ordem ao MT5 e sincroniza com Supabase."""
         # Lote pela tabela de escalonamento (mesma lógica do dashboard)
-        lote = calcular_lote(self.capital, self.cfg)
+        lote = lote_por_faixa(self.capital)
 
         resultado = self.mt5.enviar_ordem(
             sinal=sinal['direcao'],
