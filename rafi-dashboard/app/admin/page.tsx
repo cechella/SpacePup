@@ -13,7 +13,7 @@ import { fetchTrades, upsertTrades, updateTradeResult } from '@/lib/trades-db'
 
 // ── Modal de preview do screenshot ───────────────────────────────────────────
 function SnapshotModal({ src, onClose }: { src: string; onClose: () => void }) {
-  const [zoom, setZoom] = useState(1)
+  const [zoom, setZoom] = useState(2)
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
