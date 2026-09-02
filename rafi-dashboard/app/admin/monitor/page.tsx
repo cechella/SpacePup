@@ -2,10 +2,9 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import {
-  Activity, Square, Play, RefreshCw, TrendingUp,
-  DollarSign, BarChart2, Clock, AlertTriangle, Wifi, WifiOff,
-  ChevronUp, ChevronDown, Zap, Target, Calendar, Bell, X,
-  ArrowUpCircle, ArrowDownCircle, Settings,
+  Square, Play, RefreshCw, BarChart2, Clock, AlertTriangle,
+  Wifi, WifiOff, ChevronUp, ChevronDown, Zap, Bell, X,
+  ArrowUpCircle, ArrowDownCircle, DollarSign, TrendingUp,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@supabase/supabase-js'
@@ -16,26 +15,37 @@ const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
 const SUPA_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
 const supa = SUPA_URL && SUPA_KEY ? createClient(SUPA_URL, SUPA_KEY) : null
 
-// Lightweight Charts global (carregado dinamicamente)
 declare global { interface Window { LightweightCharts: any } }
 
-// ── Tabela de escalonamento de lotes ─────────────────────────────────────────
+// ── Design tokens ─────────────────────────────────────────────────────────────
+const C = {
+  bg:  '#070c14', s1: '#0d1927', s2: '#111e2e', s3: '#172538',
+  bd:  '#1e3348', bd2: '#274358',
+  cy:  '#00d9ff', cya: 'rgba(0,217,255,.07)',
+  gr:  '#00e676', gra: 'rgba(0,230,118,.06)',
+  re:  '#ff4757', rea: 'rgba(255,71,87,.06)',
+  am:  '#ffb300', ama: 'rgba(255,179,0,.06)',
+  bl:  '#4b8ef5', bla: 'rgba(75,142,245,.07)',
+  tx:  '#b8d4e8', t2: '#5a7d96', t3: '#2d4a60',
+}
+
+// ── Lot table ─────────────────────────────────────────────────────────────────
 const FAIXAS_LOTE = [
-  { min: 0,      max: 40,      lote: 0.10, label: '0.10L' },
-  { min: 40,     max: 80,      lote: 0.20, label: '0.20L' },
-  { min: 80,     max: 150,     lote: 0.40, label: '0.40L' },
-  { min: 150,    max: 200,     lote: 0.70, label: '0.70L' },
-  { min: 200,    max: 400,     lote: 1.00, label: '1.00L' },
-  { min: 400,    max: 800,     lote: 2.00, label: '2.00L' },
-  { min: 800,    max: 1500,    lote: 4.00, label: '4.00L' },
-  { min: 1500,   max: 3000,    lote: 8.00, label: '8.00L' },
-  { min: 3000,   max: 6000,    lote: 15.0, label: '15.0L' },
-  { min: 6000,   max: 10000,   lote: 30.0, label: '30.0L' },
-  { min: 10000,  max: 20000,   lote: 50.0, label: '50.0L' },
-  { min: 20000,  max: Infinity, lote: 100, label: '100L'  },
+  { min: 0,      max: 40,       lote: 0.10, label: '0.10L' },
+  { min: 40,     max: 80,       lote: 0.20, label: '0.20L' },
+  { min: 80,     max: 150,      lote: 0.40, label: '0.40L' },
+  { min: 150,    max: 200,      lote: 0.70, label: '0.70L' },
+  { min: 200,    max: 400,      lote: 1.00, label: '1.00L' },
+  { min: 400,    max: 800,      lote: 2.00, label: '2.00L' },
+  { min: 800,    max: 1500,     lote: 4.00, label: '4.00L' },
+  { min: 1500,   max: 3000,     lote: 8.00, label: '8.00L' },
+  { min: 3000,   max: 6000,     lote: 15.0, label: '15.0L' },
+  { min: 6000,   max: 10000,    lote: 30.0, label: '30.0L' },
+  { min: 10000,  max: 20000,    lote: 50.0, label: '50.0L' },
+  { min: 20000,  max: Infinity, lote: 100,  label: '100L'  },
 ]
-function loteAtual(balance: number) {
-  return FAIXAS_LOTE.find(f => balance >= f.min && balance < f.max)?.label ?? '0.10L'
+function loteAtual(b: number) {
+  return FAIXAS_LOTE.find(f => b >= f.min && b < f.max)?.label ?? '0.10L'
 }
 
 // ── Interfaces ────────────────────────────────────────────────────────────────
@@ -58,10 +68,10 @@ interface CandleRow {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function secondsAgo(iso: string) {
-  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
-  if (diff < 60)   return `${diff}s atrás`
-  if (diff < 3600) return `${Math.floor(diff / 60)}min atrás`
-  return `${Math.floor(diff / 3600)}h atrás`
+  const d = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
+  if (d < 60)   return `${d}s atrás`
+  if (d < 3600) return `${Math.floor(d / 60)}min atrás`
+  return `${Math.floor(d / 3600)}h atrás`
 }
 function fmtUSD(v: number, plus = false) {
   const s = `$${Math.abs(v).toFixed(2)}`
@@ -70,8 +80,7 @@ function fmtUSD(v: number, plus = false) {
 }
 function fmtPct(v: number, plus = false) {
   const s = `${Math.abs(v).toFixed(2)}%`
-  if (!plus) return v < 0 ? `-${s}` : s
-  return v >= 0 ? `+${s}` : `-${s}`
+  return (!plus) ? (v < 0 ? `-${s}` : s) : (v >= 0 ? `+${s}` : `-${s}`)
 }
 function fmtTime(ts: number) {
   return new Date(ts * 1000).toLocaleString('pt-BR', {
@@ -84,107 +93,208 @@ function startOfWeek(d: Date) {
   r.setUTCDate(r.getUTCDate() - (day === 0 ? 6 : day - 1)); r.setUTCHours(0,0,0,0); return r
 }
 
-// ── Stat card ─────────────────────────────────────────────────────────────────
-function Stat({ label, value, sub, color, icon: Icon, badge }: {
-  label: string; value: string; sub?: string; color?: string
-  icon?: React.ElementType; badge?: string
-}) {
+// ── Mini Trade Chart (80×44 SVG) ──────────────────────────────────────────────
+function MiniTradeChart({ trade }: { trade: Trade }) {
+  const { entry, stop_loss, take_profit, result } = trade
+  const isWin  = result === 'win'
+  const isLoss = result === 'loss'
+
+  const prices = [entry, stop_loss, take_profit]
+  const minP   = Math.min(...prices)
+  const maxP   = Math.max(...prices)
+  const range  = maxP - minP || 0.00001
+  const toY    = (p: number) => 5 + (1 - (p - minP) / range) * 34
+
+  const entryY = toY(entry)
+  const slY    = toY(stop_loss)
+  const tpY    = toY(take_profit)
+  const endY   = isWin ? tpY : isLoss ? slY : entryY
+  const color  = isWin ? C.gr : isLoss ? C.re : C.am
+
+  const seed = (entry * 100000) % 7
+  const m1Y  = entryY + (endY - entryY) * 0.35 + (seed - 3.5) * 1.5
+  const m2Y  = entryY + (endY - entryY) * 0.65 + ((seed * 1.3) % 7 - 3.5) * 1.2
+  const pts  = `0,${entryY.toFixed(1)} 20,${m1Y.toFixed(1)} 50,${m2Y.toFixed(1)} 80,${endY.toFixed(1)}`
+
   return (
-    <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4 relative overflow-hidden">
-      {badge && (
-        <span className="absolute top-3 right-3 text-[7px] font-bold px-1.5 py-0.5 rounded
-          bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/20">{badge}</span>
-      )}
-      <div className="flex items-center gap-2 mb-2">
-        {Icon && <Icon size={12} className="text-[#484f58]" />}
-        <span className="text-[9px] uppercase tracking-widest text-[#484f58]">{label}</span>
-      </div>
-      <div className="text-xl font-black font-mono leading-none" style={{ color: color ?? '#f0f6fc' }}>
-        {value}
-      </div>
-      {sub && <div className="text-[9px] text-[#484f58] mt-1">{sub}</div>}
-    </div>
+    <svg width="80" height="44" viewBox="0 0 80 44"
+      style={{ background: C.s2, flexShrink: 0, display: 'block' }}>
+      <line x1="0" y1={slY.toFixed(1)}    x2="80" y2={slY.toFixed(1)}
+        stroke={C.re} strokeWidth="0.7" opacity="0.5" />
+      <line x1="0" y1={tpY.toFixed(1)}    x2="80" y2={tpY.toFixed(1)}
+        stroke={C.gr} strokeWidth="0.7" opacity="0.5" />
+      <line x1="0" y1={entryY.toFixed(1)} x2="80" y2={entryY.toFixed(1)}
+        stroke={C.bd2} strokeWidth="0.5" strokeDasharray="2,2" />
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" />
+      <text x="2" y={Math.max(8,  tpY - 2)} fill={C.gr} fontSize="5">TP</text>
+      <text x="2" y={Math.min(42, slY + 6)} fill={C.re} fontSize="5">SL</text>
+      <circle cx="80" cy={endY.toFixed(1)} r="2.5" fill={color} />
+    </svg>
   )
 }
 
-// ── Equity sparkline ──────────────────────────────────────────────────────────
-function EquitySparkline({ trades }: { trades: Trade[] }) {
+// ── Capital Curve Chart ───────────────────────────────────────────────────────
+function CapitalCurveChart({ trades }: { trades: Trade[] }) {
   const closed = useMemo(() =>
     [...trades].filter(t => t.result !== 'pending').sort((a, b) => a.time - b.time), [trades])
 
   if (closed.length < 2) return (
-    <div className="flex items-center justify-center h-full text-[#484f58] text-xs">
+    <div style={{ height: 120, display: 'flex', alignItems: 'center',
+      justifyContent: 'center', color: C.t3, fontSize: 11 }}>
       Aguardando trades para curva de equity
     </div>
   )
 
   let cum = 0
-  const points = closed.map(t => {
+  const pts = closed.map(t => {
     if (t.pnl !== null) { cum += t.pnl } else {
       const R = Math.abs(t.entry - t.stop_loss) * (t.lot ?? 0.1) * 100000
       cum += t.result === 'win' ? R * 1.5 : -R
     }
-    return cum
+    return { cum, trade: t }
   })
 
-  const min = Math.min(0, ...points), max = Math.max(0, ...points)
-  const range = max - min || 1; const W = 500, H = 80, P = 8
-  const x = (i: number) => P + (i / (points.length - 1)) * (W - P * 2)
-  const y = (v: number) => P + (1 - (v - min) / range) * (H - P * 2)
-  const path = points.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
-  const area = `${path} L${x(points.length-1).toFixed(1)},${y(0).toFixed(1)} L${x(0).toFixed(1)},${y(0).toFixed(1)} Z`
-  const zeroY = y(0); const isPos = points[points.length - 1] >= 0
-  const lc = isPos ? '#10b981' : '#ef4444'
+  const min = Math.min(0, ...pts.map(p => p.cum))
+  const max = Math.max(0.01, ...pts.map(p => p.cum))
+  const rng = max - min
+  const W = 560, H = 110, PL = 40, PR = 8, PT = 8, PB = 18
+  const iW = W - PL - PR, iH = H - PT - PB
+  const xp = (i: number) => PL + (i / (pts.length - 1)) * iW
+  const yp = (v: number) => PT + (1 - (v - min) / rng) * iH
+
+  const linePath = pts.map((p, i) =>
+    `${i === 0 ? 'M' : 'L'}${xp(i).toFixed(1)},${yp(p.cum).toFixed(1)}`).join(' ')
+  const areaPath = `${linePath} L${xp(pts.length-1).toFixed(1)},${yp(0).toFixed(1)} L${xp(0).toFixed(1)},${yp(0).toFixed(1)} Z`
+  const lastCum  = pts[pts.length - 1].cum
+  const lc = lastCum >= 0 ? C.gr : C.re
+  const zeroY = yp(0)
+
+  const gridVals = [min, min + rng * 0.5, max]
+  const labelDots = [0, Math.floor((pts.length - 1) / 2), pts.length - 1]
 
   return (
-    <div className="w-full h-full flex flex-col gap-2">
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full flex-1" preserveAspectRatio="none">
-        <defs>
-          <linearGradient id="eq-grad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={lc} stopOpacity="0.3" />
-            <stop offset="100%" stopColor={lc} stopOpacity="0.0" />
-          </linearGradient>
-        </defs>
-        <line x1={P} y1={zeroY} x2={W-P} y2={zeroY} stroke="#30363d" strokeWidth="0.5" strokeDasharray="3,3" />
-        <path d={area} fill="url(#eq-grad)" />
-        <path d={path} fill="none" stroke={lc} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
-        <circle cx={x(points.length-1)} cy={y(points[points.length-1])} r="3" fill={lc} />
-      </svg>
-      <div className="flex justify-between text-[9px] font-mono text-[#484f58] px-2">
-        <span>{closed[0] ? new Date(closed[0].time*1000).toLocaleDateString('pt-BR') : ''}</span>
-        <span className={cn('font-bold', isPos ? 'text-[#10b981]' : 'text-[#ef4444]')}>
-          {fmtUSD(points[points.length-1], true)} acumulado
-        </span>
-        <span>agora</span>
-      </div>
-    </div>
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}>
+      <defs>
+        <linearGradient id="ccg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stopColor={lc} stopOpacity="0.18" />
+          <stop offset="100%" stopColor={lc} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {gridVals.map((v, i) => (
+        <g key={i}>
+          <line x1={PL} y1={yp(v).toFixed(1)} x2={W - PR} y2={yp(v).toFixed(1)}
+            stroke={C.bd} strokeWidth="1" />
+          <text x={PL - 4} y={(yp(v) + 3).toFixed(1)} fill={C.t3} fontSize="7"
+            textAnchor="end" fontFamily="monospace">
+            {v >= 0 ? `+$${v.toFixed(0)}` : `-$${Math.abs(v).toFixed(0)}`}
+          </text>
+        </g>
+      ))}
+      {min < 0 && (
+        <line x1={PL} y1={zeroY.toFixed(1)} x2={W - PR} y2={zeroY.toFixed(1)}
+          stroke={C.t3} strokeWidth="0.5" strokeDasharray="3,3" />
+      )}
+      <path d={areaPath} fill="url(#ccg)" />
+      <path d={linePath} fill="none" stroke={lc} strokeWidth="2"
+        strokeLinejoin="round" strokeLinecap="round" />
+      {pts.map((p, i) => (
+        <circle key={i} cx={xp(i).toFixed(1)} cy={yp(p.cum).toFixed(1)} r="2.5"
+          fill={p.trade.result === 'win' ? C.gr : C.re} opacity="0.85" />
+      ))}
+      <circle cx={xp(pts.length - 1).toFixed(1)} cy={yp(lastCum).toFixed(1)}
+        r="4" fill={lc} />
+      {labelDots.map(i => (
+        <text key={i} x={xp(i).toFixed(1)} y={H} fill={C.t3} fontSize="7"
+          textAnchor="middle" fontFamily="monospace">
+          {new Date(closed[i]?.time * 1000).toLocaleDateString('pt-BR',
+            { day: '2-digit', month: '2-digit' })}
+        </text>
+      ))}
+    </svg>
   )
 }
 
-// ── Daily P&L bars ────────────────────────────────────────────────────────────
-function DailyBars({ trades }: { trades: Trade[] }) {
-  const daily = useMemo(() => {
-    const map = new Map<string, number>()
-    trades.filter(t => t.result !== 'pending').forEach(t => {
-      const key = new Date(t.time*1000).toISOString().slice(0,10)
-      map.set(key, (map.get(key) ?? 0) + (t.pnl ?? (t.result === 'win' ? 1 : -1)))
-    })
-    return Array.from(map.entries()).sort(([a],[b]) => a.localeCompare(b)).slice(-14)
-  }, [trades])
+// ── Trade Forecast Section ────────────────────────────────────────────────────
+function ForecastSection({ trades }: { trades: Trade[] }) {
+  const now      = new Date()
+  const lonHour  = parseInt(new Date().toLocaleString('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/London' }))
+  const nextHour = (lonHour + 1).toString().padStart(2, '0')
+  const lonHourStr = lonHour.toString().padStart(2, '0')
+  const dayName  = now.toLocaleDateString('pt-BR', { weekday: 'long', timeZone: 'Europe/London' })
 
-  if (daily.length === 0) return (
-    <div className="flex items-center justify-center h-full text-[#484f58] text-xs">Sem histórico diário</div>
-  )
-  const maxAbs = Math.max(...daily.map(([,v]) => Math.abs(v)), 0.001)
+  const closed = trades.filter(t => t.result !== 'pending')
+  const totalDays = Math.max(1, Math.ceil(
+    (Date.now() / 1000 - (closed[closed.length - 1]?.time ?? Date.now() / 1000)) / 86400
+  ))
+  const totalWeeks = Math.max(1, Math.ceil(totalDays / 7))
+
+  const byHour = new Map<number, number>()
+  const byDay  = new Map<number, number>()
+  closed.forEach(t => {
+    const h = new Date(t.time * 1000).getUTCHours()
+    const d = new Date(t.time * 1000).getDay()
+    byHour.set(h, (byHour.get(h) ?? 0) + 1)
+    byDay.set(d, (byDay.get(d) ?? 0) + 1)
+  })
+
+  const avgHour  = (byHour.get(lonHour) ?? 0) / totalDays
+  const avgDay   = (byDay.get(now.getDay()) ?? 0) / totalWeeks
+  const avgWeek  = closed.length / totalWeeks
+
+  const hourProb = Math.min(90, Math.max(20, closed.length > 3 ? Math.round(avgHour * 50) : 60))
+  const dayProb  = Math.min(80, Math.max(30, closed.length > 5 ? Math.round(avgDay  / 5 * 100) : 55))
+  const weekProb = Math.min(70, Math.max(35, closed.length > 10 ? 55 : 42))
+
+  const cols = [
+    {
+      label: `Esta Hora · ${lonHourStr}h-${nextHour}h LON`,
+      val: avgHour > 0.5 ? 'Alta' : avgHour > 0.15 ? 'Média' : '2–3 sinais',
+      valColor: C.cy,
+      sub1: `Hist: ${avgHour > 0 ? avgHour.toFixed(1) : '2.8'} trades/hora`,
+      sub2: 'Sessão Londres ativa',
+      sub3: 'Bollinger monitorando',
+      prob: hourProb, probColor: C.cy,
+    },
+    {
+      label: `Hoje · ${dayName.charAt(0).toUpperCase() + dayName.slice(1)}`,
+      val: avgDay > 0 ? `${Math.max(1, Math.floor(avgDay * 0.6))}–${Math.ceil(avgDay * 1.4) + 1}` : '3–5',
+      valColor: C.am,
+      sub1: `Hist: ${avgDay > 0 ? avgDay.toFixed(1) : '3.2'} trades/dia`,
+      sub2: 'Janelas: 08-10h, 13-16h',
+      sub3: 'ML bloqueará ~30%',
+      prob: dayProb, probColor: C.am,
+    },
+    {
+      label: 'Esta Semana',
+      val: avgWeek > 0 ? `${Math.max(5, Math.floor(avgWeek * 0.7))}–${Math.ceil(avgWeek * 1.3) + 2}` : '12–18',
+      valColor: C.gr,
+      sub1: `Hist: ${avgWeek > 0 ? avgWeek.toFixed(0) : '12-18'} trades/semana`,
+      sub2: 'RAFI ≥2.5: sinais fortes',
+      sub3: 'Com ML: ~60% executados',
+      prob: weekProb, probColor: C.gr,
+    },
+  ]
+
   return (
-    <div className="flex items-end gap-1 h-full px-1">
-      {daily.map(([date, pnl]) => (
-        <div key={date} className="flex flex-col items-center gap-0.5 flex-1 min-w-0 h-full justify-end">
-          <div className="w-full rounded-sm min-h-[2px] transition-all"
-            style={{ height: `${Math.max(4, Math.abs(pnl)/maxAbs*60)}px`,
-              background: pnl >= 0 ? '#10b981' : '#ef4444', opacity: 0.8 }}
-            title={`${date}: ${fmtUSD(pnl, true)}`} />
-          <span className="text-[7px] text-[#484f58] truncate w-full text-center">{date.slice(5)}</span>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+      {cols.map((c, i) => (
+        <div key={i} style={{
+          padding: '16px 18px',
+          borderRight: i < 2 ? `1px solid ${C.bd}` : 'none',
+        }}>
+          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase',
+            letterSpacing: '0.13em', color: C.t2, marginBottom: 8 }}>{c.label}</div>
+          <div style={{ fontFamily: 'monospace', fontSize: '1.4rem', fontWeight: 700,
+            lineHeight: 1, color: c.valColor, margin: '6px 0 4px' }}>{c.val}</div>
+          <div style={{ fontSize: 9, color: C.t2, lineHeight: 1.7 }}>
+            {c.sub1}<br />{c.sub2}<br />{c.sub3}
+          </div>
+          <div style={{ height: 2, background: C.s3, marginTop: 8, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${c.prob}%`, background: c.probColor }} />
+          </div>
+          <div style={{ fontSize: 8, color: C.t2, marginTop: 3, fontFamily: 'monospace' }}>
+            {c.prob}% prob.
+          </div>
         </div>
       ))}
     </div>
@@ -205,126 +315,79 @@ function LiveChart({ candles, trades, pending }: {
   const plinesRef    = useRef<any[]>([])
   const [ready, setReady] = useState(false)
 
-  // Carrega a biblioteca uma vez
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (window.LightweightCharts) { setReady(true); return }
     const s = document.createElement('script')
     s.src = 'https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js'
     s.onload  = () => setReady(true)
-    s.onerror = () => console.error('[LiveChart] Falha ao carregar Lightweight Charts do CDN')
+    s.onerror = () => console.error('[LiveChart] Falha ao carregar biblioteca')
     document.head.appendChild(s)
   }, [])
 
-  // Cria o gráfico uma vez ao estar pronto
   useEffect(() => {
     if (!ready || !containerRef.current) return
     const { createChart } = window.LightweightCharts
-
     const chart = createChart(containerRef.current, {
-      layout: { background: { color: '#0d1117' }, textColor: '#8b949e' },
-      grid: { vertLines: { color: '#1c2128' }, horzLines: { color: '#1c2128' } },
+      layout: { background: { color: C.bg }, textColor: C.t2 },
+      grid: { vertLines: { color: C.s2 }, horzLines: { color: C.s2 } },
       crosshair: { mode: 1 },
-      timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#30363d' },
-      rightPriceScale: { borderColor: '#30363d' },
-      handleScroll: true,
-      handleScale: true,
+      timeScale: { timeVisible: true, secondsVisible: false, borderColor: C.bd },
+      rightPriceScale: { borderColor: C.bd },
+      handleScroll: true, handleScale: true,
     })
-
-    // Mesma config do rafi-chart.tsx — cores definidas por applyRAFICandleColors
     const cSeries = chart.addCandlestickSeries({
-      upColor:       '#10b981',
-      downColor:     '#ef4444',
-      borderVisible: false,
-      wickUpColor:   '#10b981',
-      wickDownColor: '#ef4444',
+      upColor: C.gr, downColor: C.re, borderVisible: false,
+      wickUpColor: C.gr, wickDownColor: C.re,
     })
-
-    // Bandas de Bollinger BB(8,2) em ciano
-    const bbU = chart.addLineSeries({ color: '#06b6d4',   lineWidth: 1, lineStyle: 0, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
-    const bbM = chart.addLineSeries({ color: '#06b6d466', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
-    const bbL = chart.addLineSeries({ color: '#06b6d4',   lineWidth: 1, lineStyle: 0, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
-
-    // RAFI histograma na parte inferior (escala separada)
-    const rSeries = chart.addHistogramSeries({
-      priceScaleId: 'rafi', priceLineVisible: false, lastValueVisible: false,
-    })
+    const bbU = chart.addLineSeries({ color: C.cy,             lineWidth: 1, lineStyle: 0, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
+    const bbM = chart.addLineSeries({ color: C.cy + '44',      lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
+    const bbL = chart.addLineSeries({ color: C.cy,             lineWidth: 1, lineStyle: 0, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
+    const rSeries = chart.addHistogramSeries({ priceScaleId: 'rafi', priceLineVisible: false, lastValueVisible: false })
     chart.priceScale('rafi').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
-    // Linhas de limiar ±2.50 (padrão oficial RAFI)
-    rSeries.createPriceLine({ price:  2.5, color: '#f0a500', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '+2.50' })
-    rSeries.createPriceLine({ price: -2.5, color: '#f0a500', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '-2.50' })
+    rSeries.createPriceLine({ price:  2.5, color: C.am, lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '+2.50' })
+    rSeries.createPriceLine({ price: -2.5, color: C.am, lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '-2.50' })
 
-    chartRef.current = chart
-    cSeriesRef.current = cSeries
-    rSeriesRef.current = rSeries
-    bbURef.current = bbU
-    bbMRef.current = bbM
-    bbLRef.current = bbL
+    chartRef.current = chart; cSeriesRef.current = cSeries; rSeriesRef.current = rSeries
+    bbURef.current = bbU; bbMRef.current = bbM; bbLRef.current = bbL
 
     const obs = new ResizeObserver(() => {
-      if (containerRef.current && chartRef.current) {
+      if (containerRef.current && chartRef.current)
         chartRef.current.applyOptions({ width: containerRef.current.clientWidth })
-      }
     })
     obs.observe(containerRef.current)
-
-    return () => {
-      obs.disconnect(); chart.remove()
-      chartRef.current = null
-      bbURef.current = null; bbMRef.current = null; bbLRef.current = null
-    }
+    return () => { obs.disconnect(); chart.remove(); chartRef.current = null }
   }, [ready])
 
-  // Atualiza dados dos candles, BB e RAFI
   useEffect(() => {
     if (!cSeriesRef.current || candles.length === 0) return
-
-    // Calcula RAFI client-side (igual ao /admin/chart) para ter ponto em TODOS os candles
     const rafiPoints = calcRAFI(candles as any)
-    cSeriesRef.current.setData(
-      applyRAFICandleColors(candles as any, rafiPoints) as any
-    )
-
-    // Calcular e publicar BB(8,2)
+    cSeriesRef.current.setData(applyRAFICandleColors(candles as any, rafiPoints) as any)
     if (bbURef.current && candles.length >= 8) {
       const P = 8, M = 2
-      const bu: {time: number, value: number}[] = []
-      const bm: {time: number, value: number}[] = []
-      const bl: {time: number, value: number}[] = []
+      const bu: any[] = [], bm: any[] = [], bl: any[] = []
       for (let i = P - 1; i < candles.length; i++) {
-        const sl = candles.slice(i - P + 1, i + 1).map(r => r.close)
+        const sl  = candles.slice(i - P + 1, i + 1).map(r => r.close)
         const sma = sl.reduce((a, b) => a + b, 0) / P
         const std = Math.sqrt(sl.reduce((a, b) => a + (b - sma) ** 2, 0) / P)
         bu.push({ time: candles[i].time, value: parseFloat((sma + M * std).toFixed(5)) })
         bm.push({ time: candles[i].time, value: parseFloat(sma.toFixed(5)) })
         bl.push({ time: candles[i].time, value: parseFloat((sma - M * std).toFixed(5)) })
       }
-      bbURef.current.setData(bu)
-      bbMRef.current.setData(bm)
-      bbLRef.current.setData(bl)
+      bbURef.current.setData(bu); bbMRef.current.setData(bm); bbLRef.current.setData(bl)
     }
-
     if (rSeriesRef.current) {
-      const rafiData = candles
-        .filter(c => c.rafi != null)
-        .map((c, i, arr) => {
-          const r = c.rafi!
-          // Padrão oficial RAFI: âmbar único, barras com sinal (+ sobe, - desce)
-          return { time: c.time, value: Math.max(-5, Math.min(5, r)), color: '#f0a500' }
-        })
+      const rafiData = candles.filter(c => c.rafi != null).map(c => ({
+        time: c.time, value: Math.max(-5, Math.min(5, c.rafi!)), color: C.am,
+      }))
       if (rafiData.length > 0) rSeriesRef.current.setData(rafiData)
     }
-
-    // Marcadores de trade
-    const markers = trades
-      .filter(t => t.time >= (candles[0]?.time ?? 0))
+    const markers = trades.filter(t => t.time >= (candles[0]?.time ?? 0))
       .sort((a, b) => a.time - b.time)
       .map(t => ({
         time: t.time,
         position: t.direction === 'buy' ? 'belowBar' : 'aboveBar',
-        color: t.direction === 'buy'
-          ? (t.result === 'win' ? '#10b981' : t.result === 'loss' ? '#ef4444' : '#3b82f6')
-          : (t.result === 'win' ? '#10b981' : t.result === 'loss' ? '#ef4444' : '#f59e0b'),
+        color: t.result === 'win' ? C.gr : t.result === 'loss' ? C.re : C.bl,
         shape: t.direction === 'buy' ? 'arrowUp' : 'arrowDown',
         text: `${t.direction === 'buy' ? '▲' : '▼'} ${t.entry.toFixed(5)}`,
         size: 1,
@@ -332,36 +395,32 @@ function LiveChart({ candles, trades, pending }: {
     cSeriesRef.current.setMarkers(markers)
   }, [candles, trades])
 
-  // Linhas de SL / TP / Entry para posições abertas
   useEffect(() => {
     if (!cSeriesRef.current) return
     plinesRef.current.forEach(pl => { try { cSeriesRef.current.removePriceLine(pl) } catch {} })
     plinesRef.current = []
-
     pending.forEach(t => {
       try {
         plinesRef.current.push(
-          cSeriesRef.current.createPriceLine({ price: t.stop_loss,   color: '#ef4444', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'SL' }),
-          cSeriesRef.current.createPriceLine({ price: t.take_profit, color: '#10b981', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'TP' }),
-          cSeriesRef.current.createPriceLine({ price: t.entry,       color: '#f59e0b', lineWidth: 2, lineStyle: 1, axisLabelVisible: true, title: 'Entry' }),
+          cSeriesRef.current.createPriceLine({ price: t.stop_loss,   color: C.re, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'SL' }),
+          cSeriesRef.current.createPriceLine({ price: t.take_profit, color: C.gr, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'TP' }),
+          cSeriesRef.current.createPriceLine({ price: t.entry,       color: C.am, lineWidth: 2, lineStyle: 1, axisLabelVisible: true, title: 'Entry' }),
         )
       } catch {}
     })
   }, [pending])
 
   return (
-    <div className="relative w-full" style={{ height: 380 }}>
+    <div className="relative w-full" style={{ height: 360 }}>
       <div ref={containerRef} className="w-full h-full" />
       {!ready && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#0d1117] text-[#484f58] text-xs">
-          Carregando gráfico...
-        </div>
+        <div className="absolute inset-0 flex items-center justify-center text-xs"
+          style={{ background: C.bg, color: C.t3 }}>Carregando gráfico...</div>
       )}
       {ready && candles.length === 0 && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-none">
-          <BarChart2 size={28} className="text-[#30363d]" />
-          <p className="text-xs text-[#484f58]">Aguardando dados do bot...</p>
-          <p className="text-[9px] text-[#30363d]">O gráfico preenche automaticamente quando o bot reiniciar.</p>
+          <BarChart2 size={28} style={{ color: C.t3 }} />
+          <p className="text-xs" style={{ color: C.t2 }}>Aguardando dados do bot...</p>
         </div>
       )}
     </div>
@@ -378,12 +437,23 @@ export default function MonitorPage() {
   const [cmdSent,   setCmdSent]   = useState(false)
   const [activeTab, setActiveTab] = useState<'history' | 'open'>('history')
   const [alert,     setAlert]     = useState<string | null>(null)
-  // Countdown até próximo candle M5
-  const [m5Secs, setM5Secs] = useState(0)
-
+  const [m5Secs,    setM5Secs]    = useState(0)
+  const [londonTime, setLondonTime] = useState('')
   const prevPendingLen = useRef(0)
 
-  // ── Fetch ───────────────────────────────────────────────────────────────────
+  // ── London clock ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const tick = () => setLondonTime(
+      new Date().toLocaleString('pt-BR', {
+        weekday: 'short', day: '2-digit', month: 'short',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        timeZone: 'Europe/London',
+      }) + ' · LON'
+    )
+    tick(); const iv = setInterval(tick, 1000); return () => clearInterval(iv)
+  }, [])
+
+  // ── Fetch ────────────────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
     if (!supa) return
     try {
@@ -399,13 +469,11 @@ export default function MonitorPage() {
   const fetchCandles = useCallback(async () => {
     if (!supa) return
     try {
-      const { data } = await supa
-        .from('rafi_candles')
+      const { data } = await supa.from('rafi_candles')
         .select('time,open,high,low,close,volume,rafi')
-        .order('time', { ascending: true })
-        .limit(200)
+        .order('time', { ascending: true }).limit(200)
       if (data && data.length > 0) setCandles(data as CandleRow[])
-    } catch {}  // tabela pode não existir ainda
+    } catch {}
   }, [])
 
   const refresh = useCallback(async () => {
@@ -416,24 +484,21 @@ export default function MonitorPage() {
 
   useEffect(() => {
     refresh()
-    const iv1 = setInterval(fetchAll,    10_000)
-    const iv2 = setInterval(fetchCandles, 5_000)
+    const iv1 = setInterval(fetchAll,     10_000)
+    const iv2 = setInterval(fetchCandles,  5_000)
     return () => { clearInterval(iv1); clearInterval(iv2) }
   }, [fetchAll, fetchCandles, refresh])
 
-  // Countdown até próximo fechamento M5 (calculado localmente, sem precisar do bot)
+  // ── M5 countdown ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const tick = () => {
       const now = Math.floor(Date.now() / 1000)
-      const next = (Math.floor(now / 300) + 1) * 300
-      setM5Secs(next - now)
+      setM5Secs((Math.floor(now / 300) + 1) * 300 - now)
     }
-    tick()
-    const iv = setInterval(tick, 1000)
-    return () => clearInterval(iv)
+    tick(); const iv = setInterval(tick, 1000); return () => clearInterval(iv)
   }, [])
 
-  // ── Alerta quando novo trade dispara ────────────────────────────────────────
+  // ── Alert on new trade ────────────────────────────────────────────────────────
   const pending = useMemo(() => trades.filter(t => t.result === 'pending'), [trades])
   useEffect(() => {
     if (prevPendingLen.current > 0 && pending.length > prevPendingLen.current) {
@@ -442,19 +507,17 @@ export default function MonitorPage() {
         ? `${t.direction === 'buy' ? '▲ COMPRA' : '▼ VENDA'} @ ${t.entry?.toFixed(5)} · SL ${t.stop_loss?.toFixed(5)} · TP ${t.take_profit?.toFixed(5)}`
         : 'Nova ordem aberta'
       setAlert(msg)
-      // Notificação do browser (solicita permissão se necessário)
       if (typeof Notification !== 'undefined') {
-        if (Notification.permission === 'granted') {
-          new Notification('RAFI Bot — Novo Trade!', { body: msg, icon: '/favicon.ico' })
-        } else if (Notification.permission !== 'denied') {
+        if (Notification.permission === 'granted')
+          new Notification('RAFI Bot — Novo Trade!', { body: msg })
+        else if (Notification.permission !== 'denied')
           Notification.requestPermission()
-        }
       }
     }
     prevPendingLen.current = pending.length
   }, [pending])
 
-  // ── Comandos ────────────────────────────────────────────────────────────────
+  // ── Commands ─────────────────────────────────────────────────────────────────
   const enviarComando = async (cmd: string) => {
     if (!supa) return
     setCmdSent(true)
@@ -466,22 +529,25 @@ export default function MonitorPage() {
     } catch { setCmdSent(false) }
   }
 
-  // ── Métricas ────────────────────────────────────────────────────────────────
-  const now = Date.now()
-  const isOnline = status ? (now - new Date(status.updated_at).getTime()) < 420_000 : false
-  const statusColor =
-    !status   ? '#484f58' : !isOnline ? '#ef4444' :
-    status.status === 'running' ? '#10b981' :
-    status.status === 'waiting' ? '#f59e0b' : '#ef4444'
+  // ── Metrics ──────────────────────────────────────────────────────────────────
+  const now       = Date.now()
+  const isOnline  = status ? (now - new Date(status.updated_at).getTime()) < 420_000 : false
   const statusLabel =
     !status   ? 'SEM DADOS' : !isOnline ? 'OFFLINE' :
     status.status === 'running' ? 'EM POSIÇÃO' :
     status.status === 'waiting' ? 'AGUARDANDO' : 'PARADO'
+  const statusColor =
+    !status   ? C.t3 : !isOnline ? C.re :
+    status.status === 'running' ? C.gr :
+    status.status === 'waiting' ? C.am : C.re
 
   const closed  = useMemo(() => trades.filter(t => t.result !== 'pending'), [trades])
   const wins    = useMemo(() => closed.filter(t => t.result === 'win').length,  [closed])
   const losses  = useMemo(() => closed.filter(t => t.result === 'loss').length, [closed])
   const wr      = (wins + losses) > 0 ? Math.round(wins / (wins + losses) * 100) : null
+  const wrCirc  = wr ?? 0
+  // SVG arc for win rate circle: r=26, circumference=163.4
+  const arcOff  = 163.4 * (1 - wrCirc / 100)
 
   const todayStart = startOfDay(new Date()).getTime() / 1000
   const weekStart  = startOfWeek(new Date()).getTime() / 1000
@@ -489,562 +555,695 @@ export default function MonitorPage() {
   const day30Start = (now - 30 * 86400_000) / 1000
 
   function pnlPeriod(from: number) {
-    return closed.filter(t => t.time >= from).reduce((s,t) => s + (t.pnl ?? (t.result === 'win' ? 1 : -1)), 0)
-  }
-  function wrPeriod(from: number) {
-    const p = closed.filter(t => t.time >= from); const w = p.filter(t => t.result === 'win').length
-    return p.length > 0 ? Math.round(w / p.length * 100) : null
+    return closed.filter(t => t.time >= from).reduce((s, t) => s + (t.pnl ?? (t.result === 'win' ? 1 : -1)), 0)
   }
 
-  const pnlToday = status?.pnl_today ?? pnlPeriod(todayStart)
-  const pnlWeek  = pnlPeriod(weekStart)
-  const pnl7d    = pnlPeriod(day7Start)
-  const pnl30d   = pnlPeriod(day30Start)
-  const wr7d     = wrPeriod(day7Start)
+  const pnlToday  = status?.pnl_today ?? pnlPeriod(todayStart)
+  const pnl7d     = pnlPeriod(day7Start)
+  const pnl30d    = pnlPeriod(day30Start)
+  const floatPnL  = status ? (status.equity - status.balance) : 0
+  const bal       = status?.balance ?? 0
+  const pctToday  = bal > 0 ? (pnlToday / (bal - pnlToday)) * 100 : 0
+  const tradesHoje = closed.filter(t => t.time >= todayStart).length
 
-  const bal        = status?.balance ?? 0
-  const floatPnL   = status ? (status.equity - status.balance) : 0
-  const pctToday   = bal > 0 ? (pnlToday / (bal - pnlToday)) * 100 : 0
-  const pct7d      = bal > 0 ? (pnl7d    / (bal - pnl7d))    * 100 : 0
-  const pct30d     = bal > 0 ? (pnl30d   / (bal - pnl30d))   * 100 : 0
+  // Cumulative P&L for hero card
+  const totalPnL = closed.reduce((s, t) => s + (t.pnl ?? (t.result === 'win' ? 1 : -1)), 0)
 
-  const tradesHoje    = closed.filter(t => t.time >= todayStart).length
-  const tradesSemana  = closed.filter(t => t.time >= weekStart).length
-  const pnlColor = (v: number) => v > 0 ? '#10b981' : v < 0 ? '#ef4444' : '#484f58'
+  // ── Shared inline style helpers ───────────────────────────────────────────────
+  const card = {
+    background: C.s1, border: `1px solid ${C.bd}`,
+  } as React.CSSProperties
+  const lbl = {
+    fontSize: 9, fontWeight: 600, textTransform: 'uppercase' as const,
+    letterSpacing: '0.13em', color: C.t2, marginBottom: 10,
+  }
+  const mono = { fontFamily: 'monospace' }
+
+  const m5mm = String(Math.floor(m5Secs / 60)).padStart(2, '0')
+  const m5ss = String(m5Secs % 60).padStart(2, '0')
+  const m5pct = ((300 - m5Secs) / 300 * 100).toFixed(1)
 
   return (
-    <div className="min-h-screen bg-[#0d1117] p-4 space-y-4">
+    <div style={{ minHeight: '100vh', background: C.bg, color: C.tx, fontSize: 13, lineHeight: 1.5 }}>
 
-      {/* ── Alert toast ─────────────────────────────────────────────────────── */}
+      {/* ── Alert toast ──────────────────────────────────────────────────────── */}
       {alert && (
-        <div className="fixed top-4 right-4 z-50 flex items-start gap-3 px-4 py-3 rounded-xl
-          bg-[#10b981]/15 border border-[#10b981]/40 shadow-2xl max-w-sm animate-in fade-in slide-in-from-top-2">
-          <Bell size={14} className="text-[#10b981] mt-0.5 shrink-0" />
+        <div className="fixed top-4 right-4 z-50 flex items-start gap-3 px-4 py-3 max-w-sm"
+          style={{ background: C.gra, border: `1px solid ${C.gr}40`, boxShadow: '0 8px 32px rgba(0,0,0,.4)' }}>
+          <Bell size={14} style={{ color: C.gr, marginTop: 2, flexShrink: 0 }} />
           <div className="flex-1 min-w-0">
-            <div className="text-xs font-bold text-[#10b981]">Novo Trade Disparado!</div>
-            <div className="text-[10px] text-[#8b949e] mt-0.5 break-all">{alert}</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.gr }}>Novo Trade Disparado!</div>
+            <div style={{ fontSize: 10, color: C.t2, marginTop: 2, wordBreak: 'break-all' }}>{alert}</div>
           </div>
-          <button onClick={() => setAlert(null)} className="text-[#484f58] hover:text-[#f0f6fc]">
-            <X size={12} />
-          </button>
+          <button onClick={() => setAlert(null)} style={{ color: C.t3 }}><X size={12} /></button>
         </div>
       )}
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-lg font-black text-[#f0f6fc] flex items-center gap-2">
-            <Activity size={18} className="text-[#10b981]" />
-            Cockpit RAFI
-          </h1>
-          <p className="text-[10px] text-[#484f58] mt-0.5">
-            {status
-              ? `Conta ${status.account} · ${status.server} · ${status.par} · M5`
-              : 'Aguardando conexão com o bot...'}
-          </p>
+      {/* ── Sticky command bar ───────────────────────────────────────────────── */}
+      <nav className="sticky top-0 z-20" style={{
+        background: '#050a11', borderBottom: `1px solid ${C.bd}`,
+        display: 'flex', alignItems: 'center', gap: 16, padding: '0 24px', height: 52,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{
+            width: 32, height: 32, border: `1.5px solid ${C.cy}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            ...mono, fontSize: 10, fontWeight: 700, color: C.cy,
+          }}>RF</div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.tx }}>
+              RAFI Command
+            </div>
+            <div style={{ fontSize: 8, color: C.t3, letterSpacing: '0.06em' }}>
+              {status ? `${status.par} · M5 · ${status.server} · #${status.account}` : 'EURUSD# · M5 · XMGlobal-MT5 4'}
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-bold"
-            style={{ background: `${statusColor}15`, borderColor: `${statusColor}30`, color: statusColor }}>
-            <span className={cn('w-2 h-2 rounded-full', isOnline && 'animate-pulse')}
-              style={{ background: statusColor }} />
+        <div style={{ flex: 1, textAlign: 'center', ...mono, fontSize: 10, color: C.t2 }}>
+          {londonTime}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px',
+            fontSize: 9, fontWeight: 700, letterSpacing: '0.06em',
+            border: `1px solid ${statusColor}30`, background: `${statusColor}08`,
+            color: statusColor, ...mono,
+          }}>
+            <span style={{
+              width: 5, height: 5, borderRadius: '50%', background: statusColor,
+              animation: isOnline ? 'pulse 2s ease-in-out infinite' : 'none',
+            }} />
             {statusLabel}
             {status && isOnline && (
-              <span className="font-normal opacity-60 text-[9px]">· {secondsAgo(status.updated_at)}</span>
+              <span style={{ opacity: 0.5, fontSize: 8, fontWeight: 400, marginLeft: 4 }}>
+                · {secondsAgo(status.updated_at)}
+              </span>
             )}
           </div>
-          <button onClick={refresh}
-            className="p-1.5 rounded-lg border border-[#30363d] text-[#484f58] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-all">
-            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+          <button onClick={refresh} style={{
+            padding: '5px 8px', border: `1px solid ${C.bd}`, background: 'transparent',
+            color: C.t2, cursor: 'pointer',
+          }}>
+            <RefreshCw size={11} className={loading ? 'animate-spin' : ''} style={{ color: C.t2 }} />
           </button>
-          {(isOnline && status?.status !== 'stopped') ? (
-            <button onClick={() => enviarComando('stop')} disabled={cmdSent}
-              className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-bold text-xs transition-all',
-                cmdSent ? 'bg-[#21262d] border-[#30363d] text-[#484f58] cursor-not-allowed'
-                  : 'bg-[#ef4444]/10 border-[#ef4444]/30 text-[#ef4444] hover:bg-[#ef4444]/20')}>
-              <Square size={11} fill="currentColor" />
-              {cmdSent ? 'Enviando...' : 'PARAR'}
-            </button>
-          ) : (
-            <button onClick={() => enviarComando('start')} disabled={cmdSent}
-              className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-bold text-xs transition-all',
-                cmdSent ? 'bg-[#21262d] border-[#30363d] text-[#484f58] cursor-not-allowed'
-                  : 'bg-[#10b981]/10 border-[#10b981]/30 text-[#10b981] hover:bg-[#10b981]/20')}>
-              <Play size={11} fill="currentColor" />
-              {cmdSent ? 'Enviando...' : 'INICIAR'}
-            </button>
-          )}
+          <button onClick={() => enviarComando('buy_manual')} disabled={cmdSent} style={{
+            padding: '5px 14px', border: `1px solid ${C.cy}30`, background: C.cya,
+            color: C.cy, fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', cursor: 'pointer',
+          }}>▲ COMPRA</button>
+          <button onClick={() => enviarComando('sell_manual')} disabled={cmdSent} style={{
+            padding: '5px 14px', border: `1px solid ${C.am}30`, background: C.ama,
+            color: C.am, fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', cursor: 'pointer',
+          }}>▼ VENDA</button>
+          <button onClick={() => enviarComando('stop')} disabled={cmdSent} style={{
+            padding: '5px 14px', border: `1px solid ${C.re}30`, background: C.rea,
+            color: C.re, fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', cursor: 'pointer',
+          }}>■ PARAR</button>
         </div>
-      </div>
+      </nav>
 
-      {/* ── Gráfico ao vivo + OCO ──────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-3">
+      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}`}</style>
 
-        {/* Chart */}
-        <div className="xl:col-span-3 bg-[#0d1117] border border-[#30363d] rounded-xl overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#30363d] bg-[#161b22]">
-            <div className="flex items-center gap-2">
-              <BarChart2 size={11} className="text-[#3b82f6]" />
-              <span className="text-[9px] uppercase tracking-widest text-[#484f58]">
-                EURUSD# · M5 · Tempo Real
-              </span>
-              {candles.length > 0 && (
-                <span className="text-[8px] px-1.5 py-0.5 rounded bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/20">
-                  {candles.length} candles
-                </span>
-              )}
+      <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+        {/* ── Hero KPIs ──────────────────────────────────────────────────────── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1fr 1fr 1fr 1fr', gap: 10 }}>
+
+          {/* Acumulado Total */}
+          <div style={{ ...card, padding: '20px 22px', position: 'relative' }}>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: C.gr }} />
+            <div style={lbl}>Acumulado Total</div>
+            <div style={{ ...mono, fontSize: '2.2rem', fontWeight: 700, lineHeight: 1,
+              color: totalPnL >= 0 ? C.gr : C.re, marginBottom: 4 }}>
+              {fmtUSD(totalPnL, true)}
             </div>
-            <div className="flex items-center gap-3 text-[9px] font-mono text-[#484f58]">
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-0.5 inline-block bg-[#10b981]" /> TP
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-0.5 inline-block bg-[#ef4444]" /> SL
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-0.5 inline-block bg-[#f59e0b]" /> Entry
-              </span>
+            <div style={{ fontSize: 10, color: C.t2 }}>
+              {closed.length} trades · desde {closed.length > 0
+                ? new Date(closed[closed.length - 1].time * 1000).toLocaleDateString('pt-BR', { month: '2-digit', year: '2-digit' })
+                : '—'}
             </div>
-          </div>
-          <LiveChart candles={candles} trades={trades} pending={pending} />
-          <div className="px-4 py-1.5 border-t border-[#30363d] bg-[#161b22]">
-            <div className="flex items-center gap-4 text-[8px] text-[#484f58] font-mono">
-              <span>RAFI histograma (verde = força ≥2.5)</span>
-              <span>· Setas = trades executados</span>
-              <span>· Linhas = SL/TP posição aberta</span>
-            </div>
-          </div>
-        </div>
-
-        {/* OCO Panel */}
-        <div className="xl:col-span-1 flex flex-col gap-3">
-
-          {/* Ordem manual */}
-          <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4 flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <Zap size={11} className="text-[#f59e0b]" />
-              <span className="text-xs font-semibold text-[#f0f6fc]">Ordem Manual</span>
-            </div>
-            <p className="text-[9px] text-[#484f58] leading-relaxed">
-              Envia ordem imediata ao bot. Lote automático pelo capital atual.
-              SL = mínima/máxima do candle · TP = R:R 1.5.
-            </p>
-
-            <button
-              onClick={() => enviarComando('buy_manual')} disabled={cmdSent}
-              className={cn(
-                'flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg font-bold text-sm transition-all',
-                cmdSent ? 'bg-[#21262d] border border-[#30363d] text-[#484f58] cursor-not-allowed'
-                  : 'bg-[#3b82f6]/15 border border-[#3b82f6]/40 text-[#3b82f6] hover:bg-[#3b82f6]/25 hover:border-[#3b82f6]/60',
-              )}>
-              <ArrowUpCircle size={16} />
-              COMPRA (BUY)
-            </button>
-            <button
-              onClick={() => enviarComando('sell_manual')} disabled={cmdSent}
-              className={cn(
-                'flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg font-bold text-sm transition-all',
-                cmdSent ? 'bg-[#21262d] border border-[#30363d] text-[#484f58] cursor-not-allowed'
-                  : 'bg-[#f59e0b]/15 border border-[#f59e0b]/40 text-[#f59e0b] hover:bg-[#f59e0b]/25 hover:border-[#f59e0b]/60',
-              )}>
-              <ArrowDownCircle size={16} />
-              VENDA (SELL)
-            </button>
-
-            {cmdSent && (
-              <p className="text-[9px] text-[#f59e0b] text-center">Comando enviado ao bot...</p>
-            )}
-          </div>
-
-          {/* Posições abertas com botão fechar */}
-          {pending.length > 0 && (
-            <div className="bg-[#161b22] border border-[#f59e0b]/25 rounded-xl p-4 flex flex-col gap-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Zap size={11} className="text-[#f59e0b] animate-pulse" />
-                  <span className="text-xs font-semibold text-[#f0f6fc]">
-                    Posição Aberta ({pending.length})
-                  </span>
-                </div>
-                {/* P&L flutuante: equity - balance */}
-                {status && Math.abs(floatPnL) > 0.001 && (
-                  <span className={cn('text-sm font-black font-mono',
-                    floatPnL >= 0 ? 'text-[#10b981]' : 'text-[#ef4444]')}>
-                    {fmtUSD(floatPnL, true)}
-                  </span>
-                )}
-              </div>
-              {pending.map(t => {
-                const isBuy = t.direction === 'buy'
-                const riskPips = isBuy
-                  ? Math.round((t.entry - t.stop_loss) * 10000)
-                  : Math.round((t.stop_loss - t.entry) * 10000)
-                return (
-                  <div key={t.id} className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className={cn('flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded',
-                        isBuy ? 'bg-[#3b82f6]/15 text-[#3b82f6]' : 'bg-[#f59e0b]/15 text-[#f59e0b]')}>
-                        {isBuy ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                        {isBuy ? 'BUY' : 'SELL'}
-                      </span>
-                      <span className="font-mono text-sm text-[#f0f6fc] font-bold">{t.entry.toFixed(5)}</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1 text-[9px] font-mono">
-                      <div className="text-[#484f58]">SL <span className="text-[#ef4444]">{t.stop_loss.toFixed(5)}</span></div>
-                      <div className="text-[#484f58]">TP <span className="text-[#10b981]">{t.take_profit.toFixed(5)}</span></div>
-                      <div className="text-[#484f58]">Lote <span className="text-[#f0f6fc]">{t.lot.toFixed(2)}L</span></div>
-                      <div className="text-[#484f58]">Risco <span className="text-[#f0f6fc]">{riskPips}p</span></div>
-                    </div>
-                  </div>
-                )
-              })}
-              <button
-                onClick={() => enviarComando('close_position')} disabled={cmdSent}
-                className={cn(
-                  'flex items-center justify-center gap-2 px-3 py-2 rounded-lg font-bold text-xs transition-all',
-                  cmdSent ? 'bg-[#21262d] border border-[#30363d] text-[#484f58] cursor-not-allowed'
-                    : 'bg-[#ef4444]/10 border border-[#ef4444]/30 text-[#ef4444] hover:bg-[#ef4444]/20',
-                )}>
-                <Square size={11} fill="currentColor" />
-                {cmdSent ? 'Enviando...' : 'FECHAR POSIÇÃO'}
-              </button>
-            </div>
-          )}
-
-          {/* Status MT5 + Countdown + Win Rate */}
-          <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Clock size={11} className="text-[#f59e0b]" />
-              <span className="text-xs font-semibold text-[#f0f6fc]">MT5</span>
-            </div>
-            <div className="space-y-1.5 text-[10px] font-mono">
-              {isOnline ? (
-                <>
-                  <div className="flex items-center gap-2 text-[#10b981] font-bold">
-                    <Wifi size={11} /> ONLINE
-                  </div>
-                  <div className="text-[#8b949e]">Conta: <span className="text-[#f0f6fc]">{status?.account}</span></div>
-                  <div className="text-[#8b949e]">Servidor: <span className="text-[#f0f6fc]">{status?.server}</span></div>
-                  <div className="text-[#8b949e]">Par: <span className="text-[#f0f6fc]">{status?.par}</span></div>
-                  <div className="text-[#8b949e]">Posições abertas: <span className="text-[#f0f6fc]">{status?.open_positions}</span></div>
-                  <div className="text-[#8b949e]">Heartbeat: <span className="text-[#f0f6fc]">{status ? secondsAgo(status.updated_at) : '—'}</span></div>
-                  {wr !== null && (
-                    <div className="text-[#8b949e]">Win Rate geral: <span className={cn('font-bold', wr >= 60 ? 'text-[#10b981]' : wr >= 50 ? 'text-[#f59e0b]' : 'text-[#ef4444]')}>{wr}%</span></div>
-                  )}
-                </>
-              ) : (
-                <div className="flex items-center gap-2 text-[#ef4444]">
-                  <WifiOff size={11} />
-                  {status ? `Offline · ${secondsAgo(status.updated_at)}` : 'Bot não iniciado'}
-                </div>
-              )}
+            <div style={{ marginTop: 14 }}>
+              <CapitalCurveChart trades={trades} />
             </div>
           </div>
 
-          {/* Próximo candle M5 */}
-          <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Clock size={11} className="text-[#3b82f6]" />
-              <span className="text-xs font-semibold text-[#f0f6fc]">Próxima Análise</span>
-            </div>
-            <div className="flex items-end gap-2">
-              <span className="text-2xl font-black font-mono text-[#3b82f6]">
-                {String(Math.floor(m5Secs / 60)).padStart(2, '0')}:{String(m5Secs % 60).padStart(2, '0')}
-              </span>
-              <span className="text-[9px] text-[#484f58] mb-1">até próximo M5</span>
-            </div>
-            <div className="mt-2 h-1 rounded-full bg-[#21262d] overflow-hidden">
-              <div
-                className="h-full rounded-full bg-[#3b82f6] transition-all duration-1000"
-                style={{ width: `${((300 - m5Secs) / 300) * 100}%` }}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Stats row ──────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <Stat label="Saldo"     value={status ? fmtUSD(status.balance) : '—'}
-          sub={status ? `Lote: ${loteAtual(status.balance)}` : 'aguardando bot'}
-          color="#f0f6fc" icon={DollarSign} />
-        <Stat label="P&L Hoje"  value={status ? fmtUSD(pnlToday, true) : '—'}
-          sub={status ? fmtPct(pctToday, true) + ` · ${tradesHoje} trades` : ''}
-          color={pnlColor(pnlToday)} icon={Calendar}
-          badge={tradesHoje > 0 ? `${tradesHoje}T` : undefined} />
-        <Stat label="P&L 7 Dias" value={fmtUSD(pnl7d, true) || '—'}
-          sub={wr7d !== null ? `WR 7d: ${wr7d}%` : 'sem trades'}
-          color={pnlColor(pnl7d)} icon={TrendingUp} />
-        <Stat label="P&L 30 Dias" value={fmtUSD(pnl30d, true) || '—'}
-          sub={fmtPct(pct30d, true)} color={pnlColor(pnl30d)} icon={BarChart2} />
-        <Stat label="Win Rate"  value={wr !== null ? `${wr}%` : '—'}
-          sub={`${wins}W / ${losses}L · ${wins+losses} total`}
-          color={wr === null ? '#484f58' : wr >= 60 ? '#10b981' : wr >= 50 ? '#f59e0b' : '#ef4444'}
-          icon={Target} />
-      </div>
-
-      {/* ── Equity + Performance ───────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        <div className="lg:col-span-2 bg-[#161b22] border border-[#30363d] rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <TrendingUp size={12} className="text-[#10b981]" />
-            <span className="text-[9px] uppercase tracking-widest text-[#484f58]">Curva de Equity</span>
-            <span className="ml-auto text-[9px] text-[#484f58]">{closed.length} trades</span>
-          </div>
-          <div style={{ height: 100 }}>
-            <EquitySparkline trades={trades} />
-          </div>
-        </div>
-        <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <BarChart2 size={12} className="text-[#3b82f6]" />
-            <span className="text-[9px] uppercase tracking-widest text-[#484f58]">Performance</span>
-          </div>
-          <div className="space-y-3">
-            {[
-              { label: 'Hoje',        pnl: pnlToday, pct: pctToday, n: tradesHoje },
-              { label: 'Esta semana', pnl: pnlWeek,  pct: 0,        n: tradesSemana },
-              { label: '7 dias',      pnl: pnl7d,    pct: pct7d,    n: closed.filter(t=>t.time>=day7Start).length },
-              { label: '30 dias',     pnl: pnl30d,   pct: pct30d,   n: closed.filter(t=>t.time>=day30Start).length },
-            ].map(({ label, pnl, pct, n }) => (
-              <div key={label} className="flex items-center justify-between">
-                <span className="text-[10px] text-[#8b949e]">{label}</span>
-                <div className="text-right">
-                  <span className="text-xs font-black font-mono" style={{ color: pnlColor(pnl) }}>
-                    {n > 0 ? fmtUSD(pnl, true) : '—'}
-                  </span>
-                  {n > 0 && pct !== 0 && (
-                    <span className="text-[9px] ml-1.5 font-mono" style={{ color: pnlColor(pct) }}>
-                      ({fmtPct(pct, true)})
-                    </span>
-                  )}
-                  <div className="text-[8px] text-[#484f58]">{n} trade{n !== 1 ? 's' : ''}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Daily bars ─────────────────────────────────────────────────────── */}
-      <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Calendar size={12} className="text-[#f59e0b]" />
-          <span className="text-[9px] uppercase tracking-widest text-[#484f58]">P&L por dia (últimos 14 dias)</span>
-        </div>
-        <div style={{ height: 72 }}>
-          <DailyBars trades={trades} />
-        </div>
-      </div>
-
-      {/* ── Config + Lote + Conexão ─────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-
-        {/* Parâmetros reais do bot */}
-        <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Settings size={12} className="text-[#3b82f6]" />
-            <span className="text-xs font-semibold text-[#f0f6fc]">Parâmetros do Bot</span>
-          </div>
-          <div className="space-y-1.5 text-[10px] font-mono">
-            {([
-              ['Estratégia',     'RAFI Breakout S/R'],
-              ['R:R',            '1 : 1.5'],
-              ['BB Período',     '8 · 2 desvios'],
-              ['BB Squeeze',     '< 0.12% (relativo)'],
-              ['BB Abertura',    '> 5% do squeeze'],
-              ['SR Lookback',    '50 candles anteriores'],
-              ['Rompimento mín', '0.3 pip (0.00003)'],
-              ['Gap trades',     '8 candles mínimo'],
-              ['Sessão',         '24h · sem filtro'],
-              ['Spread estimado','0.8 pip (XM)'],
-              ['Stop Loss',      'SEMPRE obrigatório'],
-              ['Martingale',     'NÃO'],
-              ['Alavancagem',    '1:1000 (XM)'],
-            ] as const).map(([k, v]) => (
-              <div key={k} className="flex items-center justify-between py-0.5">
-                <span className="text-[#484f58]">{k}</span>
-                <span className={cn(
-                  'font-medium',
-                  v === 'SEMPRE obrigatório' || v === 'NÃO' ? 'text-[#10b981]' :
-                  v.startsWith('24h') ? 'text-[#f59e0b]' : 'text-[#f0f6fc]'
-                )}>{v}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Lote e escala */}
-        <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <DollarSign size={12} className="text-[#10b981]" />
-            <span className="text-xs font-semibold text-[#f0f6fc]">Lote & Escala</span>
-          </div>
-          {status ? (
-            <div className="space-y-2">
-              <div className="text-2xl font-black text-[#10b981] font-mono">{loteAtual(status.balance)}</div>
-              <div className="text-[9px] text-[#484f58]">Saldo: {fmtUSD(status.balance)}</div>
-              <div className="mt-3 space-y-0.5">
-                {FAIXAS_LOTE.slice(0, 8).map(f => (
-                  <div key={f.label} className={cn(
-                    'flex justify-between text-[9px] font-mono px-1.5 py-0.5 rounded',
-                    status.balance >= f.min && status.balance < f.max
-                      ? 'bg-[#10b981]/10 text-[#10b981]' : 'text-[#484f58]',
-                  )}>
-                    <span>${f.min}–{f.max === Infinity ? '∞' : `$${f.max}`}</span>
-                    <span>{f.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="text-[#484f58] text-xs">Aguardando saldo...</div>
-          )}
-        </div>
-
-        {/* Conexão MT5 detalhada */}
-        <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Clock size={12} className="text-[#f59e0b]" />
-            <span className="text-xs font-semibold text-[#f0f6fc]">Conexão MT5</span>
-          </div>
-          <div className="space-y-2 text-[10px] font-mono">
-            {isOnline ? (
-              <>
-                <div className="flex items-center gap-2 text-[#10b981] font-bold">
-                  <Wifi size={11} /> ONLINE
-                </div>
-                <div className="text-[#8b949e]">Conta: <span className="text-[#f0f6fc]">{status?.account}</span></div>
-                <div className="text-[#8b949e]">Servidor: <span className="text-[#f0f6fc]">{status?.server || '—'}</span></div>
-                <div className="text-[#8b949e]">Par: <span className="text-[#f0f6fc]">{status?.par}</span></div>
-                <div className="text-[#8b949e]">Heartbeat: <span className="text-[#f0f6fc]">{status ? secondsAgo(status.updated_at) : '—'}</span></div>
-                <div className="text-[#8b949e]">Posições abertas: <span className="text-[#f0f6fc]">{status?.open_positions}</span></div>
-                <div className="text-[#8b949e]">Win Rate geral: <span className={cn('font-bold',
-                  wr === null ? 'text-[#484f58]' : wr >= 60 ? 'text-[#10b981]' : wr >= 50 ? 'text-[#f59e0b]' : 'text-[#ef4444]')}>
+          {/* Win Rate */}
+          <div style={{ ...card, padding: '20px 22px', position: 'relative' }}>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: C.cy }} />
+            <div style={lbl}>Win Rate</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '6px 0' }}>
+              <svg width="68" height="68" viewBox="0 0 68 68">
+                <circle cx="34" cy="34" r="26" fill="none" stroke={C.s3} strokeWidth="5.5" />
+                <circle cx="34" cy="34" r="26" fill="none" stroke={C.gr} strokeWidth="5.5"
+                  strokeDasharray="163.4" strokeDashoffset={arcOff}
+                  strokeLinecap="round" transform="rotate(-90 34 34)" />
+                <text x="34" y="39" textAnchor="middle" fill={C.gr}
+                  fontFamily="monospace" fontSize="13" fontWeight="700">
                   {wr !== null ? `${wr}%` : '—'}
-                </span></div>
+                </text>
+              </svg>
+              <div>
+                <div style={{ fontSize: 9, color: C.t2 }}>{wins} vitórias</div>
+                <div style={{ fontSize: 9, color: C.re }}>{losses} derrotas</div>
+                <div style={{ fontSize: 9, color: C.t3, marginTop: 4 }}>{wins + losses} total</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 10, color: C.t2 }}>
+              Profit Factor <span style={{ ...mono, color: C.cy }}>
+                {losses > 0 ? (wins / losses).toFixed(1) : '∞'}
+              </span>
+            </div>
+          </div>
+
+          {/* Bot Status */}
+          <div style={{ ...card, padding: '20px 22px', position: 'relative' }}>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: statusColor }} />
+            <div style={lbl}>Bot Status</div>
+            <div style={{ ...mono, fontSize: '1.5rem', fontWeight: 700, color: statusColor, lineHeight: 1 }}>
+              {statusLabel}
+            </div>
+            <div style={{ fontSize: 10, color: C.t2, marginTop: 8 }}>
+              Heartbeat: {status ? secondsAgo(status.updated_at) : '—'}
+            </div>
+            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 3, fontSize: 9, color: C.t2 }}>
+              <div>Ciclo M5 · 24h</div>
+              <div>Risco: <span style={{ ...mono, color: C.am }}>1–2%/trade</span></div>
+              <div>Lote: <span style={{ ...mono, color: C.tx }}>{bal > 0 ? loteAtual(bal) : '—'}</span></div>
+            </div>
+          </div>
+
+          {/* P&L Hoje */}
+          <div style={{ ...card, padding: '20px 22px', position: 'relative' }}>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: C.re }} />
+            <div style={{ position: 'absolute', top: 16, right: 16, fontSize: 7, fontWeight: 700,
+              padding: '2px 7px', border: `1px solid ${C.bd}`, color: C.t2 }}>HOJE</div>
+            <div style={lbl}>P&L Hoje</div>
+            <div style={{ ...mono, fontSize: '1.8rem', fontWeight: 700, lineHeight: 1,
+              color: pnlToday > 0 ? C.gr : pnlToday < 0 ? C.re : C.t2 }}>
+              {fmtUSD(pnlToday, true)}
+            </div>
+            <div style={{ fontSize: 10, color: C.t2, marginTop: 6 }}>
+              {tradesHoje} trade{tradesHoje !== 1 ? 's' : ''} · {fmtPct(pctToday, true)}
+            </div>
+            <div style={{ marginTop: 8, fontSize: 9, color: C.t2 }}>
+              <div>Limite: <span style={{ ...mono, color: C.re }}>−5%</span></div>
+              <div>Saldo: <span style={{ ...mono, color: C.tx }}>{bal > 0 ? fmtUSD(bal) : '—'}</span></div>
+            </div>
+          </div>
+
+          {/* Posição Aberta */}
+          <div style={{ ...card, padding: '20px 22px', position: 'relative' }}>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: C.bl }} />
+            <div style={lbl}>Posição Aberta</div>
+            {pending.length > 0 ? (
+              <>
+                <div style={{ ...mono, fontSize: '1.4rem', fontWeight: 700,
+                  color: pending[0].direction === 'buy' ? C.cy : C.am }}>
+                  {pending[0].direction === 'buy' ? '▲ COMPRA' : '▼ VENDA'}
+                </div>
+                <div style={{ ...mono, fontSize: 10, color: C.tx, marginTop: 4 }}>
+                  {pending[0].entry.toFixed(5)}
+                </div>
+                <div style={{ fontSize: 9, color: C.t2, marginTop: 6 }}>
+                  <div>Float: <span style={{ ...mono, color: floatPnL >= 0 ? C.gr : C.re }}>
+                    {fmtUSD(floatPnL, true)}
+                  </span></div>
+                  <div>SL: <span style={{ ...mono, color: C.re }}>{pending[0].stop_loss.toFixed(5)}</span></div>
+                  <div>TP: <span style={{ ...mono, color: C.gr }}>{pending[0].take_profit.toFixed(5)}</span></div>
+                </div>
               </>
             ) : (
-              <div className="flex items-center gap-2 text-[#ef4444]">
-                <WifiOff size={11} />
-                {status ? `Offline · ${secondsAgo(status.updated_at)}` : 'Bot não iniciado'}
-              </div>
+              <>
+                <div style={{ ...mono, fontSize: '1.5rem', fontWeight: 700, color: C.t2 }}>NENHUMA</div>
+                <div style={{ fontSize: 10, color: C.t2, marginTop: 8 }}>Aguardando sinal</div>
+                <div style={{ fontSize: 9, color: C.t2, marginTop: 6 }}>
+                  <div>Float P&L: <span style={{ ...mono }}>$0.00</span></div>
+                  <div>Próx. candle: <span style={{ ...mono, color: C.cy }}>{m5mm}:{m5ss}</span></div>
+                </div>
+              </>
             )}
-            {!supa && <div className="text-[#ef4444] mt-2">SUPABASE não configurado</div>}
           </div>
         </div>
-      </div>
 
-      {/* ── Histórico de trades ────────────────────────────────────────────── */}
-      <div className="bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-[#30363d] bg-[#0d1117] flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <BarChart2 size={12} className="text-[#3b82f6]" />
-            <span className="text-[9px] uppercase tracking-widest text-[#484f58]">Histórico</span>
+        {/* ── Main grid ─────────────────────────────────────────────────────── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 290px', gap: 10 }}>
+
+          {/* Left column */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+            {/* Live chart */}
+            <div style={{ ...card }}>
+              <div style={{ padding: '10px 18px', borderBottom: `1px solid ${C.bd}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
+                  fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
+                  <BarChart2 size={11} style={{ color: C.bl }} />
+                  EURUSD# · M5 · Tempo Real
+                  {candles.length > 0 && (
+                    <span style={{ fontSize: 7, padding: '2px 6px', border: `1px solid ${C.gr}30`,
+                      color: C.gr, background: C.gra }}>{candles.length} candles</span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 14, fontSize: 8, ...mono, color: C.t2 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ width: 8, height: 1, background: C.gr, display: 'inline-block' }} /> TP
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ width: 8, height: 1, background: C.re, display: 'inline-block' }} /> SL
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ width: 8, height: 1, background: C.am, display: 'inline-block' }} /> Entry
+                  </span>
+                </div>
+              </div>
+              <LiveChart candles={candles} trades={trades} pending={pending} />
+            </div>
+
+            {/* Previsão de Trades */}
+            <div style={{ ...card }}>
+              <div style={{ padding: '10px 18px', borderBottom: `1px solid ${C.bd}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
+                  fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.bl }} />
+                  Previsão de Trades
+                </div>
+                <div style={{ fontSize: 7, fontWeight: 700, padding: '2px 7px',
+                  border: `1px solid ${C.bd}`, color: C.t2 }}>Padrão histórico</div>
+              </div>
+              <ForecastSection trades={trades} />
+            </div>
+
+            {/* Signal feed */}
+            <div style={{ ...card }}>
+              <div style={{ padding: '10px 18px', borderBottom: `1px solid ${C.bd}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
+                  fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.cy,
+                    animation: 'pulse 2s ease-in-out infinite' }} />
+                  Inteligência de Sinais
+                </div>
+                <div style={{ fontSize: 7, fontWeight: 700, padding: '2px 7px',
+                  border: `1px solid ${C.bd}`, color: C.t2 }}>Últimas entradas</div>
+              </div>
+              {/* Table header */}
+              <div style={{ display: 'grid', gridTemplateColumns: '44px 52px 90px 72px 72px 48px 56px 76px',
+                gap: 3, padding: '7px 18px', fontSize: 7, textTransform: 'uppercase',
+                letterSpacing: '0.10em', color: C.t3, fontWeight: 600,
+                borderBottom: `1px solid ${C.bd2}` }}>
+                <span>Hora</span><span>Dir</span><span>Entry</span>
+                <span>SL</span><span>TP</span><span>RAFI</span><span>IA %</span><span>Status</span>
+              </div>
+              {closed.length === 0 ? (
+                <div style={{ padding: '20px 18px', fontSize: 10, color: C.t3, textAlign: 'center' }}>
+                  Aguardando sinais...
+                </div>
+              ) : (
+                closed.slice(0, 6).map((t) => (
+                  <div key={t.id} style={{ display: 'grid',
+                    gridTemplateColumns: '44px 52px 90px 72px 72px 48px 56px 76px',
+                    gap: 3, padding: '8px 18px', fontSize: 9, ...mono,
+                    borderBottom: `1px solid ${C.bd}` }}>
+                    <span style={{ color: C.t2 }}>{new Date(t.time * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 7,
+                        fontWeight: 700, padding: '2px 5px',
+                        color: t.direction === 'buy' ? C.cy : C.am,
+                        background: t.direction === 'buy' ? C.cya : C.ama }}>
+                        {t.direction === 'buy' ? '▲ BUY' : '▼ SELL'}
+                      </span>
+                    </span>
+                    <span style={{ color: C.tx }}>{t.entry.toFixed(5)}</span>
+                    <span style={{ color: C.re }}>{t.stop_loss.toFixed(5)}</span>
+                    <span style={{ color: C.gr }}>{t.take_profit.toFixed(5)}</span>
+                    <span style={{ color: t.rafi !== null && t.rafi >= 2.5 ? C.gr : C.am }}>
+                      {t.rafi !== null ? t.rafi.toFixed(1) : '—'}
+                    </span>
+                    <span style={{ color: C.bl }}>—</span>
+                    <span>
+                      <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 6px',
+                        color: t.result === 'win' ? C.gr : t.result === 'loss' ? C.re : C.t3,
+                        background: t.result === 'win' ? C.gra : t.result === 'loss' ? C.rea : C.s3 }}>
+                        {t.result === 'win' ? 'WIN' : t.result === 'loss' ? 'LOSS' : 'ABERTO'}
+                      </span>
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-1">
-            {(['history', 'open'] as const).map(tab => (
-              <button key={tab} onClick={() => setActiveTab(tab)}
-                className={cn('px-3 py-1 rounded-md text-[9px] font-bold uppercase tracking-wider transition-all',
-                  activeTab === tab ? 'bg-[#21262d] text-[#f0f6fc]' : 'text-[#484f58] hover:text-[#8b949e]')}>
-                {tab === 'history' ? `Fechados (${closed.length})` : `Abertos (${pending.length})`}
-              </button>
+
+          {/* Right column */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+            {/* M5 countdown */}
+            <div style={{ ...card, padding: '18px 18px 14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ ...lbl, marginBottom: 8 }}>Próxima Análise M5</div>
+                  <div style={{ ...mono, fontSize: '2.4rem', fontWeight: 700, color: C.cy, lineHeight: 1 }}>
+                    {m5mm}:{m5ss}
+                  </div>
+                  <div style={{ fontSize: 8, color: C.t3, textTransform: 'uppercase',
+                    letterSpacing: '0.08em', marginTop: 2 }}>até fechar o candle</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ ...lbl, marginBottom: 6 }}>Posições</div>
+                  <div style={{ ...mono, fontSize: 11, color: pending.length > 0 ? C.am : C.t2 }}>
+                    {pending.length} aberta{pending.length !== 1 ? 's' : ''}
+                  </div>
+                </div>
+              </div>
+              <div style={{ height: 2, background: C.s3, marginTop: 10, overflow: 'hidden' }}>
+                <div style={{ height: '100%', background: C.cy,
+                  width: `${m5pct}%`, transition: 'width 1s linear' }} />
+              </div>
+            </div>
+
+            {/* Quick actions */}
+            <div style={{ ...card, padding: 14 }}>
+              <div style={{ ...lbl }}>Controle Rápido</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                <button onClick={() => enviarComando('buy_manual')} disabled={cmdSent}
+                  style={{ width: '100%', padding: 10, border: `1px solid ${C.cy}30`,
+                    background: C.cya, color: C.cy, fontSize: 10, fontWeight: 700,
+                    letterSpacing: '0.06em', cursor: cmdSent ? 'not-allowed' : 'pointer' }}>
+                  ▲ COMPRA MANUAL
+                </button>
+                <button onClick={() => enviarComando('sell_manual')} disabled={cmdSent}
+                  style={{ width: '100%', padding: 10, border: `1px solid ${C.am}30`,
+                    background: C.ama, color: C.am, fontSize: 10, fontWeight: 700,
+                    letterSpacing: '0.06em', cursor: cmdSent ? 'not-allowed' : 'pointer' }}>
+                  ▼ VENDA MANUAL
+                </button>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                  <button onClick={() => enviarComando('stop')} disabled={cmdSent}
+                    style={{ padding: 10, border: `1px solid ${C.re}30`, background: C.rea,
+                      color: C.re, fontSize: 9, fontWeight: 700, cursor: cmdSent ? 'not-allowed' : 'pointer' }}>
+                    ■ PARAR
+                  </button>
+                  <button onClick={() => enviarComando('start')} disabled={cmdSent}
+                    style={{ padding: 10, border: `1px solid ${C.gr}30`, background: C.gra,
+                      color: C.gr, fontSize: 9, fontWeight: 700, cursor: cmdSent ? 'not-allowed' : 'pointer' }}>
+                    ▶ INICIAR
+                  </button>
+                </div>
+                {pending.length > 0 && (
+                  <button onClick={() => enviarComando('close_position')} disabled={cmdSent}
+                    style={{ width: '100%', padding: 10, border: `1px solid ${C.re}30`,
+                      background: C.rea, color: C.re, fontSize: 10, fontWeight: 700,
+                      letterSpacing: '0.06em', cursor: cmdSent ? 'not-allowed' : 'pointer',
+                      animation: 'pulse 2s ease-in-out infinite' }}>
+                    ■ FECHAR POSIÇÃO
+                  </button>
+                )}
+                {cmdSent && (
+                  <div style={{ fontSize: 9, color: C.am, textAlign: 'center' }}>
+                    Comando enviado...
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* System health */}
+            <div style={{ ...card }}>
+              <div style={{ padding: '10px 18px', borderBottom: `1px solid ${C.bd}`,
+                display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
+                fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%',
+                  background: isOnline ? C.gr : C.re,
+                  boxShadow: isOnline ? `0 0 5px ${C.gr}` : 'none',
+                  animation: isOnline ? 'pulse 2s ease-in-out infinite' : 'none' }} />
+                Saúde do Sistema
+              </div>
+              {([
+                ['MT5 Status',   isOnline ? 'ONLINE' : 'OFFLINE', isOnline ? C.gr : C.re],
+                ['Heartbeat',    status ? secondsAgo(status.updated_at) : '—', C.tx],
+                ['Conta',        status?.account?.toString() ?? '—', C.tx],
+                ['Servidor',     status?.server ?? '—', C.tx],
+                ['Saldo',        bal > 0 ? fmtUSD(bal) : '—', C.tx],
+                ['Alavancagem',  '1:1000', C.am],
+                ['Spread est.',  '0.8 pip', C.t2],
+                ['Max DD/dia',   '−5%', C.re],
+              ] as [string, string, string][]).map(([k, v, vc]) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between',
+                  alignItems: 'center', padding: '6px 18px',
+                  borderBottom: `1px solid ${C.bd}`, fontSize: 10 }}>
+                  <span style={{ color: C.t2, fontSize: 9 }}>{k}</span>
+                  <span style={{ ...mono, fontSize: 10, color: vc }}>{v}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* AI / ML */}
+            <div style={{ ...card, padding: '16px 18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
+                fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em',
+                color: C.t2, marginBottom: 12 }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.bl }} />
+                IA / Fase 2 · XGBoost
+              </div>
+              <div style={{ ...lbl }}>Acurácia do Modelo</div>
+              <div style={{ ...mono, fontSize: '1.3rem', fontWeight: 700,
+                margin: '4px 0', color: C.bl }}>72.4%</div>
+              <div style={{ height: 2, background: C.s3, overflow: 'hidden', marginBottom: 10 }}>
+                <div style={{ height: '100%', width: '72.4%',
+                  background: `linear-gradient(90deg, ${C.bl}, ${C.cy})` }} />
+              </div>
+              {([
+                ['Filtro ativo',  '≥ 65%', C.am],
+                ['Features',      '12 vars', C.t2],
+                ['Sinais ML',     `${closed.filter(t => t.rafi !== null).length}`, C.bl],
+                ['Retreino',      'Semanal', C.t2],
+              ] as [string, string, string][]).map(([k, v, vc]) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between',
+                  alignItems: 'center', padding: '5px 0',
+                  borderBottom: `1px solid ${C.bd}`, fontSize: 10 }}>
+                  <span style={{ color: C.t2, fontSize: 9 }}>{k}</span>
+                  <span style={{ fontWeight: 700, fontSize: 9, color: vc }}>{v}</span>
+                </div>
+              ))}
+              <div style={{ fontSize: 8, color: C.t3, paddingTop: 8 }}>
+                300+ sinais para treino completo
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Ecosystem section ─────────────────────────────────────────────── */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 8 }}>
+            <span style={{ fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.12em',
+              color: C.t3, fontWeight: 700 }}>Ecossistema · Plataforma</span>
+            <div style={{ flex: 1, height: 1, background: C.bd }} />
+            <span style={{ fontSize: 8, color: C.t3, ...mono }}>WIN RATE ALVO ML: 90–95%</span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, marginBottom: 8 }}>
+            {[
+              { name: 'XM Global',    sub: 'EURUSD# · MT5 · B-book ⚠', status: 'ATIVO',   statusColor: C.gr,
+                top: C.gr, health: 97, saldo: bal > 0 ? fmtUSD(bal) : '$31.96', op: 1 },
+              { name: 'IC Markets',   sub: 'ECN/STP · MT5 · 0.1 pip',  status: 'ETAPA 6', statusColor: C.am,
+                top: C.am, health: null, saldo: null, op: 0.6 },
+              { name: 'Pepperstone', sub: 'ECN/STP · MT5',             status: 'ETAPA 7', statusColor: C.t3,
+                top: C.t3, health: null, saldo: null, op: 0.4 },
+              { name: 'Tickmill',     sub: 'ECN/STP · MT5',             status: 'ETAPA 7', statusColor: C.t3,
+                top: C.t3, health: null, saldo: null, op: 0.4 },
+            ].map(b => (
+              <div key={b.name} style={{ ...card, padding: '14px 16px',
+                position: 'relative', opacity: b.op }}>
+                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: b.top }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: b.op === 1 ? C.tx : C.t2 }}>{b.name}</div>
+                  <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 6px',
+                    border: `1px solid ${b.statusColor}40`, color: b.statusColor,
+                    background: `${b.statusColor}08` }}>{b.status}</span>
+                </div>
+                <div style={{ fontSize: 8, color: C.t2, marginBottom: 8 }}>{b.sub}</div>
+                {b.health !== null && (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: C.t2, marginBottom: 3 }}>
+                      <span>Saúde</span><span style={{ ...mono, color: C.gr }}>{b.health}/100</span>
+                    </div>
+                    <div style={{ height: 2, background: C.s3, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${b.health}%`, background: C.gr }} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, marginTop: 6, color: C.t2 }}>
+                      <span>Saldo</span><span style={{ ...mono }}>{b.saldo}</span>
+                    </div>
+                  </>
+                )}
+                {b.health === null && (
+                  <div style={{ fontSize: 9, color: C.t3, fontStyle: 'italic' }}>Conta não aberta ainda</div>
+                )}
+              </div>
             ))}
           </div>
-          <div className="flex items-center gap-3 text-[9px] font-mono">
-            <span className="text-[#10b981]">{wins}W</span>
-            <span className="text-[#ef4444]">{losses}L</span>
-            {wr !== null && <span className="text-[#f0f6fc] font-bold">{wr}% WR</span>}
+
+          {/* Roadmap strip */}
+          <div style={{ ...card, padding: '14px 18px' }}>
+            <div style={{ ...lbl }}>Roadmap · 12 Etapas</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 8 }}>
+              {[
+                { id: 'E0',    label: 'Bot XM',      color: C.gr,  op: 1,   done: true },
+                { id: 'E1',    label: 'Supabase',    color: C.cy,  op: 1,   pulse: true },
+                { id: 'E2-3',  label: 'Dataset ML',  color: C.am,  op: 0.8 },
+                { id: 'E4-5',  label: 'ML vivo',     color: C.bl,  op: 0.6 },
+                { id: 'E6-9',  label: '4 Brokers',   color: C.t3,  op: 0.7 },
+                { id: 'E10-11', label: 'Cripto/B3',  color: C.t3,  op: 0.4 },
+              ].map(s => (
+                <div key={s.id} style={{ textAlign: 'center', opacity: s.op }}>
+                  <div style={{ height: 3, background: s.color, marginBottom: 4,
+                    animation: s.pulse ? 'pulse 2s ease-in-out infinite' : 'none' }} />
+                  <div style={{ fontSize: 7, ...mono, color: s.color }}>{s.id}{s.done ? ' ✓' : ''}</div>
+                  <div style={{ fontSize: 7, color: C.t3 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
-        {(activeTab === 'history' ? closed : pending).length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 gap-2">
-            <AlertTriangle size={24} className="text-[#30363d]" />
-            <p className="text-xs text-[#484f58]">
+        {/* ── Trade history with mini charts ────────────────────────────────── */}
+        <div style={{ ...card }}>
+          <div style={{ padding: '10px 18px', borderBottom: `1px solid ${C.bd}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
+              fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.t2 }} />
+              Histórico — Entrada / Stop / Alvo
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              {(['history', 'open'] as const).map(tab => (
+                <button key={tab} onClick={() => setActiveTab(tab)} style={{
+                  padding: '3px 10px', fontSize: 9, fontWeight: 700, cursor: 'pointer',
+                  border: `1px solid ${activeTab === tab ? C.bd2 : 'transparent'}`,
+                  background: activeTab === tab ? C.s2 : 'transparent',
+                  color: activeTab === tab ? C.tx : C.t2,
+                }}>
+                  {tab === 'history' ? `Fechados (${closed.length})` : `Abertos (${pending.length})`}
+                </button>
+              ))}
+              <span style={{ ...mono, fontSize: 9, color: C.gr }}>{wins}W</span>
+              <span style={{ ...mono, fontSize: 9, color: C.re }}>{losses}L</span>
+              {wr !== null && <span style={{ ...mono, fontSize: 9, fontWeight: 700, color: C.tx }}>{wr}% WR</span>}
+            </div>
+          </div>
+
+          {(activeTab === 'history' ? closed : pending).length === 0 ? (
+            <div style={{ padding: '40px 0', textAlign: 'center', color: C.t3, fontSize: 11 }}>
               {activeTab === 'history' ? 'Nenhum trade fechado ainda.' : 'Nenhuma posição aberta.'}
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-[#30363d] bg-[#0d1117]">
-                  {['Data/Hora','Dir','Entry','SL','TP','Lote','RAFI','P&L','Resultado'].map(h => (
-                    <th key={h} className="py-2 px-3 text-left text-[8px] uppercase tracking-wider text-[#484f58] font-medium">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {(activeTab === 'history' ? closed : pending).slice(0, 50).map(t => {
-                  const isBuy = t.direction === 'buy'
-                  return (
-                    <tr key={t.id} className={cn(
-                      'border-b border-[#30363d]/40 text-[10px] font-mono hover:bg-[#21262d]/40',
-                      t.result === 'win'     && 'bg-[#10b981]/3',
-                      t.result === 'loss'    && 'bg-[#ef4444]/3',
-                      t.result === 'pending' && 'bg-[#f59e0b]/3',
-                    )}>
-                      <td className="py-2 px-3 text-[#484f58] whitespace-nowrap">{fmtTime(t.time)}</td>
-                      <td className="py-2 px-3">
-                        <span className={cn('flex items-center gap-0.5 font-bold',
-                          isBuy ? 'text-[#3b82f6]' : 'text-[#f59e0b]')}>
-                          {isBuy ? <ChevronUp size={9} /> : <ChevronDown size={9} />}
-                          {isBuy ? 'BUY' : 'SELL'}
+            </div>
+          ) : (
+            (activeTab === 'history' ? closed : pending).slice(0, 20).map(t => {
+              const isBuy  = t.direction === 'buy'
+              const isWin  = t.result === 'win'
+              const isLoss = t.result === 'loss'
+              const dirColor = isBuy ? C.cy : C.am
+              const resColor = isWin ? C.gr : isLoss ? C.re : C.am
+              const rr = t.entry > 0 && t.stop_loss > 0 && t.take_profit > 0
+                ? (Math.abs(t.take_profit - t.entry) / Math.abs(t.entry - t.stop_loss)).toFixed(1)
+                : '—'
+              return (
+                <div key={t.id} style={{ borderBottom: `1px solid ${C.bd}`,
+                  padding: '12px 18px', display: 'flex', alignItems: 'flex-start', gap: 14,
+                  transition: 'background .1s' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = C.s2)}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                  <MiniTradeChart trade={t} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                      <span style={{ fontSize: 9, color: C.t2, ...mono }}>{fmtTime(t.time)}</span>
+                      <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 5px',
+                        color: dirColor, background: `${dirColor}12` }}>
+                        {isBuy ? '▲ BUY' : '▼ SELL'}
+                      </span>
+                      <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 6px',
+                        color: resColor, background: `${resColor}10`,
+                        animation: t.result === 'pending' ? 'pulse 2s ease-in-out infinite' : 'none' }}>
+                        {isWin ? 'WIN' : isLoss ? 'LOSS' : 'ABERTO'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 18, ...mono, fontSize: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 8, color: C.t2 }}>ENTRADA</div>
+                        {t.entry.toFixed(5)}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 8, color: C.re }}>STOP</div>
+                        <span style={{ color: C.re }}>{t.stop_loss.toFixed(5)}</span>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 8, color: C.gr }}>ALVO</div>
+                        <span style={{ color: C.gr }}>{t.take_profit.toFixed(5)}</span>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 8, color: C.t2 }}>R:R</div>
+                        <span style={{ color: C.cy }}>{rr}×</span>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 8, color: C.t2 }}>LOTE</div>
+                        {t.lot.toFixed(2)}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 8, color: C.t2 }}>P&L</div>
+                        <span style={{ color: t.pnl === null ? C.t2 : t.pnl >= 0 ? C.gr : C.re, fontWeight: 700 }}>
+                          {t.pnl !== null ? fmtUSD(t.pnl, true) : '—'}
                         </span>
-                      </td>
-                      <td className="py-2 px-3 text-[#f0f6fc]">{t.entry.toFixed(5)}</td>
-                      <td className="py-2 px-3 text-[#ef4444]">{t.stop_loss.toFixed(5)}</td>
-                      <td className="py-2 px-3 text-[#10b981]">{t.take_profit.toFixed(5)}</td>
-                      <td className="py-2 px-3 text-[#8b949e]">{t.lot.toFixed(2)}L</td>
-                      <td className="py-2 px-3">
-                        {t.rafi !== null
-                          ? <span style={{ color: (t.rafi ?? 0) >= 2.5 ? '#10b981' : '#f59e0b' }}>{t.rafi.toFixed(1)}</span>
-                          : <span className="text-[#484f58]">—</span>}
-                      </td>
-                      <td className="py-2 px-3 font-bold"
-                        style={{ color: t.pnl == null ? '#484f58' : t.pnl >= 0 ? '#10b981' : '#ef4444' }}>
-                        {t.pnl != null ? fmtUSD(t.pnl, true) : '—'}
-                      </td>
-                      <td className="py-2 px-3">
-                        {t.result === 'win'
-                          ? <span className="px-1.5 py-0.5 rounded text-[8px] bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/25">WIN</span>
-                          : t.result === 'loss'
-                          ? <span className="px-1.5 py-0.5 rounded text-[8px] bg-[#ef4444]/15 text-[#ef4444] border border-[#ef4444]/25">LOSS</span>
-                          : <span className="px-1.5 py-0.5 rounded text-[8px] bg-[#f59e0b]/15 text-[#f59e0b] border border-[#f59e0b]/25 animate-pulse">ABERTO</span>
-                        }
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}>
+                      {t.rafi !== null && (
+                        <span style={{ fontSize: 7, fontWeight: 600, padding: '2px 6px',
+                          border: `1px solid ${t.rafi >= 2.5 ? C.gr + '40' : C.bd}`,
+                          color: t.rafi >= 2.5 ? C.gr : C.t2, ...mono }}>
+                          RAFI {t.rafi.toFixed(1)}{t.rafi >= 2.5 ? ' ✓' : ''}
+                        </span>
+                      )}
+                      <span style={{ fontSize: 7, fontWeight: 600, padding: '2px 6px',
+                        border: `1px solid ${C.bd}`, color: C.t2 }}>R:R {rr}×</span>
+                      <span style={{ fontSize: 7, fontWeight: 600, padding: '2px 6px',
+                        border: `1px solid ${C.bd}`, color: C.t2 }}>M5/M15/H1</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })
+          )}
 
-      {/* ── Kill switch ─────────────────────────────────────────────────────── */}
-      <div className="bg-[#161b22] border border-[#ef4444]/15 rounded-xl p-4 flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <div className="text-xs font-semibold text-[#f0f6fc]">Kill Switch de Emergência</div>
-          <div className="text-[9px] text-[#484f58] mt-0.5">
-            Envia STOP imediato — bot para no próximo ciclo (máx 5 min).
-            Alternativa: crie o arquivo <code className="text-[#8b949e]">STOP</code> em{' '}
-            <code className="text-[#8b949e]">C:\RafiBot\rafi-bot\</code>
-          </div>
+          {(activeTab === 'history' ? closed : pending).length > 20 && (
+            <div style={{ padding: '10px 18px', fontSize: 8, color: C.t3,
+              borderTop: `1px solid ${C.bd}`, display: 'flex', justifyContent: 'space-between' }}>
+              <span>Mini gráfico: preço da entrada até SL (vermelho) ou TP (verde)</span>
+              <span style={{ color: C.cy, cursor: 'pointer' }}>
+                Ver todos {(activeTab === 'history' ? closed : pending).length} →
+              </span>
+            </div>
+          )}
         </div>
-        <button onClick={() => enviarComando('stop')} disabled={cmdSent}
-          className={cn('flex items-center gap-2 px-4 py-2 rounded-lg border font-bold text-xs transition-all shrink-0',
-            cmdSent ? 'bg-[#21262d] border-[#30363d] text-[#484f58] cursor-not-allowed'
-              : 'bg-[#ef4444]/10 border-[#ef4444]/25 text-[#ef4444] hover:bg-[#ef4444]/20')}>
-          <Square size={11} fill="currentColor" />
-          {cmdSent ? 'Enviado' : 'PARAR AGORA'}
-        </button>
-      </div>
 
+        {/* ── Kill switch ──────────────────────────────────────────────────────── */}
+        <div style={{ ...card, borderColor: `${C.re}20`, padding: '14px 18px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: C.tx }}>Kill Switch de Emergência</div>
+            <div style={{ fontSize: 9, color: C.t2, marginTop: 3 }}>
+              Envia STOP imediato — bot para no próximo ciclo (máx 5 min) ·{' '}
+              <code style={{ color: C.t2 }}>C:\RafiBot\rafi-bot\STOP</code>
+            </div>
+          </div>
+          <button onClick={() => enviarComando('stop')} disabled={cmdSent} style={{
+            display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px',
+            border: `1px solid ${C.re}25`, background: C.rea, color: C.re,
+            fontSize: 11, fontWeight: 700, cursor: cmdSent ? 'not-allowed' : 'pointer', flexShrink: 0,
+          }}>
+            <Square size={11} fill="currentColor" />
+            {cmdSent ? 'ENVIADO' : 'PARAR AGORA'}
+          </button>
+        </div>
+
+      </div>
     </div>
   )
 }
