@@ -12,6 +12,7 @@ Em ambiente de desenvolvimento/backtest, use dados CSV locais.
 """
 
 import logging
+import time
 import pandas as pd
 from datetime import datetime
 from typing import Optional
@@ -90,6 +91,28 @@ class ClienteMT5:
             self.conectado = False
             logger.info("MT5 desconectado")
 
+    def _tentar_reconectar(self, tentativas: int = 3, espera: float = 5.0) -> bool:
+        """
+        Reconexão automática após falha de IPC.
+        Chama shutdown + initialize até 'tentativas' vezes.
+        """
+        if not MT5_DISPONIVEL:
+            return False
+        for i in range(1, tentativas + 1):
+            logger.warning(f"Reconexão MT5 — tentativa {i}/{tentativas}...")
+            try:
+                mt5.shutdown()
+            except Exception:
+                pass
+            time.sleep(espera)
+            if mt5.initialize():
+                logger.info("MT5 reconectado com sucesso")
+                self.conectado = True
+                return True
+            logger.error(f"Tentativa {i} falhou: {mt5.last_error()}")
+        self.conectado = False
+        return False
+
     # ─────────────────────────────────────────────────────────
     # DADOS DE MERCADO
     # ─────────────────────────────────────────────────────────
@@ -136,8 +159,17 @@ class ClienteMT5:
             rates = mt5.copy_rates_from_pos(self.par, tf_id, 0, n_candles)
 
         if rates is None or len(rates) == 0:
-            logger.error(f"Sem dados MT5 para {self.par} {timeframe}: {mt5.last_error()}")
-            return None
+            err = mt5.last_error()
+            logger.error(f"Sem dados MT5 para {self.par} {timeframe}: {err}")
+            # IPC send failed (-1) → tenta reconectar e repetir uma vez
+            if err[0] == -1:
+                if self._tentar_reconectar():
+                    if data_inicio and data_fim:
+                        rates = mt5.copy_rates_range(self.par, tf_id, data_inicio, data_fim)
+                    else:
+                        rates = mt5.copy_rates_from_pos(self.par, tf_id, 0, n_candles)
+            if rates is None or len(rates) == 0:
+                return None
 
         df = pd.DataFrame(rates)
         df['time'] = pd.to_datetime(df['time'], unit='s', utc=True)
@@ -161,6 +193,10 @@ class ClienteMT5:
             return None
         tf_id = self._TF_MAP.get('M5')
         rates = mt5.copy_rates_from_pos(self.par, tf_id, 0, 1)
+        if rates is None or len(rates) == 0:
+            if mt5.last_error()[0] == -1:
+                self._tentar_reconectar()
+                rates = mt5.copy_rates_from_pos(self.par, tf_id, 0, 1)
         if rates is None or len(rates) == 0:
             return None
         r = rates[0]
