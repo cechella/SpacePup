@@ -279,9 +279,17 @@ function LiveChart({ candles, trades, pending }: {
   useEffect(() => {
     if (!cSeriesRef.current || candles.length === 0) return
 
-    cSeriesRef.current.setData(candles.map(c => ({
-      time: c.time, open: c.open, high: c.high, low: c.low, close: c.close,
-    })))
+    // Cor do candle baseada no RAFI (padrão oficial): verde, vermelho, amarelo, branco
+    cSeriesRef.current.setData(candles.map((c, i, arr) => {
+      const r    = c.rafi ?? 0
+      const prev = i > 0 ? (arr[i-1].rafi ?? 0) : 0
+      const exaust = prev >= 2.5 && r <= -2.5
+      let color = 'rgba(0,0,0,0)', borderColor = '#d1d5db', wickColor = '#d1d5db'
+      if (exaust)     { color = '#f59e0b'; borderColor = '#f59e0b'; wickColor = '#f59e0b' }
+      else if (r >= 2.5) { color = '#10b981'; borderColor = '#10b981'; wickColor = '#10b981' }
+      else if (r <= -2.5){ color = '#ef4444'; borderColor = '#ef4444'; wickColor = '#ef4444' }
+      return { time: c.time, open: c.open, high: c.high, low: c.low, close: c.close, color, borderColor, wickColor }
+    }))
 
     // Calcular e publicar BB(8,2)
     if (bbURef.current && candles.length >= 8) {
