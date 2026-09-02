@@ -330,6 +330,15 @@ class RafiBot:
                 f"Saldo=${self.capital:.2f} | Pos={len(posicoes_abertas)}",
                 level='info',
             )
+            # Atualiza gauge do dashboard com RAFI atual (mesmo sem sinal)
+            publicar_heartbeat(
+                status='waiting', balance=self.capital,
+                equity=self.mt5.equity_atual() or self.capital,
+                open_positions=len(posicoes_abertas),
+                pnl_hoje=self._pnl_hoje, par=self.par,
+                server=self._conta_server, account=self._conta_account,
+                forming_signal=False, forming_rafi=rafi_v,
+            )
             return
 
         # 9. Calcula lote e envia ordem
