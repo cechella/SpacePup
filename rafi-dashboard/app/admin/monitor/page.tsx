@@ -230,14 +230,14 @@ function LiveChart({ candles, trades, pending }: {
       handleScale: true,
     })
 
-    // Candles neutros: corpo transparente, borda colorida (igual simulação TradingView)
+    // Candles ocos: corpo vazio, borda colorida, pavio branco (= simulação Análise RAFI)
     const cSeries = chart.addCandlestickSeries({
-      upColor:         'rgba(230,237,243,0.07)',
-      downColor:       'rgba(230,237,243,0.07)',
-      borderUpColor:   '#10b981',
-      borderDownColor: '#ef4444',
-      wickUpColor:     '#10b981',
-      wickDownColor:   '#ef4444',
+      upColor:         'rgba(0,0,0,0)',
+      downColor:       'rgba(0,0,0,0)',
+      borderUpColor:   '#26a69a',
+      borderDownColor: '#ef5350',
+      wickUpColor:     '#d1d5db',
+      wickDownColor:   '#d1d5db',
     })
 
     // Bandas de Bollinger BB(8,2) em ciano
@@ -308,11 +308,12 @@ function LiveChart({ candles, trades, pending }: {
           const prev = arr[i - 1]?.rafi ?? 0
           const exaustao = prev >= 2.5 && c.rafi! <= -2.5
           const r = c.rafi!
-          // Igual à simulação: fraco (-2.5 a +2.5) = branco; forte = verde/vermelho; exaustão = amarelo
-          const color = exaustao    ? '#f59e0b'   // amarelo exaustão
-                      : r >=  2.5  ? '#10b981'   // verde forte (Alta)
-                      : r <= -2.5  ? '#ef4444'   // vermelho forte (Baixa)
-                      :              '#d1d5db'   // branco = consolidação (entre -2.5 e +2.5)
+          // Igual à simulação: barras para cima (abs), cor por direção e força
+          const color = exaustao   ? '#f59e0b'   // âmbar = exaustão
+                      : r >=  2.5 ? '#10b981'   // verde forte (Alta)
+                      : r >=  0   ? '#22c55e'   // verde fraco
+                      : r >  -2.5 ? '#f87171'   // vermelho fraco
+                      :              '#ef4444'   // vermelho forte (Baixa)
           return { time: c.time, value: Math.min(5, Math.abs(r)), color }
         })
       if (rafiData.length > 0) rSeriesRef.current.setData(rafiData)
