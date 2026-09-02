@@ -434,6 +434,89 @@ function LiveChart({ candles, trades, pending }: {
   )
 }
 
+// ── Quase Rompendo — mini chart SVG (30 candles + S/R level) ─────────────────
+function QRMiniChart({ candles, srLevel, direction }: {
+  candles: CandleRow[]; srLevel: number; direction: 'buy' | 'sell'
+}) {
+  const slice = candles.slice(-30)
+  if (slice.length < 2) return (
+    <div style={{ height: 120, display: 'flex', alignItems: 'center',
+      justifyContent: 'center', color: C.t3, fontSize: 10 }}>
+      Aguardando candles...
+    </div>
+  )
+
+  const highs  = slice.map(c => c.high)
+  const lows   = slice.map(c => c.low)
+  const minP   = Math.min(...lows,   srLevel) * 0.9999
+  const maxP   = Math.max(...highs,  srLevel) * 1.0001
+  const range  = maxP - minP || 0.00001
+
+  const W = 560, H = 100, PL = 40, PR = 6, PT = 6, PB = 6
+  const iW = W - PL - PR
+  const iH = H - PT - PB
+  const n  = slice.length
+  const bw = Math.max(4, iW / n - 1.5)
+  const xc = (i: number) => PL + (i / (n - 1)) * iW
+  const yp = (p: number) => PT + (1 - (p - minP) / range) * iH
+  const srY = yp(srLevel)
+  const srColor = direction === 'buy' ? C.gr : C.re
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}>
+      {/* Grid lines */}
+      {[0, 0.5, 1].map(t => {
+        const v = minP + t * range
+        return (
+          <g key={t}>
+            <line x1={PL} x2={W - PR} y1={yp(v).toFixed(1)} y2={yp(v).toFixed(1)}
+              stroke={C.bd} strokeWidth="0.5" />
+            <text x={PL - 3} y={(yp(v) + 3).toFixed(1)} fill={C.t3} fontSize="6"
+              textAnchor="end" fontFamily="monospace">{v.toFixed(4)}</text>
+          </g>
+        )
+      })}
+      {/* S/R level */}
+      <line x1={PL} x2={W - PR} y1={srY.toFixed(1)} y2={srY.toFixed(1)}
+        stroke={srColor} strokeWidth="1.2" strokeDasharray="4,3" />
+      <rect x={W - PR - 38} y={(srY - 7).toFixed(1)} width="40" height="12"
+        fill={`${srColor}20`} />
+      <text x={W - PR - 18} y={(srY + 3).toFixed(1)} fill={srColor} fontSize="6.5"
+        textAnchor="middle" fontFamily="monospace" fontWeight="700">
+        {direction === 'buy' ? 'RESIST' : 'SUPORTE'}
+      </text>
+      {/* Candles */}
+      {slice.map((c, i) => {
+        const isUp  = c.close >= c.open
+        const col   = isUp ? C.gr : C.re
+        const bodyT = yp(Math.max(c.open, c.close))
+        const bodyH = Math.max(1, Math.abs(yp(c.open) - yp(c.close)))
+        const cx    = xc(i)
+        return (
+          <g key={i}>
+            <line x1={cx.toFixed(1)} x2={cx.toFixed(1)}
+              y1={yp(c.high).toFixed(1)} y2={yp(c.low).toFixed(1)}
+              stroke={col} strokeWidth="0.8" />
+            <rect x={(cx - bw / 2).toFixed(1)} y={bodyT.toFixed(1)}
+              width={bw.toFixed(1)} height={bodyH.toFixed(1)}
+              fill={col} opacity="0.85" />
+          </g>
+        )
+      })}
+      {/* Last close marker */}
+      {(() => {
+        const last = slice[slice.length - 1]
+        const ly = yp(last.close)
+        const lc = last.close >= last.open ? C.gr : C.re
+        return (
+          <circle cx={(W - PR).toFixed(1)} cy={ly.toFixed(1)}
+            r="3" fill={lc} />
+        )
+      })()}
+    </svg>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function MonitorPage() {
@@ -447,6 +530,7 @@ export default function MonitorPage() {
   const [m5Secs,    setM5Secs]    = useState(0)
   const [londonTime, setLondonTime] = useState('')
   const [botLogs,   setBotLogs]   = useState<BotLog[]>([])
+  const [showQR,    setShowQR]    = useState(false)
   const prevPendingLen = useRef(0)
 
   // ── London clock ────────────────────────────────────────────────────────────
@@ -681,6 +765,161 @@ export default function MonitorPage() {
         </div>
       </nav>
 
+      {/* ── Quase Rompendo banner ─────────────────────────────────────────────── */}
+      {status?.forming_signal && (() => {
+        const fDir   = status.forming_direction ?? 'buy'
+        const fRafi  = status.forming_rafi ?? 0
+        const fTf    = status.forming_tf_count ?? 0
+        const fBb    = status.forming_bb_open ?? false
+        const fPrice = status.forming_price ?? 0
+        const fColor = fDir === 'buy' ? C.cy : C.am
+        const fPct   = Math.min(100, Math.round((fRafi / 2.5) * 100))
+        const fLabel = fDir === 'buy' ? '▲ COMPRA SE ROMPER' : '▼ VENDA SE ROMPER'
+        return (
+          <div style={{ position: 'sticky', top: 52, zIndex: 19 }}>
+            {/* Banner strip */}
+            <button onClick={() => setShowQR(v => !v)} style={{
+              width: '100%', cursor: 'pointer', border: 'none', textAlign: 'left',
+              background: `linear-gradient(90deg, ${fColor}14, ${fColor}06, transparent)`,
+              borderBottom: `1px solid ${fColor}35`,
+              padding: '7px 24px', display: 'flex', alignItems: 'center', gap: 16,
+            }}>
+              {/* Pulsing dot */}
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: fColor,
+                boxShadow: `0 0 8px ${fColor}`, animation: 'pulse 1.2s ease-in-out infinite',
+                flexShrink: 0 }} />
+              {/* Label */}
+              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.12em',
+                textTransform: 'uppercase', color: fColor }}>
+                ⚡ QUASE ROMPENDO
+              </span>
+              <span style={{ fontSize: 9, fontWeight: 700, color: fColor, fontFamily: 'monospace' }}>
+                {fLabel}
+              </span>
+              {/* RAFI bar */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+                <span style={{ fontSize: 8, color: C.t2, flexShrink: 0 }}>RAFI</span>
+                <div style={{ flex: 1, maxWidth: 140, height: 3, background: C.s3, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${fPct}%`,
+                    background: `linear-gradient(90deg, ${fColor}88, ${fColor})`,
+                    transition: 'width 1s linear' }} />
+                </div>
+                <span style={{ fontSize: 8, fontFamily: 'monospace', color: fColor, fontWeight: 700 }}>
+                  {fRafi.toFixed(2)}<span style={{ color: C.t3 }}>/2.50</span>
+                </span>
+              </div>
+              {/* Metrics chips */}
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                {[
+                  { k: 'TF', v: `${fTf}/3`, ok: fTf >= 2 },
+                  { k: 'BB', v: fBb ? 'ABRINDO' : 'FECHADO', ok: fBb },
+                  { k: 'NÍVEL', v: fPrice > 0 ? fPrice.toFixed(5) : '—', ok: true },
+                ].map(chip => (
+                  <span key={chip.k} style={{ fontSize: 7, fontWeight: 700, fontFamily: 'monospace',
+                    padding: '2px 8px', border: `1px solid ${chip.ok ? fColor + '40' : C.bd}`,
+                    color: chip.ok ? fColor : C.t3,
+                    background: chip.ok ? `${fColor}08` : 'transparent' }}>
+                    {chip.k} {chip.v}
+                  </span>
+                ))}
+              </div>
+              {/* Expand toggle */}
+              <span style={{ fontSize: 8, color: C.t2, fontFamily: 'monospace',
+                display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                {showQR ? 'FECHAR ↑' : 'GRÁFICO ↓'}
+              </span>
+            </button>
+
+            {/* Expandable chart panel */}
+            {showQR && (
+              <div className="qr-panel" style={{
+                background: C.s1, borderBottom: `1px solid ${fColor}20`,
+                padding: '12px 24px 16px',
+              }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 220px', gap: 16 }}>
+                  {/* Mini candlestick chart */}
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <span style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase',
+                        letterSpacing: '0.10em', color: C.t2 }}>EURUSD# M5 — Últimos 30 candles</span>
+                      <span style={{ fontSize: 7, padding: '2px 6px',
+                        border: `1px solid ${fColor}30`, color: fColor, fontFamily: 'monospace' }}>
+                        Nível alvo: {fPrice > 0 ? fPrice.toFixed(5) : '—'}
+                      </span>
+                    </div>
+                    <div style={{ background: C.bg, border: `1px solid ${C.bd}`, padding: '6px 0' }}>
+                      <QRMiniChart candles={candles} srLevel={fPrice} direction={fDir} />
+                    </div>
+                    <div style={{ marginTop: 6, display: 'flex', gap: 16, fontSize: 8, color: C.t3, fontFamily: 'monospace' }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={{ width: 20, display: 'inline-block', borderTop: `1.5px dashed ${fColor}` }} />
+                        {fDir === 'buy' ? 'Resistência' : 'Suporte'} — rompimento confirma sinal
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Right metrics panel */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {/* RAFI gauge */}
+                    <div style={{ background: C.bg, border: `1px solid ${C.bd}`, padding: '12px 14px' }}>
+                      <div style={{ fontSize: 8, color: C.t2, textTransform: 'uppercase',
+                        letterSpacing: '0.10em', marginBottom: 8 }}>Força do Movimento</div>
+                      {/* Arc gauge */}
+                      <svg width="100%" viewBox="0 0 120 70">
+                        {/* Track */}
+                        <path d="M 10 60 A 50 50 0 0 1 110 60" fill="none" stroke={C.s3} strokeWidth="8" strokeLinecap="round" />
+                        {/* Fill */}
+                        {(() => {
+                          const pct = Math.min(1, fRafi / 2.5)
+                          const ang = pct * Math.PI
+                          const ex  = 60 - 50 * Math.cos(ang)
+                          const ey  = 60 - 50 * Math.sin(ang)
+                          const lg  = pct > 0.5 ? 1 : 0
+                          return (
+                            <path d={`M 10 60 A 50 50 0 ${lg} 1 ${ex.toFixed(1)} ${ey.toFixed(1)}`}
+                              fill="none" stroke={fColor} strokeWidth="8" strokeLinecap="round" />
+                          )
+                        })()}
+                        <text x="60" y="55" textAnchor="middle" fill={fColor}
+                          fontFamily="monospace" fontSize="18" fontWeight="800">{fRafi.toFixed(1)}</text>
+                        <text x="60" y="67" textAnchor="middle" fill={C.t3}
+                          fontFamily="monospace" fontSize="7">de 2.50 para entrar</text>
+                        <text x="10"  y="70" fill={C.t3} fontSize="6" textAnchor="middle">0</text>
+                        <text x="110" y="70" fill={fColor} fontSize="6" textAnchor="middle">2.5</text>
+                      </svg>
+                    </div>
+
+                    {/* Checklist */}
+                    <div style={{ background: C.bg, border: `1px solid ${C.bd}`, padding: '12px 14px' }}>
+                      <div style={{ fontSize: 8, color: C.t2, textTransform: 'uppercase',
+                        letterSpacing: '0.10em', marginBottom: 8 }}>Condições para Entrada</div>
+                      {[
+                        { label: `RAFI ≥ 2.50`,           ok: fRafi >= 2.5,  val: fRafi.toFixed(2) },
+                        { label: `Timeframes (${fTf}/3)`,  ok: fTf === 3,     val: fTf === 3 ? '✓' : `${fTf}/3` },
+                        { label: 'Bollinger abrindo',       ok: fBb,           val: fBb ? '✓' : '—' },
+                        { label: 'Rompimento confirmado',   ok: false,         val: 'aguard.' },
+                      ].map(item => (
+                        <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between',
+                          alignItems: 'center', padding: '5px 0',
+                          borderBottom: `1px solid ${C.bd}`, fontSize: 9 }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ width: 5, height: 5, borderRadius: '50%',
+                              background: item.ok ? C.gr : C.t3, flexShrink: 0 }} />
+                            <span style={{ color: item.ok ? C.tx : C.t2 }}>{item.label}</span>
+                          </span>
+                          <span style={{ fontFamily: 'monospace', fontSize: 8,
+                            color: item.ok ? C.gr : C.t3 }}>{item.val}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
       <style>{`
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
         @keyframes rafiPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.7;transform:scale(.98)}}
@@ -704,6 +943,8 @@ export default function MonitorPage() {
         .bcard:hover .bcta{opacity:1}
         .logrow:nth-child(even){background:rgba(13,25,39,.5)}
         .forming-card{animation:rafiPulse 2.8s ease-in-out infinite}
+        @keyframes slideDown{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+        .qr-panel{animation:slideDown .18s ease-out both}
       `}</style>
 
       <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
