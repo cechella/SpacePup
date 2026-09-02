@@ -33,19 +33,18 @@ const DEFAULTS = {
 }
 type Config = typeof DEFAULTS
 
-// Tabela de escalonamento de lotes (hardcoded no risk_manager.py — não é configurável)
 const FAIXAS_LOTE = [
-  { min:      0, max:    40, lote:   0.10, pip: '$1/pip'    },
-  { min:     40, max:    80, lote:   0.20, pip: '$2/pip'    },
-  { min:     80, max:   150, lote:   0.40, pip: '$4/pip'    },
-  { min:    150, max:   200, lote:   0.70, pip: '$7/pip'    },
-  { min:    200, max:   400, lote:   1.00, pip: '$10/pip'   },
-  { min:    400, max:   800, lote:   2.00, pip: '$20/pip'   },
-  { min:    800, max:  1500, lote:   4.00, pip: '$40/pip'   },
-  { min:   1500, max:  3000, lote:   8.00, pip: '$80/pip'   },
-  { min:   3000, max:  6000, lote:  15.00, pip: '$150/pip'  },
-  { min:   6000, max: 10000, lote:  30.00, pip: '$300/pip'  },
-  { min:  10000, max: 20000, lote:  50.00, pip: '$500/pip'  },
+  { min:      0, max:    40, lote:   0.10, pip: '$1/pip'   },
+  { min:     40, max:    80, lote:   0.20, pip: '$2/pip'   },
+  { min:     80, max:   150, lote:   0.40, pip: '$4/pip'   },
+  { min:    150, max:   200, lote:   0.70, pip: '$7/pip'   },
+  { min:    200, max:   400, lote:   1.00, pip: '$10/pip'  },
+  { min:    400, max:   800, lote:   2.00, pip: '$20/pip'  },
+  { min:    800, max:  1500, lote:   4.00, pip: '$40/pip'  },
+  { min:   1500, max:  3000, lote:   8.00, pip: '$80/pip'  },
+  { min:   3000, max:  6000, lote:  15.00, pip: '$150/pip' },
+  { min:   6000, max: 10000, lote:  30.00, pip: '$300/pip' },
+  { min:  10000, max: 20000, lote:  50.00, pip: '$500/pip' },
   { min:  20000, max: Infinity, lote: 100.00, pip: '$1k/pip' },
 ]
 
@@ -54,31 +53,30 @@ const GRUPOS: {
   campos: { key: keyof Config; label: string; desc: string; tipo: 'float'|'int'|'bool'; min?: number; max?: number; step?: number }[]
 }[] = [
   { label: 'Índice de Força RAFI', cor: C.cy, campos: [
-    { key: 'forca_limiar',       label: 'RAFI Limiar',    desc: 'Mínimo para entrada (2.50 = backtest)',      tipo: 'float', min: 0.5,   max: 5,    step: 0.05   },
-    { key: 'rafi_periodo',       label: 'RAFI Período',   desc: 'Janela de cálculo do índice de força',       tipo: 'int',   min: 3,     max: 50              },
+    { key: 'forca_limiar',       label: 'RAFI Limiar',    desc: 'Mínimo para entrada (2.50 = backtest)',    tipo: 'float', min: 0.5,  max: 5,    step: 0.05   },
+    { key: 'rafi_periodo',       label: 'RAFI Período',   desc: 'Janela de cálculo do índice de força',     tipo: 'int',   min: 3,    max: 50              },
   ]},
   { label: 'Tendência M5', cor: C.bl, campos: [
-    { key: 'ma_rapida',          label: 'MA Rápida',      desc: 'Período da média móvel rápida',              tipo: 'int',   min: 5,     max: 50              },
-    { key: 'ma_lenta',           label: 'MA Lenta',       desc: 'Período da média móvel lenta',               tipo: 'int',   min: 10,    max: 200             },
-    { key: 'ma_threshold',       label: 'MA Threshold',   desc: 'Diferença mínima MA rápida−lenta (pip)',     tipo: 'float', min: 0,     max: 0.01, step: 0.0001 },
+    { key: 'ma_rapida',          label: 'MA Rápida',      desc: 'Período da média móvel rápida',            tipo: 'int',   min: 5,    max: 50              },
+    { key: 'ma_lenta',           label: 'MA Lenta',       desc: 'Período da média móvel lenta',             tipo: 'int',   min: 10,   max: 200             },
+    { key: 'ma_threshold',       label: 'MA Threshold',   desc: 'Diferença mínima MA rápida−lenta (pip)',   tipo: 'float', min: 0,    max: 0.01, step: 0.0001 },
   ]},
   { label: 'Suporte & Resistência', cor: C.am, campos: [
-    { key: 'sr_lookback',        label: 'S/R Lookback',   desc: 'Candles para detectar máximos/mínimos',     tipo: 'int',   min: 10,    max: 200             },
-    { key: 'swing_stop_lookback',label: 'Swing Stop',     desc: 'Candles para posicionar stop-loss',         tipo: 'int',   min: 20,    max: 500             },
+    { key: 'sr_lookback',        label: 'S/R Lookback',   desc: 'Candles para detectar máximos/mínimos',   tipo: 'int',   min: 10,   max: 200             },
+    { key: 'swing_stop_lookback',label: 'Swing Stop',     desc: 'Candles para posicionar stop-loss',       tipo: 'int',   min: 20,   max: 500             },
   ]},
   { label: 'Bandas de Bollinger', cor: C.gr, campos: [
-    { key: 'bb_filtro_ativo',    label: 'Filtro Ativo',   desc: 'Exige squeeze → abertura antes de entrar',  tipo: 'bool'                                    },
-    { key: 'bb_limiar_estreita', label: 'Limiar Squeeze', desc: 'Largura máxima para considerar squeeze',    tipo: 'float', min: 0,     max: 0.01, step: 0.0001 },
-    { key: 'bb_periodo',         label: 'Período',        desc: 'Janela das Bandas de Bollinger',            tipo: 'int',   min: 5,     max: 50              },
-    { key: 'bb_desvios',         label: 'Desvios',        desc: 'Número de desvios padrão',                  tipo: 'float', min: 1,     max: 4,    step: 0.1  },
+    { key: 'bb_filtro_ativo',    label: 'Filtro Ativo',   desc: 'Exige squeeze → abertura antes de entrar',tipo: 'bool'                                   },
+    { key: 'bb_limiar_estreita', label: 'Limiar Squeeze', desc: 'Largura máxima para considerar squeeze',  tipo: 'float', min: 0,    max: 0.01, step: 0.0001 },
+    { key: 'bb_periodo',         label: 'Período',        desc: 'Janela das Bandas de Bollinger',          tipo: 'int',   min: 5,    max: 50              },
+    { key: 'bb_desvios',         label: 'Desvios',        desc: 'Número de desvios padrão',                tipo: 'float', min: 1,    max: 4,    step: 0.1  },
   ]},
   { label: 'Execução', cor: C.re, campos: [
-    { key: 'ratio_risco_retorno',    label: 'R:R',           desc: 'Razão risco:retorno (1.5 = backtest)',  tipo: 'float', min: 1, max: 5, step: 0.1 },
-    { key: 'max_trades_simultaneos', label: 'Máx. Posições', desc: 'Trades simultâneos permitidos',        tipo: 'int',   min: 1, max: 5            },
+    { key: 'ratio_risco_retorno',    label: 'R:R',           desc: 'Razão risco:retorno (1.5 = backtest)', tipo: 'float', min: 1, max: 5, step: 0.1 },
+    { key: 'max_trades_simultaneos', label: 'Máx. Posições', desc: 'Trades simultâneos permitidos',       tipo: 'int',   min: 1, max: 5            },
   ]},
 ]
 
-// Chaves numéricas para comparação
 const CHAVES_NUMERICAS = Object.keys(DEFAULTS).filter(k => typeof DEFAULTS[k as keyof Config] === 'number') as (keyof Config)[]
 const CHAVES_BOOL      = Object.keys(DEFAULTS).filter(k => typeof DEFAULTS[k as keyof Config] === 'boolean') as (keyof Config)[]
 
@@ -87,6 +85,54 @@ function camposDivergindo(sim: Config, live: Config): Set<keyof Config> {
   CHAVES_NUMERICAS.forEach(k => { if (Math.abs((sim[k] as number) - (live[k] as number)) > 1e-9) diverge.add(k) })
   CHAVES_BOOL.forEach(k => { if (sim[k] !== live[k]) diverge.add(k) })
   return diverge
+}
+
+// Modal de confirmação para salvar o bot ao vivo
+function ModalConfirmacao({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+  const [input, setInput] = useState('')
+  const ok = input.trim().toUpperCase() === 'CONFIRMAR'
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(7,12,20,0.88)', zIndex: 1000,
+      display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: C.s1, border: `1px solid ${C.re}50`, borderRadius: 10,
+        padding: 28, maxWidth: 380, width: '90%', boxShadow: `0 0 40px ${C.re}20` }}>
+        <div style={{ fontSize: 22, textAlign: 'center', marginBottom: 12 }}>⚠️</div>
+        <div style={{ fontSize: 13, fontWeight: 800, color: C.re, textAlign: 'center', marginBottom: 8 }}>
+          Salvar Bot ao Vivo?
+        </div>
+        <div style={{ fontSize: 10, color: C.t2, textAlign: 'center', marginBottom: 20, lineHeight: 1.6 }}>
+          Esta ação altera os parâmetros que o bot usa em dinheiro real na XM.<br />
+          Digite <span style={{ color: C.am, fontFamily: 'monospace', fontWeight: 700 }}>CONFIRMAR</span> para continuar.
+        </div>
+        <input
+          autoFocus
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && ok) onConfirm() }}
+          placeholder="Digite CONFIRMAR"
+          style={{ width: '100%', padding: '8px 12px', background: C.s2, border: `1px solid ${ok ? C.gr : C.bd}`,
+            color: ok ? C.gr : C.tx, fontSize: 12, fontFamily: 'monospace', fontWeight: 700,
+            borderRadius: 5, outline: 'none', boxSizing: 'border-box', textAlign: 'center',
+            marginBottom: 16, transition: 'border-color 0.2s' }}
+        />
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={onCancel}
+            style={{ flex: 1, padding: '9px 0', background: 'transparent', border: `1px solid ${C.bd}`,
+              color: C.t2, fontSize: 10, fontWeight: 700, cursor: 'pointer', borderRadius: 5 }}>
+            Cancelar
+          </button>
+          <button onClick={onConfirm} disabled={!ok}
+            style={{ flex: 1, padding: '9px 0',
+              background: ok ? `${C.gr}20` : `${C.t3}20`,
+              border: `1px solid ${ok ? C.gr : C.t3}50`,
+              color: ok ? C.gr : C.t3, fontSize: 10, fontWeight: 800,
+              cursor: ok ? 'pointer' : 'not-allowed', borderRadius: 5, transition: 'all 0.2s' }}>
+            ✓ Confirmar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export default function ConfigPage() {
@@ -102,6 +148,13 @@ export default function ConfigPage() {
   const [error,    setError]    = useState<string | null>(null)
   const [syncing,  setSyncing]  = useState(false)
   const [syncDone, setSyncDone] = useState(false)
+
+  // Cadeados — ambos bloqueados por padrão
+  const [simLocked,  setSimLocked]  = useState(true)
+  const [liveLocked, setLiveLocked] = useState(true)
+
+  // Modal de confirmação para salvar ao vivo
+  const [showModal, setShowModal] = useState(false)
 
   useEffect(() => {
     if (!supa) return
@@ -119,27 +172,42 @@ export default function ConfigPage() {
     })()
   }, [])
 
-  const divergindo = useMemo(() => camposDivergindo(simCfg, liveCfg), [simCfg, liveCfg])
+  const divergindo  = useMemo(() => camposDivergindo(simCfg, liveCfg), [simCfg, liveCfg])
   const emSincronia = divergindo.size === 0
 
-  const salvar = async (profile: 'simulator' | 'live', cfg: Config) => {
+  const salvarDb = async (profile: 'simulator' | 'live', cfg: Config) => {
     if (!supa) return
     const setSaving = profile === 'simulator' ? setSimSaving : setLiveSaving
     const setSaved  = profile === 'simulator' ? setSimSaved  : setLiveSaved
     const setLast   = profile === 'simulator' ? setSimLastSaved : setLiveLastSaved
+    const setLocked = profile === 'simulator' ? setSimLocked : setLiveLocked
     setSaving(true)
     try {
       const ts = new Date().toISOString()
       await supa.from('rafi_bot_config').upsert({ ...cfg, profile, updated_at: ts }, { onConflict: 'profile' })
-      setLast(ts); setSaved(true); setTimeout(() => setSaved(false), 3000)
+      setLast(ts); setSaved(true); setLocked(true)  // re-bloqueia após salvar
+      setTimeout(() => setSaved(false), 3000)
     } catch (e) { setError(`Erro ao salvar: ${e}`) }
     setSaving(false)
+  }
+
+  const tentarSalvar = (profile: 'simulator' | 'live', cfg: Config) => {
+    if (profile === 'live') {
+      setShowModal(true)  // exige confirmação para bot ao vivo
+    } else {
+      salvarDb('simulator', cfg)
+    }
+  }
+
+  const confirmarSalvarLive = () => {
+    setShowModal(false)
+    salvarDb('live', liveCfg)
   }
 
   const sincronizarLive = async () => {
     setSyncing(true)
     setLiveCfg({ ...simCfg })
-    await salvar('live', simCfg)
+    await salvarDb('live', simCfg)
     setSyncing(false); setSyncDone(true)
     setTimeout(() => setSyncDone(false), 3000)
   }
@@ -156,13 +224,21 @@ export default function ConfigPage() {
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.tx, fontFamily: 'system-ui, sans-serif' }}>
 
+      {showModal && (
+        <ModalConfirmacao
+          onConfirm={confirmarSalvarLive}
+          onCancel={() => setShowModal(false)}
+        />
+      )}
+
       {/* Header */}
       <div style={{ borderBottom: `1px solid ${C.bd}`, padding: '16px 28px',
         background: C.s1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <div style={{ fontSize: 17, fontWeight: 800, color: C.tx }}>⚙ Configurações do Bot</div>
           <div style={{ fontSize: 10, color: C.t2, marginTop: 2 }}>
-            Salvo no Supabase · bot ao vivo lê o perfil <span style={{ color: C.gr, fontFamily: 'monospace' }}>'live'</span> a cada ciclo M5
+            Salvo no Supabase · bot ao vivo lê o perfil{' '}
+            <span style={{ color: C.gr, fontFamily: 'monospace' }}>'live'</span> a cada inicialização
           </div>
         </div>
         {error && (
@@ -180,7 +256,9 @@ export default function ConfigPage() {
           <span style={{ fontSize: 18 }}>{emSincronia ? '✅' : '⚠️'}</span>
           <div>
             <div style={{ fontSize: 12, fontWeight: 800, color: emSincronia ? C.gr : C.re }}>
-              {emSincronia ? 'Em sincronia — Simulador = Bot ao Vivo' : `${divergindo.size} parâmetro${divergindo.size > 1 ? 's' : ''} diferente${divergindo.size > 1 ? 's' : ''} entre os perfis`}
+              {emSincronia
+                ? 'Em sincronia — Simulador = Bot ao Vivo'
+                : `${divergindo.size} parâmetro${divergindo.size > 1 ? 's' : ''} diferente${divergindo.size > 1 ? 's' : ''} entre os perfis`}
             </div>
             <div style={{ fontSize: 9, color: C.t2, marginTop: 2 }}>
               {emSincronia
@@ -207,7 +285,7 @@ export default function ConfigPage() {
         display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 11 }}>ℹ</span>
         <span style={{ fontSize: 9, color: C.t2, fontFamily: 'monospace' }}>
-          Backtest vencedor: RAFI≥2.50 · período=14 · S/R=50c · SwingStop=150c · R:R=1.5 · Risco=2%
+          Backtest vencedor: RAFI≥2.50 · período=14 · S/R=50c · SwingStop=150c · R:R=1.5
         </span>
         <span style={{ fontSize: 9, color: C.gr, fontWeight: 700, marginLeft: 4 }}>→ 59 trades · 69% WR · +$3.769</span>
       </div>
@@ -215,39 +293,73 @@ export default function ConfigPage() {
       {/* Grid dos dois perfis */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, padding: '16px 28px' }}>
         {([
-          { profile: 'simulator' as const, title: 'Simulador',   accent: C.am, icon: '🔬', cfg: simCfg,  setCfg: setSimCfg,  saving: simSaving,  saved: simSaved,  lastSaved: simLastSaved  },
-          { profile: 'live'      as const, title: 'Bot ao Vivo', accent: C.gr, icon: '🤖', cfg: liveCfg, setCfg: setLiveCfg, saving: liveSaving, saved: liveSaved, lastSaved: liveLastSaved },
-        ]).map(({ profile, title, accent, icon, cfg, setCfg, saving, saved, lastSaved }) => (
+          {
+            profile: 'simulator' as const, title: 'Simulador', accent: C.am, icon: '🔬',
+            cfg: simCfg, setCfg: setSimCfg, saving: simSaving, saved: simSaved,
+            lastSaved: simLastSaved, locked: simLocked, setLocked: setSimLocked,
+          },
+          {
+            profile: 'live' as const, title: 'Bot ao Vivo', accent: C.gr, icon: '🤖',
+            cfg: liveCfg, setCfg: setLiveCfg, saving: liveSaving, saved: liveSaved,
+            lastSaved: liveLastSaved, locked: liveLocked, setLocked: setLiveLocked,
+          },
+        ]).map(({ profile, title, accent, icon, cfg, setCfg, saving, saved, lastSaved, locked, setLocked }) => (
           <div key={profile} style={{ ...card, display: 'flex', flexDirection: 'column' }}>
 
             {/* Card header */}
-            <div style={{ padding: '14px 20px', borderBottom: `2px solid ${accent}30`,
-              background: `linear-gradient(135deg, ${accent}10 0%, transparent 100%)`,
+            <div style={{ padding: '14px 20px', borderBottom: `2px solid ${locked ? C.bd : accent}40`,
+              background: locked
+                ? `linear-gradient(135deg, ${C.s2} 0%, transparent 100%)`
+                : `linear-gradient(135deg, ${accent}10 0%, transparent 100%)`,
               display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: 20 }}>{icon}</span>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: accent }}>{title}</div>
-                  <div style={{ fontSize: 9, color: C.t2, marginTop: 1 }}>
-                    {profile === 'live' ? 'Bot ao vivo na XM — lido a cada ciclo M5' : 'Usado apenas no backtest local'}
+                  <div style={{ fontSize: 13, fontWeight: 800, color: locked ? C.t2 : accent }}>{title}</div>
+                  <div style={{ fontSize: 9, color: C.t3, marginTop: 1 }}>
+                    {profile === 'live' ? 'Bot ao vivo na XM — lido a cada inicialização' : 'Usado apenas no backtest local'}
                   </div>
                 </div>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                {lastSaved && <div style={{ fontSize: 8, color: C.t3 }}>
-                  Salvo {new Date(lastSaved).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                </div>}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4, justifyContent: 'flex-end' }}>
-                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: accent }} />
-                  <span style={{ fontSize: 8, color: accent, fontWeight: 700 }}>
-                    {profile === 'live' ? 'AO VIVO' : 'SIMULAÇÃO'}
-                  </span>
-                </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {lastSaved && (
+                  <div style={{ fontSize: 8, color: C.t3, textAlign: 'right' }}>
+                    Salvo {new Date(lastSaved).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                )}
+                {/* Botão cadeado */}
+                <button
+                  onClick={() => setLocked(!locked)}
+                  title={locked ? 'Clique para desbloquear edição' : 'Clique para bloquear'}
+                  style={{ display: 'flex', alignItems: 'center', gap: 5,
+                    padding: '5px 10px', borderRadius: 5, border: `1px solid ${locked ? C.am + '60' : C.gr + '40'}`,
+                    background: locked ? `${C.am}12` : `${C.gr}10`,
+                    color: locked ? C.am : C.gr, fontSize: 10, fontWeight: 700,
+                    cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: 13 }}>{locked ? '🔒' : '🔓'}</span>
+                  <span>{locked ? 'Bloqueado' : 'Editando'}</span>
+                </button>
               </div>
             </div>
 
+            {/* Aviso quando bloqueado */}
+            {locked && (
+              <div style={{ margin: '10px 20px 0', padding: '8px 12px', borderRadius: 5,
+                background: `${C.am}08`, border: `1px solid ${C.am}20`,
+                display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12 }}>🔒</span>
+                <span style={{ fontSize: 9, color: C.am }}>
+                  Configuração protegida — clique em <strong>Bloqueado</strong> para habilitar edição
+                </span>
+              </div>
+            )}
+
             {/* Campos agrupados */}
-            <div style={{ padding: '14px 20px', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 18 }}>
+            <div style={{ padding: '14px 20px', flex: 1, overflowY: 'auto',
+              display: 'flex', flexDirection: 'column', gap: 18,
+              opacity: locked ? 0.55 : 1, pointerEvents: locked ? 'none' : 'auto',
+              transition: 'opacity 0.2s' }}>
               {GRUPOS.map(grupo => (
                 <div key={grupo.label}>
                   <div style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase',
@@ -338,24 +450,27 @@ export default function ConfigPage() {
                 </table>
               </div>
               <div style={{ padding: '5px 12px', fontSize: 7, color: C.t3, borderTop: `1px solid ${C.bd}` }}>
-                Lote sobe automaticamente com o capital — hardcoded em risk_manager.py
+                Hardcoded em risk_manager.py · sobe automaticamente com o capital
               </div>
             </div>
 
             {/* Botão salvar */}
             <div style={{ padding: '12px 20px', borderTop: `1px solid ${C.bd}` }}>
-              <button onClick={() => salvar(profile, cfg)} disabled={saving}
+              <button
+                onClick={() => tentarSalvar(profile, cfg)}
+                disabled={saving || locked}
                 style={{ width: '100%', padding: '11px 0',
-                  background: saved ? `${C.gr}20` : `${accent}18`,
-                  border: `1px solid ${saved ? C.gr : accent}50`,
-                  color: saved ? C.gr : accent,
+                  background: locked ? `${C.t3}15` : saved ? `${C.gr}20` : `${accent}18`,
+                  border: `1px solid ${locked ? C.t3 : saved ? C.gr : accent}50`,
+                  color: locked ? C.t3 : saved ? C.gr : accent,
                   fontSize: 10, fontWeight: 800, letterSpacing: '0.08em',
-                  cursor: saving ? 'not-allowed' : 'pointer', borderRadius: 5, transition: 'all 0.3s' }}>
-                {saving ? '⏳ Salvando...' : saved ? '✓ SALVO' : `💾 SALVAR ${title.toUpperCase()}`}
+                  cursor: locked || saving ? 'not-allowed' : 'pointer',
+                  borderRadius: 5, transition: 'all 0.3s' }}>
+                {locked ? '🔒 BLOQUEADO' : saving ? '⏳ Salvando...' : saved ? '✓ SALVO' : `💾 SALVAR ${title.toUpperCase()}`}
               </button>
-              {profile === 'live' && (
-                <div style={{ fontSize: 8, color: C.t2, textAlign: 'center', marginTop: 6 }}>
-                  Reinicie o bot no VPS para aplicar imediatamente
+              {profile === 'live' && !locked && (
+                <div style={{ fontSize: 8, color: C.am, textAlign: 'center', marginTop: 6 }}>
+                  ⚠ Será solicitada confirmação · Reinicie o bot no VPS para aplicar
                 </div>
               )}
             </div>
