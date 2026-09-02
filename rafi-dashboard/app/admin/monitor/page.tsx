@@ -1392,6 +1392,75 @@ export default function MonitorPage() {
           {/* Right sidebar */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
 
+            {/* ── Controle do Bot — PRIMEIRO para sempre visível ── */}
+            <div style={{ ...card, overflow: 'hidden' }}>
+              <div style={{ padding: '9px 14px', borderBottom: `1px solid ${C.bd}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ ...lbl, marginBottom: 0 }}>Controle do Bot</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '3px 8px', borderRadius: 20,
+                  background: !isOnline ? `${C.re}15` : status?.status === 'running' ? `${C.gr}15` : `${C.am}15`,
+                  border: `1px solid ${!isOnline ? C.re : status?.status === 'running' ? C.gr : C.am}40` }}>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%',
+                    background: !isOnline ? C.re : status?.status === 'running' ? C.gr : C.am,
+                    animation: isOnline ? 'pulse 2s ease-in-out infinite' : 'none' }} />
+                  <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: '0.1em',
+                    color: !isOnline ? C.re : status?.status === 'running' ? C.gr : C.am }}>
+                    {!isOnline ? 'OFFLINE' : status?.status === 'running' ? 'ATIVO' : status?.status === 'stopped' ? 'PARADO' : 'AGUARDANDO'}
+                  </span>
+                </div>
+              </div>
+              <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                  <button onClick={() => enviarComando('start')} disabled={cmdSent}
+                    style={{ padding: '10px 4px', border: `1px solid ${C.gr}50`,
+                      background: `${C.gr}18`, color: C.gr, fontSize: 9, fontWeight: 800,
+                      letterSpacing: '0.05em', cursor: cmdSent ? 'not-allowed' : 'pointer', borderRadius: 4 }}>
+                    ▶ INICIAR
+                  </button>
+                  <button onClick={() => enviarComando('restart')} disabled={cmdSent}
+                    style={{ padding: '10px 4px', border: `1px solid ${C.am}50`,
+                      background: `${C.am}18`, color: C.am, fontSize: 9, fontWeight: 800,
+                      letterSpacing: '0.05em', cursor: cmdSent ? 'not-allowed' : 'pointer', borderRadius: 4 }}>
+                    ↺ REINICIAR
+                  </button>
+                  <button onClick={() => enviarComando('stop')} disabled={cmdSent}
+                    style={{ padding: '10px 4px', border: `1px solid ${C.re}50`,
+                      background: `${C.re}18`, color: C.re, fontSize: 9, fontWeight: 800,
+                      letterSpacing: '0.05em', cursor: cmdSent ? 'not-allowed' : 'pointer', borderRadius: 4 }}>
+                    ■ PARAR
+                  </button>
+                </div>
+                <div style={{ height: 1, background: C.bd, margin: '2px 0' }} />
+                <button onClick={() => enviarComando('buy_manual')} disabled={cmdSent}
+                  style={{ width: '100%', padding: 9, border: `1px solid ${C.cy}30`,
+                    background: `${C.cy}12`, color: C.cy, fontSize: 10, fontWeight: 700,
+                    letterSpacing: '0.06em', cursor: cmdSent ? 'not-allowed' : 'pointer', borderRadius: 4 }}>
+                  ▲ COMPRA MANUAL
+                </button>
+                <button onClick={() => enviarComando('sell_manual')} disabled={cmdSent}
+                  style={{ width: '100%', padding: 9, border: `1px solid ${C.am}30`,
+                    background: `${C.am}12`, color: C.am, fontSize: 10, fontWeight: 700,
+                    letterSpacing: '0.06em', cursor: cmdSent ? 'not-allowed' : 'pointer', borderRadius: 4 }}>
+                  ▼ VENDA MANUAL
+                </button>
+                {pending.length > 0 && (
+                  <button onClick={() => enviarComando('close_position')} disabled={cmdSent}
+                    style={{ width: '100%', padding: 9, border: `1px solid ${C.re}40`,
+                      background: `${C.re}18`, color: C.re, fontSize: 10, fontWeight: 700,
+                      letterSpacing: '0.06em', cursor: cmdSent ? 'not-allowed' : 'pointer',
+                      borderRadius: 4, animation: 'pulse 2s ease-in-out infinite' }}>
+                    ■ FECHAR POSIÇÃO
+                  </button>
+                )}
+                {cmdSent && (
+                  <div style={{ fontSize: 9, color: C.am, textAlign: 'center', padding: '3px 0' }}>
+                    ⏳ Comando enviado — aguardando bot...
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Log do Bot — terminal premium */}
             <div style={{ ...card, overflow: 'hidden' }}>
               <div style={{ padding: '9px 14px', borderBottom: `1px solid ${C.bd}`,
@@ -1473,8 +1542,8 @@ export default function MonitorPage() {
               </div>
             </div>
 
-            {/* Quick actions */}
-            <div style={{ ...card, overflow: 'hidden' }}>
+            {/* Quick actions — duplicado removido, bloco principal agora está no topo da sidebar */}
+            <div style={{ display: 'none' }}>
               <div style={{ padding: '9px 14px', borderBottom: `1px solid ${C.bd}`,
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ ...lbl, marginBottom: 0 }}>Controle do Bot</div>
