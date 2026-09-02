@@ -150,6 +150,29 @@ class ClienteMT5:
         df = df[['open', 'high', 'low', 'close', 'volume']]
         return df
 
+    def obter_candle_formando(self) -> Optional[dict]:
+        """
+        Retorna o candle M5 em formação (ainda não fechado) com OHLCV ao vivo.
+
+        MT5: copy_rates_from_pos com pos=0 retorna a barra mais recente,
+        que ainda está sendo construída entre fechamentos M5.
+        """
+        if not MT5_DISPONIVEL or not self.conectado:
+            return None
+        tf_id = self._TF_MAP.get('M5')
+        rates = mt5.copy_rates_from_pos(self.par, tf_id, 0, 1)
+        if rates is None or len(rates) == 0:
+            return None
+        r = rates[0]
+        return {
+            'time':   int(r['time']),
+            'open':   float(r['open']),
+            'high':   float(r['high']),
+            'low':    float(r['low']),
+            'close':  float(r['close']),
+            'volume': float(r['tick_volume']),
+        }
+
     def capital_atual(self) -> Optional[float]:
         """Retorna o saldo atual da conta em USD, ou None se não conectado."""
         if not MT5_DISPONIVEL or not self.conectado:

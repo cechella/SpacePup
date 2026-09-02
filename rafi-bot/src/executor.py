@@ -183,13 +183,13 @@ class RafiBot:
                 # Ciclo principal
                 self._ciclo()
 
-                # Aguarda próximo candle M5, enviando heartbeat a cada 60s
+                # Aguarda próximo candle M5, publicando candle em formação a cada 30s
                 agora   = time.time()
                 proximo = (int(agora / 300) + 1) * 300
                 espera  = proximo - agora
                 logger.info(f"Aguardando fechamento do candle M5 em {espera:.0f}s...")
                 while time.time() < proximo - 1:
-                    time.sleep(min(60, max(1, proximo - time.time())))
+                    time.sleep(min(30, max(1, proximo - time.time())))
                     if time.time() < proximo - 1:
                         # Heartbeat periódico para manter dashboard online
                         publicar_heartbeat(
@@ -202,6 +202,17 @@ class RafiBot:
                             server         = self._conta_server,
                             account        = self._conta_account,
                         )
+                        # Candle em formação: atualiza o gráfico entre fechamentos M5
+                        candle_formando = self.mt5.obter_candle_formando()
+                        if candle_formando:
+                            publicar_candle(
+                                time_unix  = candle_formando['time'],
+                                open_price = candle_formando['open'],
+                                high       = candle_formando['high'],
+                                low        = candle_formando['low'],
+                                close      = candle_formando['close'],
+                                volume     = candle_formando['volume'],
+                            )
 
         except KeyboardInterrupt:
             logger.info("Ctrl+C — encerrando bot.")
