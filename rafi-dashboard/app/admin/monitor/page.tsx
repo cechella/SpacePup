@@ -198,6 +198,9 @@ function LiveChart({ candles, trades, pending }: {
   const chartRef     = useRef<any>(null)
   const cSeriesRef   = useRef<any>(null)
   const rSeriesRef   = useRef<any>(null)
+  const bbURef       = useRef<any>(null)
+  const bbMRef       = useRef<any>(null)
+  const bbLRef       = useRef<any>(null)
   const plinesRef    = useRef<any[]>([])
   const [ready, setReady] = useState(false)
 
@@ -227,11 +230,20 @@ function LiveChart({ candles, trades, pending }: {
       handleScale: true,
     })
 
+    // Candles neutros: corpo transparente, borda colorida (igual simulação TradingView)
     const cSeries = chart.addCandlestickSeries({
-      upColor: '#10b981', downColor: '#ef4444',
-      borderUpColor: '#10b981', borderDownColor: '#ef4444',
-      wickUpColor: '#10b981', wickDownColor: '#ef4444',
+      upColor:         'rgba(230,237,243,0.07)',
+      downColor:       'rgba(230,237,243,0.07)',
+      borderUpColor:   '#10b981',
+      borderDownColor: '#ef4444',
+      wickUpColor:     '#10b981',
+      wickDownColor:   '#ef4444',
     })
+
+    // Bandas de Bollinger BB(8,2) em ciano
+    const bbU = chart.addLineSeries({ color: '#06b6d4',   lineWidth: 1, lineStyle: 0, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
+    const bbM = chart.addLineSeries({ color: '#06b6d466', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
+    const bbL = chart.addLineSeries({ color: '#06b6d4',   lineWidth: 1, lineStyle: 0, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
 
     // RAFI histograma na parte inferior (escala separada)
     const rSeries = chart.addHistogramSeries({
@@ -239,7 +251,12 @@ function LiveChart({ candles, trades, pending }: {
     })
     chart.priceScale('rafi').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
 
-    chartRef.current = chart; cSeriesRef.current = cSeries; rSeriesRef.current = rSeries
+    chartRef.current = chart
+    cSeriesRef.current = cSeries
+    rSeriesRef.current = rSeries
+    bbURef.current = bbU
+    bbMRef.current = bbM
+    bbLRef.current = bbL
 
     const obs = new ResizeObserver(() => {
       if (containerRef.current && chartRef.current) {
@@ -248,16 +265,39 @@ function LiveChart({ candles, trades, pending }: {
     })
     obs.observe(containerRef.current)
 
-    return () => { obs.disconnect(); chart.remove(); chartRef.current = null }
+    return () => {
+      obs.disconnect(); chart.remove()
+      chartRef.current = null
+      bbURef.current = null; bbMRef.current = null; bbLRef.current = null
+    }
   }, [ready])
 
-  // Atualiza dados dos candles e RAFI
+  // Atualiza dados dos candles, BB e RAFI
   useEffect(() => {
     if (!cSeriesRef.current || candles.length === 0) return
 
     cSeriesRef.current.setData(candles.map(c => ({
       time: c.time, open: c.open, high: c.high, low: c.low, close: c.close,
     })))
+
+    // Calcular e publicar BB(8,2)
+    if (bbURef.current && candles.length >= 8) {
+      const P = 8, M = 2
+      const bu: {time: number, value: number}[] = []
+      const bm: {time: number, value: number}[] = []
+      const bl: {time: number, value: number}[] = []
+      for (let i = P - 1; i < candles.length; i++) {
+        const sl = candles.slice(i - P + 1, i + 1).map(r => r.close)
+        const sma = sl.reduce((a, b) => a + b, 0) / P
+        const std = Math.sqrt(sl.reduce((a, b) => a + (b - sma) ** 2, 0) / P)
+        bu.push({ time: candles[i].time, value: parseFloat((sma + M * std).toFixed(5)) })
+        bm.push({ time: candles[i].time, value: parseFloat(sma.toFixed(5)) })
+        bl.push({ time: candles[i].time, value: parseFloat((sma - M * std).toFixed(5)) })
+      }
+      bbURef.current.setData(bu)
+      bbMRef.current.setData(bm)
+      bbLRef.current.setData(bl)
+    }
 
     if (rSeriesRef.current) {
       const rafiData = candles
