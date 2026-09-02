@@ -281,7 +281,7 @@ class RafiBot:
             return
 
         # 6. Calcula indicadores
-        indice_forca = calcular_indice_forca(df, periodo=3)
+        indice_forca = calcular_indice_forca(df, periodo=14)  # igual ao backtest (default)
         bb           = calcular_bollinger(df, periodo=8, desvios=2.0)
         pivotos      = detectar_pivotos(df, janela=5)
         niveis_sr    = niveis_sr_ativos(df, pivotos, lookback=self.cfg.get('sr_lookback', 20))
@@ -622,7 +622,7 @@ class RafiBot:
                     'rafi': 0.0, 'rafi_dir': 'bear', 'bb_width': 0.0,
                 }
 
-            indice_forca = calcular_indice_forca(df, periodo=3)
+            indice_forca = calcular_indice_forca(df, periodo=14)  # igual ao backtest (default)
             bb = calcular_bollinger(df, periodo=8, desvios=2.0)
             self._executar_sinal(sinal_dict, df, indice_forca, bb)
 
