@@ -761,7 +761,7 @@ export default function MonitorPage() {
               ['BB Período',     '8 · 2 desvios'],
               ['BB Squeeze',     '< 0.12% (relativo)'],
               ['BB Abertura',    '> 5% do squeeze'],
-              ['SR Lookback',    '20 candles anteriores'],
+              ['SR Lookback',    '50 candles anteriores'],
               ['Rompimento mín', '0.3 pip (0.00003)'],
               ['Gap trades',     '8 candles mínimo'],
               ['Sessão',         '24h · sem filtro'],
