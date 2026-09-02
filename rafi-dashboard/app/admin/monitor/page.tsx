@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@supabase/supabase-js'
+import { applyRAFICandleColors } from '@/lib/indicators'
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
@@ -230,14 +231,13 @@ function LiveChart({ candles, trades, pending }: {
       handleScale: true,
     })
 
-    // Candles ocos: corpo vazio, borda colorida, pavio branco (= simulação Análise RAFI)
+    // Mesma config do rafi-chart.tsx — cores definidas por applyRAFICandleColors
     const cSeries = chart.addCandlestickSeries({
-      upColor:         'rgba(0,0,0,0)',
-      downColor:       'rgba(0,0,0,0)',
-      borderUpColor:   '#26a69a',
-      borderDownColor: '#ef5350',
-      wickUpColor:     '#d1d5db',
-      wickDownColor:   '#d1d5db',
+      upColor:       '#10b981',
+      downColor:     '#ef4444',
+      borderVisible: false,
+      wickUpColor:   '#10b981',
+      wickDownColor: '#ef4444',
     })
 
     // Bandas de Bollinger BB(8,2) em ciano
@@ -279,17 +279,18 @@ function LiveChart({ candles, trades, pending }: {
   useEffect(() => {
     if (!cSeriesRef.current || candles.length === 0) return
 
-    // Cor do candle baseada no RAFI (padrão oficial): verde, vermelho, amarelo, branco
-    cSeriesRef.current.setData(candles.map((c, i, arr) => {
-      const r    = c.rafi ?? 0
-      const prev = i > 0 ? (arr[i-1].rafi ?? 0) : 0
-      const exaust = prev >= 2.5 && r <= -2.5
-      let color = 'rgba(0,0,0,0)', borderColor = '#d1d5db', wickColor = '#d1d5db'
-      if (exaust)     { color = '#f59e0b'; borderColor = '#f59e0b'; wickColor = '#f59e0b' }
-      else if (r >= 2.5) { color = '#10b981'; borderColor = '#10b981'; wickColor = '#10b981' }
-      else if (r <= -2.5){ color = '#ef4444'; borderColor = '#ef4444'; wickColor = '#ef4444' }
-      return { time: c.time, open: c.open, high: c.high, low: c.low, close: c.close, color, borderColor, wickColor }
-    }))
+    // Usa a mesma função do Gráfico RAFI (applyRAFICandleColors) para colorir os candles
+    const rafiPoints = candles
+      .filter(c => c.rafi != null)
+      .map(c => ({
+        time:  c.time,
+        value: Math.abs(c.rafi!),
+        dir:   (c.rafi! >= 0 ? 'bull' : 'bear') as 'bull' | 'bear',
+        color: '',
+      }))
+    cSeriesRef.current.setData(
+      applyRAFICandleColors(candles as any, rafiPoints) as any
+    )
 
     // Calcular e publicar BB(8,2)
     if (bbURef.current && candles.length >= 8) {
