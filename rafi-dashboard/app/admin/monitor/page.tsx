@@ -206,8 +206,9 @@ function LiveChart({ candles, trades, pending }: {
     if (typeof window === 'undefined') return
     if (window.LightweightCharts) { setReady(true); return }
     const s = document.createElement('script')
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/lightweight-charts/4.1.3/lightweight-charts.standalone.production.js'
-    s.onload = () => setReady(true)
+    s.src = 'https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js'
+    s.onload  = () => setReady(true)
+    s.onerror = () => console.error('[LiveChart] Falha ao carregar Lightweight Charts do CDN')
     document.head.appendChild(s)
   }, [])
 
