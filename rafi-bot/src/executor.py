@@ -50,6 +50,7 @@ from .supabase_sync import (
     publicar_candle,
     publicar_candles_batch,
     verificar_comando_avancado,
+    publicar_log,
 )
 
 # ── Configuração de logging ───────────────────────────────────────────────────
@@ -132,8 +133,10 @@ class RafiBot:
         logger.info(f"Kill switch: crie o arquivo '{ARQUIVO_STOP}' na pasta raiz")
         logger.info("=" * 60)
 
+        publicar_log("Bot RAFI iniciado — conectando ao MT5", level='info')
         if not self.mt5.conectar():
             logger.error("Não foi possível conectar ao MT5. Verifique o terminal.")
+            publicar_log("ERRO: Não foi possível conectar ao MT5", level='error')
             return
 
         # Captura informações da conta após conectar
@@ -258,6 +261,10 @@ class RafiBot:
         # 4. Verifica limite diário de perda
         if self._limite_diario_atingido():
             logger.warning("Limite de perda diária atingido — sem novas entradas hoje.")
+            publicar_log(
+                f"Limite de perda diária atingido (−${self._perda_hoje:.2f}) — bot parado até amanhã",
+                level='warn',
+            )
             return
 
         # 5. Verifica número máximo de posições abertas
@@ -295,12 +302,23 @@ class RafiBot:
             logger.debug(f"Erro ao publicar candle: {e}")
 
         # 8. Verifica sinal de entrada no candle mais recente
-        sinal = self._verificar_sinal(df, indice_forca, bb, niveis_sr)
+        rafi_v = float(indice_forca.iloc[-1]) if indice_forca is not None else 0.0
+        sinal  = self._verificar_sinal(df, indice_forca, bb, niveis_sr)
         if sinal is None:
             logger.debug("Sem sinal de entrada.")
+            publicar_log(
+                f"Ciclo M5 — sem sinal | RAFI={rafi_v:.2f} | "
+                f"Saldo=${self.capital:.2f} | Pos={len(posicoes_abertas)}",
+                level='info',
+            )
             return
 
-        # 8. Calcula lote e envia ordem
+        # 9. Calcula lote e envia ordem
+        publicar_log(
+            f"SINAL {sinal['direcao'].upper()} detectado | Entry={sinal['entry']:.5f} | "
+            f"SL={sinal['stop_loss']:.5f} | TP={sinal['take_profit']:.5f} | RAFI={sinal['rafi']:.2f}",
+            level='signal',
+        )
         self._executar_sinal(sinal, df, indice_forca, bb)
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -392,6 +410,36 @@ class RafiBot:
                 'rafi': rafi_atual, 'rafi_dir': 'bear', 'bb_width': bb_curr_width,
             }
 
+        # ── Sinal em formação: RAFI entre 1.75 e 2.50 — publica no heartbeat ──
+        LIMIAR_FORMANDO = 1.75
+        if LIMIAR_FORMANDO <= rafi_atual < 2.5:
+            janela2    = df.iloc[-21:-1]
+            resist2    = float(janela2['high'].max())
+            suporte2   = float(janela2['low'].min())
+            c_close    = float(c['close'])
+            f_dir      = 'buy' if c_close > (resist2 + suporte2) / 2 else 'sell'
+            f_price    = resist2 if f_dir == 'buy' else suporte2
+            publicar_heartbeat(
+                status         = 'waiting',
+                balance        = self.capital,
+                equity         = self.mt5.equity_atual() or self.capital,
+                open_positions = len(self.mt5.posicoes_abertas()),
+                pnl_hoje       = self._pnl_hoje,
+                par            = self.par,
+                server         = self._conta_server,
+                account        = self._conta_account,
+                forming_signal    = True,
+                forming_direction = f_dir,
+                forming_rafi      = rafi_atual,
+                forming_tf_count  = 2,
+                forming_bb_open   = bool(curr_ratio > prev_ratio * 1.05),
+                forming_price     = f_price,
+            )
+            publicar_log(
+                f"Sinal em formação: {f_dir.upper()} | RAFI={rafi_atual:.2f} (falta {2.5-rafi_atual:.2f}) | Preço nível={f_price:.5f}",
+                level='info',
+            )
+
         return None
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -473,6 +521,10 @@ class RafiBot:
             logger.info(
                 f"Posição #{ticket} fechada → {resultado.upper()} "
                 f"| P&L: ${pnl_trade:+.2f} | Saldo: ${cap_novo:.2f}"
+            )
+            publicar_log(
+                f"Posição #{ticket} fechada → {resultado.upper()} | P&L: ${pnl_trade:+.2f} | Saldo: ${cap_novo:.2f}",
+                level='signal' if resultado == 'win' else 'warn',
             )
 
             # Acumula P&L do dia e controle de perda diária

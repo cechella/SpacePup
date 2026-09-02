@@ -54,12 +54,19 @@ interface BotStatus {
   balance: number; equity: number; open_positions: number; pnl_today: number
   par: string; server: string; account: number
   last_signal: string | null; updated_at: string
+  forming_signal?: boolean; forming_direction?: 'buy' | 'sell'
+  forming_rafi?: number; forming_tf_count?: number
+  forming_bb_open?: boolean; forming_price?: number
 }
 interface Trade {
   id: string; direction: 'buy' | 'sell'; entry: number
   stop_loss: number; take_profit: number; lot: number
   result: 'win' | 'loss' | 'pending'
   rafi: number | null; pnl: number | null; time: number; label: string
+}
+interface BotLog {
+  id: string; level: 'info' | 'warn' | 'error' | 'signal'; message: string
+  created_at: string; details?: string | null
 }
 interface CandleRow {
   time: number; open: number; high: number; low: number; close: number
@@ -439,6 +446,7 @@ export default function MonitorPage() {
   const [alert,     setAlert]     = useState<string | null>(null)
   const [m5Secs,    setM5Secs]    = useState(0)
   const [londonTime, setLondonTime] = useState('')
+  const [botLogs,   setBotLogs]   = useState<BotLog[]>([])
   const prevPendingLen = useRef(0)
 
   // ── London clock ────────────────────────────────────────────────────────────
@@ -463,6 +471,11 @@ export default function MonitorPage() {
       ])
       if (st) setStatus(st as BotStatus)
       if (tr) setTrades(tr as Trade[])
+    } catch {}
+    try {
+      const { data: lg } = await supa!.from('rafi_bot_logs')
+        .select('*').order('created_at', { ascending: false }).limit(80)
+      if (lg) setBotLogs(lg as BotLog[])
     } catch {}
   }, [])
 
@@ -668,7 +681,30 @@ export default function MonitorPage() {
         </div>
       </nav>
 
-      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}`}</style>
+      <style>{`
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+        @keyframes rafiPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.7;transform:scale(.98)}}
+        .kcard{position:relative;transition:transform .15s,box-shadow .15s}
+        .kcard:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(0,0,0,.4)}
+        .kcard::before{content:'';position:absolute;inset:0;opacity:0;transition:opacity .25s;pointer-events:none;z-index:0}
+        .kcard:hover::before{opacity:1}
+        .kcard>*{position:relative;z-index:1}
+        .kc-gr::before{background:radial-gradient(ellipse at 50% 110%,rgba(0,230,118,.12),transparent 65%)}
+        .kc-cy::before{background:radial-gradient(ellipse at 50% 110%,rgba(0,217,255,.12),transparent 65%)}
+        .kc-am::before{background:radial-gradient(ellipse at 50% 110%,rgba(255,179,0,.12),transparent 65%)}
+        .kc-re::before{background:radial-gradient(ellipse at 50% 110%,rgba(255,71,87,.12),transparent 65%)}
+        .kc-bl::before{background:radial-gradient(ellipse at 50% 110%,rgba(75,142,245,.12),transparent 65%)}
+        .bcard{position:relative;transition:transform .15s,box-shadow .15s,border-color .2s}
+        .bcard:hover{transform:translateY(-3px)}
+        .bc-gr:hover{border-color:rgba(0,230,118,.4)!important;box-shadow:0 6px 24px rgba(0,230,118,.10)}
+        .bc-am:hover{border-color:rgba(255,179,0,.4)!important;box-shadow:0 6px 24px rgba(255,179,0,.10)}
+        .bc-t3:hover{border-color:rgba(45,74,96,.7)!important}
+        .bhex{clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)}
+        .bcta{opacity:0;transition:opacity .15s}
+        .bcard:hover .bcta{opacity:1}
+        .logrow:nth-child(even){background:rgba(13,25,39,.5)}
+        .forming-card{animation:rafiPulse 2.8s ease-in-out infinite}
+      `}</style>
 
       <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
@@ -676,7 +712,7 @@ export default function MonitorPage() {
         <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1fr 1fr 1fr 1fr', gap: 10 }}>
 
           {/* Acumulado Total */}
-          <div style={{ ...card, padding: '20px 22px', position: 'relative' }}>
+          <div className="kcard kc-gr" style={{ ...card, padding: '20px 22px', position: 'relative' }}>
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: C.gr }} />
             <div style={lbl}>Acumulado Total</div>
             <div style={{ ...mono, fontSize: '2.2rem', fontWeight: 700, lineHeight: 1,
@@ -694,7 +730,7 @@ export default function MonitorPage() {
           </div>
 
           {/* Win Rate */}
-          <div style={{ ...card, padding: '20px 22px', position: 'relative' }}>
+          <div className="kcard kc-cy" style={{ ...card, padding: '20px 22px', position: 'relative' }}>
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: C.cy }} />
             <div style={lbl}>Win Rate</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '6px 0' }}>
@@ -722,7 +758,7 @@ export default function MonitorPage() {
           </div>
 
           {/* Bot Status */}
-          <div style={{ ...card, padding: '20px 22px', position: 'relative' }}>
+          <div className="kcard kc-am" style={{ ...card, padding: '20px 22px', position: 'relative' }}>
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: statusColor }} />
             <div style={lbl}>Bot Status</div>
             <div style={{ ...mono, fontSize: '1.5rem', fontWeight: 700, color: statusColor, lineHeight: 1 }}>
@@ -739,7 +775,7 @@ export default function MonitorPage() {
           </div>
 
           {/* P&L Hoje */}
-          <div style={{ ...card, padding: '20px 22px', position: 'relative' }}>
+          <div className="kcard kc-re" style={{ ...card, padding: '20px 22px', position: 'relative' }}>
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: C.re }} />
             <div style={{ position: 'absolute', top: 16, right: 16, fontSize: 7, fontWeight: 700,
               padding: '2px 7px', border: `1px solid ${C.bd}`, color: C.t2 }}>HOJE</div>
@@ -758,7 +794,7 @@ export default function MonitorPage() {
           </div>
 
           {/* Conta XM / Posição Aberta — dual-state */}
-          <div style={{ ...card, padding: '20px 22px', position: 'relative' }}>
+          <div className="kcard kc-bl" style={{ ...card, padding: '20px 22px', position: 'relative' }}>
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2,
               background: pending.length > 0 ? (pending[0].direction === 'buy' ? C.cy : C.am) : C.bl }} />
             {pending.length > 0 ? (
@@ -892,6 +928,70 @@ export default function MonitorPage() {
               <ForecastSection trades={trades} />
             </div>
 
+            {/* Sinal em Formação */}
+            {(() => {
+              const forming = status?.forming_signal
+              const fDir    = status?.forming_direction
+              const fRafi   = status?.forming_rafi ?? 0
+              const fTf     = status?.forming_tf_count ?? 0
+              const fBb     = status?.forming_bb_open ?? false
+              const fPrice  = status?.forming_price
+              const fColor  = fDir === 'buy' ? C.cy : fDir === 'sell' ? C.am : C.bl
+              const fPct    = Math.min(100, Math.round((fRafi / 2.5) * 100))
+              return (
+                <div className={forming ? 'forming-card' : ''} style={{
+                  ...card,
+                  borderColor: forming ? `${fColor}40` : C.bd,
+                  background: forming ? `linear-gradient(135deg, ${C.s1}, ${fColor}06)` : C.s1,
+                }}>
+                  <div style={{ padding: '10px 18px', borderBottom: `1px solid ${forming ? fColor + '25' : C.bd}`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
+                      fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%',
+                        background: forming ? fColor : C.t3,
+                        boxShadow: forming ? `0 0 6px ${fColor}` : 'none',
+                        animation: forming ? 'pulse 1.5s ease-in-out infinite' : 'none' }} />
+                      Sinal em Formação
+                    </div>
+                    <div style={{ fontSize: 7, fontWeight: 700, padding: '2px 7px',
+                      border: `1px solid ${forming ? fColor + '30' : C.bd}`,
+                      color: forming ? fColor : C.t3,
+                      background: forming ? `${fColor}08` : 'transparent' }}>
+                      {forming ? (fDir === 'buy' ? '▲ ROMPIMENTO ALTA' : '▼ ROMPIMENTO BAIXA') : 'AGUARDANDO'}
+                    </div>
+                  </div>
+                  {forming ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 0 }}>
+                      {[
+                        { label: 'Força RAFI', val: fRafi.toFixed(2), sub: fRafi >= 2.5 ? '≥ 2.50 ✓' : `${fPct}% do limiar`, color: fRafi >= 2.5 ? C.gr : C.am },
+                        { label: 'Timeframes', val: `${fTf}/3`, sub: fTf === 3 ? 'Alinhados ✓' : 'Parcial', color: fTf === 3 ? C.gr : C.am },
+                        { label: 'Bollinger', val: fBb ? 'ABRINDO' : 'FECHADO', sub: fBb ? 'Expansão ✓' : 'Sem expansão', color: fBb ? C.gr : C.t2 },
+                        { label: 'Preço', val: fPrice ? fPrice.toFixed(5) : '—', sub: `Dir: ${fDir === 'buy' ? 'compra' : 'venda'}`, color: fColor },
+                      ].map((item, i) => (
+                        <div key={i} style={{ padding: '12px 18px', borderRight: i < 3 ? `1px solid ${C.bd}` : 'none' }}>
+                          <div style={{ fontSize: 8, color: C.t2, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>{item.label}</div>
+                          <div style={{ fontFamily: 'monospace', fontSize: '1.1rem', fontWeight: 700, color: item.color, lineHeight: 1 }}>{item.val}</div>
+                          <div style={{ fontSize: 8, color: C.t3, marginTop: 3 }}>{item.sub}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ flex: 1, fontSize: 9, color: C.t3 }}>
+                        Bot monitora cada candle M5 — quando RAFI ≥ 1.75, timeframes parcialmente alinhados
+                        e Bollinger começando a abrir, exibe aqui antes de confirmar entrada.
+                      </div>
+                      <div style={{ textAlign: 'right', ...mono, fontSize: 9, color: C.t2, flexShrink: 0 }}>
+                        <div>Próx. análise</div>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 700, color: C.cy }}>{m5mm}:{m5ss}</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
             {/* Signal feed */}
             <div style={{ ...card }}>
               <div style={{ padding: '10px 18px', borderBottom: `1px solid ${C.bd}`,
@@ -948,6 +1048,57 @@ export default function MonitorPage() {
                     </span>
                   </div>
                 ))
+              )}
+            </div>
+
+            {/* ActivityFeed — bot log */}
+            <div style={{ ...card }}>
+              <div style={{ padding: '10px 18px', borderBottom: `1px solid ${C.bd}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
+                  fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.bl,
+                    animation: 'pulse 2s ease-in-out infinite' }} />
+                  Log do Bot — Feed ao Vivo
+                </div>
+                <div style={{ fontSize: 7, fontWeight: 700, padding: '2px 7px',
+                  border: `1px solid ${C.bd}`, color: C.t2 }}>{botLogs.length} entradas</div>
+              </div>
+              {botLogs.length === 0 ? (
+                <div style={{ padding: '20px 18px', fontSize: 10, color: C.t3, textAlign: 'center' }}>
+                  Aguardando logs do bot (tabela <code style={{ color: C.t2 }}>rafi_bot_logs</code>)...
+                </div>
+              ) : (
+                <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+                  {botLogs.slice(0, 40).map(log => {
+                    const lc = log.level === 'error' ? C.re : log.level === 'warn' ? C.am
+                      : log.level === 'signal' ? C.cy : C.t2
+                    return (
+                      <div key={log.id} className="logrow" style={{ display: 'grid',
+                        gridTemplateColumns: '60px 44px 1fr', gap: 6,
+                        padding: '5px 18px', fontSize: 8, fontFamily: 'monospace',
+                        borderBottom: `1px solid ${C.bd}` }}>
+                        <span style={{ color: C.t3 }}>
+                          {new Date(log.created_at).toLocaleTimeString('pt-BR',
+                            { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </span>
+                        <span style={{ fontWeight: 700, fontSize: 7, padding: '1px 4px',
+                          color: lc, border: `1px solid ${lc}30`, textAlign: 'center',
+                          alignSelf: 'center' }}>
+                          {log.level.toUpperCase()}
+                        </span>
+                        <span style={{ color: log.level === 'error' ? C.re
+                          : log.level === 'signal' ? C.tx : C.t2,
+                          wordBreak: 'break-all', lineHeight: 1.6 }}>
+                          {log.message}
+                          {log.details && (
+                            <span style={{ color: C.t3, marginLeft: 6 }}>{log.details}</span>
+                          )}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
               )}
             </div>
           </div>
@@ -1098,45 +1249,91 @@ export default function MonitorPage() {
             <span style={{ fontSize: 8, color: C.t3, ...mono }}>WIN RATE ALVO ML: 90–95%</span>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, marginBottom: 8 }}>
-            {[
-              { name: 'XM Global',    sub: 'EURUSD# · MT5 · B-book ⚠', status: 'ATIVO',   statusColor: C.gr,
-                top: C.gr, health: 97, saldo: bal > 0 ? fmtUSD(bal) : '$31.96', op: 1 },
-              { name: 'IC Markets',   sub: 'ECN/STP · MT5 · 0.1 pip',  status: 'ETAPA 6', statusColor: C.am,
-                top: C.am, health: null, saldo: null, op: 0.6 },
-              { name: 'Pepperstone', sub: 'ECN/STP · MT5',             status: 'ETAPA 7', statusColor: C.t3,
-                top: C.t3, health: null, saldo: null, op: 0.4 },
-              { name: 'Tickmill',     sub: 'ECN/STP · MT5',             status: 'ETAPA 7', statusColor: C.t3,
-                top: C.t3, health: null, saldo: null, op: 0.4 },
-            ].map(b => (
-              <div key={b.name} style={{ ...card, padding: '14px 16px',
-                position: 'relative', opacity: b.op }}>
-                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: b.top }} />
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: b.op === 1 ? C.tx : C.t2 }}>{b.name}</div>
-                  <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 6px',
-                    border: `1px solid ${b.statusColor}40`, color: b.statusColor,
-                    background: `${b.statusColor}08` }}>{b.status}</span>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, marginBottom: 8 }}>
+            {([
+              { name: 'XM Global',   initials: 'XM', sub: 'EURUSD# · MT5 · B-book', status: 'ATIVO',
+                sc: C.gr, health: 97, saldo: bal > 0 ? fmtUSD(bal) : '$31.96', active: true,
+                spark: [60,65,62,70,68,75,72,80,77,85,82,90,88,95,97] },
+              { name: 'IC Markets',  initials: 'IC', sub: 'ECN/STP · MT5 · 0.1 pip', status: 'ETAPA 6',
+                sc: C.am, health: null, saldo: null, active: false, spark: [] },
+              { name: 'Pepperstone', initials: 'PP', sub: 'ECN/STP · MT5 · Razor',   status: 'ETAPA 7',
+                sc: C.t3, health: null, saldo: null, active: false, spark: [] },
+              { name: 'Tickmill',    initials: 'TK', sub: 'ECN/STP · MT5 · Pro',     status: 'ETAPA 7',
+                sc: C.t3, health: null, saldo: null, active: false, spark: [] },
+            ] as { name:string; initials:string; sub:string; status:string; sc:string; health:number|null; saldo:string|null; active:boolean; spark:number[] }[]).map(b => {
+              const r = 20; const circ = 2 * Math.PI * r
+              const dash = b.health !== null ? circ * (b.health / 100) : 0
+              const sparkMax = b.spark.length ? Math.max(...b.spark) : 100
+              const sparkMin = b.spark.length ? Math.min(...b.spark) : 0
+              const sparkW = 100, sparkH = 28
+              const sparkPts = b.spark.map((v, i) =>
+                `${(i / (b.spark.length - 1)) * sparkW},${sparkH - ((v - sparkMin) / (sparkMax - sparkMin + 0.01)) * (sparkH - 4)}`
+              ).join(' ')
+              return (
+                <div key={b.name} className={`bcard ${b.active ? 'bc-gr' : 'bc-t3'}`} style={{
+                  ...card, padding: 18, position: 'relative',
+                  opacity: b.active ? 1 : 0.55,
+                }}>
+                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: b.sc }} />
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 12 }}>
+                    {/* Hex badge */}
+                    <div className="bhex" style={{ width: 44, height: 44, background: `${b.sc}18`,
+                      border: `1.5px solid ${b.sc}30`, display: 'flex', alignItems: 'center',
+                      justifyContent: 'center', flexShrink: 0 }}>
+                      <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 800, color: b.sc }}>
+                        {b.initials}
+                      </span>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: b.active ? C.tx : C.t2 }}>{b.name}</div>
+                        <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 7px',
+                          border: `1px solid ${b.sc}40`, color: b.sc, background: `${b.sc}08` }}>
+                          {b.status}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 8, color: C.t2 }}>{b.sub}</div>
+                    </div>
+                  </div>
+                  {b.health !== null ? (
+                    <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+                      {/* Health ring */}
+                      <svg width="52" height="52" viewBox="0 0 52 52" style={{ flexShrink: 0 }}>
+                        <circle cx="26" cy="26" r={r} fill="none" stroke={C.s3} strokeWidth="4" />
+                        <circle cx="26" cy="26" r={r} fill="none" stroke={b.sc} strokeWidth="4"
+                          strokeDasharray={`${dash.toFixed(1)} ${circ.toFixed(1)}`}
+                          strokeLinecap="round" transform="rotate(-90 26 26)" />
+                        <text x="26" y="30" textAnchor="middle" fill={b.sc}
+                          fontFamily="monospace" fontSize="10" fontWeight="700">{b.health}</text>
+                      </svg>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 8, color: C.t2, marginBottom: 4 }}>Saúde do sistema</div>
+                        {/* Sparkline */}
+                        <svg viewBox={`0 0 ${sparkW} ${sparkH}`} style={{ width: '100%', height: 28 }}>
+                          <polyline points={sparkPts} fill="none" stroke={b.sc} strokeWidth="1.5"
+                            strokeLinejoin="round" strokeLinecap="round" opacity="0.8" />
+                        </svg>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                          <span style={{ fontSize: 8, color: C.t2 }}>Saldo</span>
+                          <span style={{ fontFamily: 'monospace', fontSize: 9, color: C.tx, fontWeight: 700 }}>
+                            {b.saldo}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 9, color: C.t3, padding: '4px 0' }}>
+                      Conta não aberta · Aguarda etapas anteriores
+                    </div>
+                  )}
+                  <button className="bcta" style={{ marginTop: 10, width: '100%', padding: '6px 0',
+                    border: `1px solid ${b.sc}30`, background: `${b.sc}08`, color: b.sc,
+                    fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', cursor: 'pointer' }}>
+                    VER CONFIG →
+                  </button>
                 </div>
-                <div style={{ fontSize: 8, color: C.t2, marginBottom: 8 }}>{b.sub}</div>
-                {b.health !== null && (
-                  <>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: C.t2, marginBottom: 3 }}>
-                      <span>Saúde</span><span style={{ ...mono, color: C.gr }}>{b.health}/100</span>
-                    </div>
-                    <div style={{ height: 2, background: C.s3, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${b.health}%`, background: C.gr }} />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, marginTop: 6, color: C.t2 }}>
-                      <span>Saldo</span><span style={{ ...mono }}>{b.saldo}</span>
-                    </div>
-                  </>
-                )}
-                {b.health === null && (
-                  <div style={{ fontSize: 9, color: C.t3, fontStyle: 'italic' }}>Conta não aberta ainda</div>
-                )}
-              </div>
-            ))}
+              )
+            })}
           </div>
 
           {/* Roadmap strip */}

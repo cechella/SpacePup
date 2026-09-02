@@ -139,38 +139,51 @@ def atualizar_resultado(ticket: int, result: str, ts: int,
 
 
 def publicar_heartbeat(
-    status:         str,
-    balance:        float,
-    equity:         float,
-    open_positions: int,
-    pnl_hoje:       float = 0.0,
-    par:            str   = 'EURUSD',
-    server:         str   = '',
-    account:        int   = 0,
-    last_signal:    Optional[str] = None,
+    status:            str,
+    balance:           float,
+    equity:            float,
+    open_positions:    int,
+    pnl_hoje:          float = 0.0,
+    par:               str   = 'EURUSD',
+    server:            str   = '',
+    account:           int   = 0,
+    last_signal:       Optional[str]   = None,
+    forming_signal:    bool             = False,
+    forming_direction: Optional[str]   = None,
+    forming_rafi:      Optional[float] = None,
+    forming_tf_count:  Optional[int]   = None,
+    forming_bb_open:   bool             = False,
+    forming_price:     Optional[float] = None,
 ) -> bool:
     """
     Publica o status atual do bot na tabela rafi_bot_status (heartbeat).
 
     Chamado a cada ciclo para que o dashboard saiba que o bot está vivo.
     status: 'running' | 'waiting' | 'stopped' | 'error'
+    Os campos forming_* alimentam o card "Sinal em Formação" no admin.
     """
     cliente = _get_cliente()
     if cliente is None:
         return False
 
     row = {
-        'id':             'main',
-        'status':         status,
-        'balance':        round(balance, 2),
-        'equity':         round(equity, 2),
-        'open_positions': open_positions,
-        'pnl_today':      round(pnl_hoje, 2),
-        'par':            par,
-        'server':         server,
-        'account':        account,
-        'last_signal':    last_signal,
-        'updated_at':     datetime.utcnow().isoformat(),
+        'id':                'main',
+        'status':            status,
+        'balance':           round(balance, 2),
+        'equity':            round(equity, 2),
+        'open_positions':    open_positions,
+        'pnl_today':         round(pnl_hoje, 2),
+        'par':               par,
+        'server':            server,
+        'account':           account,
+        'last_signal':       last_signal,
+        'forming_signal':    forming_signal,
+        'forming_direction': forming_direction,
+        'forming_rafi':      round(forming_rafi, 4) if forming_rafi is not None else None,
+        'forming_tf_count':  forming_tf_count,
+        'forming_bb_open':   forming_bb_open,
+        'forming_price':     round(forming_price, 5) if forming_price is not None else None,
+        'updated_at':        datetime.utcnow().isoformat(),
     }
 
     try:
@@ -319,4 +332,49 @@ def verificar_comando_parar() -> bool:
         return True
     except Exception as e:
         logger.error(f"[Supabase] Erro ao verificar comandos: {e}")
+        return False
+
+
+def publicar_log(
+    message: str,
+    level:   str = 'info',
+    details: Optional[str] = None,
+) -> bool:
+    """
+    Publica uma entrada de log na tabela rafi_bot_logs.
+
+    level: 'info' | 'warn' | 'error' | 'signal'
+    Alimenta o feed ao vivo do admin (ActivityFeed).
+
+    SQL para criar a tabela no Supabase (executar uma vez):
+      create table rafi_bot_logs (
+        id uuid primary key default gen_random_uuid(),
+        level text not null default 'info',
+        message text not null,
+        details text,
+        created_at timestamptz not null default now()
+      );
+      alter table rafi_bot_logs enable row level security;
+      create policy "anon_r" on rafi_bot_logs for select to anon using (true);
+      create policy "anon_i" on rafi_bot_logs for insert to anon with check (true);
+      -- Limpar logs antigos automaticamente (opcional):
+      -- create index on rafi_bot_logs (created_at);
+    """
+    cliente = _get_cliente()
+    if cliente is None:
+        return False
+
+    row = {
+        'level':      level,
+        'message':    message,
+        'details':    details,
+        'created_at': datetime.utcnow().isoformat(),
+    }
+
+    try:
+        cliente.table('rafi_bot_logs').insert(row).execute()
+        return True
+    except Exception as e:
+        # Falha silenciosa — log não bloqueia o bot
+        logger.debug(f"[Supabase] rafi_bot_logs erro (tabela pode não existir): {e}")
         return False
