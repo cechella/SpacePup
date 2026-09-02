@@ -555,19 +555,24 @@ export default function MonitorPage() {
   const day30Start = (now - 30 * 86400_000) / 1000
 
   function pnlPeriod(from: number) {
-    return closed.filter(t => t.time >= from).reduce((s, t) => s + (t.pnl ?? (t.result === 'win' ? 1 : -1)), 0)
+    // Soma apenas trades com pnl real registrado
+    return closed.filter(t => t.time >= from && t.pnl !== null).reduce((s, t) => s + t.pnl!, 0)
   }
 
-  const pnlToday  = status?.pnl_today ?? pnlPeriod(todayStart)
-  const pnl7d     = pnlPeriod(day7Start)
-  const pnl30d    = pnlPeriod(day30Start)
+  const pnlTodayCalc = pnlPeriod(todayStart)
+  const pnlToday  = status?.pnl_today ?? pnlTodayCalc
   const floatPnL  = status ? (status.equity - status.balance) : 0
   const bal       = status?.balance ?? 0
-  const pctToday  = bal > 0 ? (pnlToday / (bal - pnlToday)) * 100 : 0
+  const eq        = status?.equity ?? bal
+  const pctToday  = bal > 0 ? (pnlToday / Math.max(bal, 0.01)) * 100 : 0
   const tradesHoje = closed.filter(t => t.time >= todayStart).length
 
-  // Cumulative P&L for hero card
-  const totalPnL = closed.reduce((s, t) => s + (t.pnl ?? (t.result === 'win' ? 1 : -1)), 0)
+  // Acumulado total: apenas trades com pnl real no banco
+  const realPnLTrades = useMemo(() => closed.filter(t => t.pnl !== null), [closed])
+  const totalPnL = realPnLTrades.reduce((s, t) => s + t.pnl!, 0)
+
+  // Max DD diário em dólares (5% do saldo)
+  const maxDdUsd = bal > 0 ? bal * 0.05 : 0
 
   // ── Shared inline style helpers ───────────────────────────────────────────────
   const card = {
@@ -676,12 +681,12 @@ export default function MonitorPage() {
             <div style={lbl}>Acumulado Total</div>
             <div style={{ ...mono, fontSize: '2.2rem', fontWeight: 700, lineHeight: 1,
               color: totalPnL >= 0 ? C.gr : C.re, marginBottom: 4 }}>
-              {fmtUSD(totalPnL, true)}
+              {realPnLTrades.length > 0 ? fmtUSD(totalPnL, true) : '—'}
             </div>
             <div style={{ fontSize: 10, color: C.t2 }}>
-              {closed.length} trades · desde {closed.length > 0
-                ? new Date(closed[closed.length - 1].time * 1000).toLocaleDateString('pt-BR', { month: '2-digit', year: '2-digit' })
-                : '—'}
+              {realPnLTrades.length > 0
+                ? `${realPnLTrades.length} c/ P&L real · ${closed.length - realPnLTrades.length} sem dado`
+                : `${closed.length} trades · P&L não registrado`}
             </div>
             <div style={{ marginTop: 14 }}>
               <CapitalCurveChart trades={trades} />
@@ -752,34 +757,86 @@ export default function MonitorPage() {
             </div>
           </div>
 
-          {/* Posição Aberta */}
+          {/* Conta XM / Posição Aberta — dual-state */}
           <div style={{ ...card, padding: '20px 22px', position: 'relative' }}>
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: C.bl }} />
-            <div style={lbl}>Posição Aberta</div>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2,
+              background: pending.length > 0 ? (pending[0].direction === 'buy' ? C.cy : C.am) : C.bl }} />
             {pending.length > 0 ? (
+              /* ── Com posição aberta ── */
               <>
-                <div style={{ ...mono, fontSize: '1.4rem', fontWeight: 700,
+                <div style={lbl}>Posição Aberta</div>
+                <div style={{ ...mono, fontSize: '1.35rem', fontWeight: 700,
                   color: pending[0].direction === 'buy' ? C.cy : C.am }}>
                   {pending[0].direction === 'buy' ? '▲ COMPRA' : '▼ VENDA'}
                 </div>
-                <div style={{ ...mono, fontSize: 10, color: C.tx, marginTop: 4 }}>
+                <div style={{ ...mono, fontSize: 11, color: C.tx, marginTop: 2 }}>
                   {pending[0].entry.toFixed(5)}
                 </div>
-                <div style={{ fontSize: 9, color: C.t2, marginTop: 6 }}>
-                  <div>Float: <span style={{ ...mono, color: floatPnL >= 0 ? C.gr : C.re }}>
-                    {fmtUSD(floatPnL, true)}
-                  </span></div>
-                  <div>SL: <span style={{ ...mono, color: C.re }}>{pending[0].stop_loss.toFixed(5)}</span></div>
-                  <div>TP: <span style={{ ...mono, color: C.gr }}>{pending[0].take_profit.toFixed(5)}</span></div>
+                <div style={{ fontSize: 9, color: C.t2, marginTop: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Float</span>
+                    <span style={{ ...mono, fontWeight: 700, color: floatPnL >= 0 ? C.gr : C.re }}>
+                      {fmtUSD(floatPnL, true)}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>SL</span><span style={{ ...mono, color: C.re }}>{pending[0].stop_loss.toFixed(5)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>TP</span><span style={{ ...mono, color: C.gr }}>{pending[0].take_profit.toFixed(5)}</span>
+                  </div>
+                </div>
+                <div style={{ marginTop: 10, borderTop: `1px solid ${C.bd}`, paddingTop: 8,
+                  display: 'flex', justifyContent: 'space-between', fontSize: 9, color: C.t2 }}>
+                  <span>Saldo: <span style={{ ...mono, color: C.tx }}>{bal > 0 ? fmtUSD(bal) : '—'}</span></span>
+                  <span style={{ ...mono, color: C.cy }}>{m5mm}:{m5ss} ↻</span>
                 </div>
               </>
             ) : (
+              /* ── Sem posição: mostra conta XM ── */
               <>
-                <div style={{ ...mono, fontSize: '1.5rem', fontWeight: 700, color: C.t2 }}>NENHUMA</div>
-                <div style={{ fontSize: 10, color: C.t2, marginTop: 8 }}>Aguardando sinal</div>
-                <div style={{ fontSize: 9, color: C.t2, marginTop: 6 }}>
-                  <div>Float P&L: <span style={{ ...mono }}>$0.00</span></div>
-                  <div>Próx. candle: <span style={{ ...mono, color: C.cy }}>{m5mm}:{m5ss}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={lbl}>Conta XM</div>
+                  <div style={{ fontSize: 7, fontWeight: 700, padding: '2px 7px',
+                    border: `1px solid ${C.bd}`, color: C.t3, ...mono }}>
+                    #{status?.account ?? '—'}
+                  </div>
+                </div>
+                <div style={{ ...mono, fontSize: '2rem', fontWeight: 700, lineHeight: 1,
+                  color: C.tx, marginBottom: 2 }}>
+                  {bal > 0 ? fmtUSD(bal) : '—'}
+                </div>
+                <div style={{ fontSize: 8, color: C.t2, marginBottom: 10 }}>Saldo disponível</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 9 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: C.t2 }}>Equity</span>
+                    <span style={{ ...mono, color: C.tx }}>{fmtUSD(eq)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: C.t2 }}>Lote atual</span>
+                    <span style={{ ...mono, color: C.am }}>{bal > 0 ? loteAtual(bal) : '—'}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: C.t2 }}>Max perda/dia</span>
+                    <span style={{ ...mono, color: C.re }}>
+                      {maxDdUsd > 0 ? `−${fmtUSD(maxDdUsd)}` : '—'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: C.t2 }}>Último sinal</span>
+                    <span style={{ ...mono, color: C.t2, fontSize: 8, maxWidth: 90,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {status?.last_signal ?? 'nenhum'}
+                    </span>
+                  </div>
+                </div>
+                <div style={{ marginTop: 10, borderTop: `1px solid ${C.bd}`, paddingTop: 6,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  fontSize: 8, color: C.t3 }}>
+                  <span>Próx. candle M5</span>
+                  <span style={{ ...mono, color: C.cy, fontSize: 11, fontWeight: 700 }}>
+                    {m5mm}:{m5ss}
+                  </span>
                 </div>
               </>
             )}
