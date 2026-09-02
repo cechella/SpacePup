@@ -304,7 +304,7 @@ export default function MonitorPage() {
   const now = Date.now()
 
   const isOnline = status
-    ? (now - new Date(status.updated_at).getTime()) < 120_000
+    ? (now - new Date(status.updated_at).getTime()) < 420_000 // 7min: cobre candle M5 (5min) + buffer
     : false
 
   const statusColor =
