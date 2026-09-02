@@ -51,6 +51,7 @@ from .supabase_sync import (
     publicar_candles_batch,
     verificar_comando_avancado,
     publicar_log,
+    carregar_config_supabase,
 )
 
 # ── Configuração de logging ───────────────────────────────────────────────────
@@ -115,6 +116,24 @@ class RafiBot:
         # Info da conta MT5 (preenchida no conectar)
         self._conta_account = 0
         self._conta_server  = ''
+
+        # Sobrescreve config.yaml com valores salvos no dashboard (/admin/config)
+        cfg_supa = carregar_config_supabase(profile='live')
+        if cfg_supa:
+            MAPA = {
+                'forca_limiar': 'forca_limiar', 'rafi_periodo': 'rafi_periodo',
+                'sr_lookback': 'sr_lookback', 'swing_stop_lookback': 'swing_stop_lookback',
+                'ma_rapida': 'ma_rapida', 'ma_lenta': 'ma_lenta', 'ma_threshold': 'ma_threshold',
+                'bb_filtro_ativo': 'bb_filtro_ativo', 'bb_limiar_estreita': 'bb_limiar_estreita',
+                'bb_periodo': 'bb_periodo', 'bb_desvios': 'bb_desvios',
+                'risco_por_trade': 'risco_por_trade', 'ratio_risco_retorno': 'ratio_risco_retorno',
+                'max_trades_simultaneos': 'max_trades_simultaneos',
+                'risco_maximo_diario': 'risco_maximo_diario',
+            }
+            for chave_supa, chave_cfg in MAPA.items():
+                if chave_supa in cfg_supa and cfg_supa[chave_supa] is not None:
+                    self.cfg[chave_cfg] = cfg_supa[chave_supa]
+            logger.info("Config carregada do Supabase (dashboard /admin/config)")
 
         logger.info(f"RafiBot iniciado | Par: {self.par} | Capital: ${self.capital:.2f}")
 

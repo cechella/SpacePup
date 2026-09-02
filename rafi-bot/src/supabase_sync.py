@@ -378,3 +378,28 @@ def publicar_log(
         # Falha silenciosa — log não bloqueia o bot
         logger.debug(f"[Supabase] rafi_bot_logs erro (tabela pode não existir): {e}")
         return False
+
+
+def carregar_config_supabase(profile: str = 'live') -> Optional[dict]:
+    """
+    Carrega configurações do perfil indicado na tabela rafi_bot_config.
+
+    Retorna dict com os parâmetros ou None se a tabela/perfil não existir.
+    O bot usa esses valores para sobrescrever o config.yaml — qualquer ajuste
+    feito no dashboard (/admin/config) é aplicado imediatamente sem tocar no código.
+
+    Parâmetros:
+      profile : 'live' (bot ao vivo) ou 'simulator' (backtest)
+    """
+    cliente = _get_cliente()
+    if not cliente:
+        return None
+    try:
+        resp = cliente.table('rafi_bot_config').select('*').eq('profile', profile).limit(1).execute()
+        if resp.data:
+            logger.info(f"[Supabase] Config '{profile}' carregada do dashboard")
+            return resp.data[0]
+        return None
+    except Exception as e:
+        logger.warning(f"rafi_bot_config não disponível ({e}) — usando config.yaml")
+        return None
