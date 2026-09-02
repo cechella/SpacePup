@@ -176,16 +176,20 @@ export default function ConfigPage() {
   const emSincronia = divergindo.size === 0
 
   const salvarDb = async (profile: 'simulator' | 'live', cfg: Config) => {
-    if (!supa) return
     const setSaving = profile === 'simulator' ? setSimSaving : setLiveSaving
     const setSaved  = profile === 'simulator' ? setSimSaved  : setLiveSaved
     const setLast   = profile === 'simulator' ? setSimLastSaved : setLiveLastSaved
     const setLocked = profile === 'simulator' ? setSimLocked : setLiveLocked
     setSaving(true)
     try {
-      const ts = new Date().toISOString()
-      await supa.from('rafi_bot_config').upsert({ ...cfg, profile, updated_at: ts }, { onConflict: 'profile' })
-      setLast(ts); setSaved(true); setLocked(true)  // re-bloqueia após salvar
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile, cfg }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || res.statusText)
+      setLast(data.updated_at); setSaved(true); setLocked(true)  // re-bloqueia após salvar
       setTimeout(() => setSaved(false), 3000)
     } catch (e) { setError(`Erro ao salvar: ${e}`) }
     setSaving(false)
