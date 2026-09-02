@@ -47,6 +47,9 @@ from .supabase_sync import (
     atualizar_resultado,
     publicar_heartbeat,
     verificar_comando_parar,
+    publicar_candle,
+    publicar_candles_batch,
+    verificar_comando_avancado,
 )
 
 # ── Configuração de logging ───────────────────────────────────────────────────
@@ -148,6 +151,11 @@ class RafiBot:
             self.capital = saldo_real   # usa saldo real mesmo que seja $0
         logger.info(f"Saldo da conta: ${self.capital:.2f}")
 
+        # Publica histórico inicial para o gráfico do dashboard aparecer imediatamente
+        df_inicial = self.mt5.obter_candles('M5', n_candles=200)
+        if df_inicial is not None:
+            self._publicar_historico_inicial(df_inicial)
+
         try:
             while True:
                 # Kill switch por arquivo
@@ -163,6 +171,11 @@ class RafiBot:
                                        par=self.par, server=self._conta_server,
                                        account=self._conta_account)
                     break
+
+                # Comandos avançados do dashboard (fechar posição, ordem manual)
+                cmd = verificar_comando_avancado()
+                if cmd:
+                    self._processar_comando_avancado(cmd)
 
                 # Reset diário
                 self._verificar_reset_diario()
@@ -255,7 +268,22 @@ class RafiBot:
         pivotos      = detectar_pivotos(df, janela=5)
         niveis_sr    = niveis_sr_ativos(df, pivotos, lookback=self.cfg.get('sr_lookback', 20))
 
-        # 7. Verifica sinal de entrada no candle mais recente
+        # 7. Publica o último candle fechado no Supabase (alimenta o gráfico ao vivo)
+        try:
+            c_last = df.iloc[-1]
+            publicar_candle(
+                time_unix  = int(df.index[-1].timestamp()),
+                open_price = float(c_last['open']),
+                high       = float(c_last['high']),
+                low        = float(c_last['low']),
+                close      = float(c_last['close']),
+                volume     = float(c_last.get('volume', 0)),
+                rafi       = float(indice_forca.iloc[-1]) if indice_forca is not None else None,
+            )
+        except Exception as e:
+            logger.debug(f"Erro ao publicar candle: {e}")
+
+        # 8. Verifica sinal de entrada no candle mais recente
         sinal = self._verificar_sinal(df, indice_forca, bb, niveis_sr)
         if sinal is None:
             logger.debug("Sem sinal de entrada.")
@@ -448,6 +476,84 @@ class RafiBot:
                                 ts=info['ts'], pnl=pnl_trade)
 
             del self._posicoes[ticket]
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # COMANDOS DO DASHBOARD
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _processar_comando_avancado(self, cmd: dict) -> None:
+        """Processa comandos avançados recebidos do dashboard (fechar, ordem manual)."""
+        comando = cmd.get('command')
+
+        if comando == 'close_position':
+            logger.info("Comando FECHAR POSIÇÃO recebido do dashboard")
+            for pos in self.mt5.posicoes_abertas():
+                ticket = pos['ticket']
+                if self.mt5.fechar_posicao(ticket):
+                    logger.info(f"Posição #{ticket} fechada pelo dashboard")
+
+        elif comando in ('buy_manual', 'sell_manual'):
+            direcao = 'compra' if comando == 'buy_manual' else 'venda'
+            logger.info(f"Ordem manual {direcao.upper()} recebida do dashboard")
+
+            # Verifica limite de posições
+            if len(self.mt5.posicoes_abertas()) >= self.cfg.get('max_trades_simultaneos', 1):
+                logger.warning("Máximo de posições atingido — ordem manual ignorada.")
+                return
+
+            df = self.mt5.obter_candles('M5', n_candles=30)
+            if df is None:
+                return
+
+            c = df.iloc[-1]
+            lote = lote_por_faixa(self.capital)
+            p = lambda v: round(v, 5)
+            rr = self.cfg.get('ratio_risco_retorno', 1.5)
+
+            if direcao == 'compra':
+                stop  = p(float(c['low']) - 0.00015)
+                entry = p(float(c['high']))
+                risco = entry - stop
+                if risco <= 0:
+                    return
+                sinal_dict = {
+                    'direcao': 'compra', 'entry': entry,
+                    'stop_loss': stop, 'take_profit': p(entry + risco * rr),
+                    'rafi': 0.0, 'rafi_dir': 'bull', 'bb_width': 0.0,
+                }
+            else:
+                stop  = p(float(c['high']) + 0.00015)
+                entry = p(float(c['low']))
+                risco = stop - entry
+                if risco <= 0:
+                    return
+                sinal_dict = {
+                    'direcao': 'venda', 'entry': entry,
+                    'stop_loss': stop, 'take_profit': p(entry - risco * rr),
+                    'rafi': 0.0, 'rafi_dir': 'bear', 'bb_width': 0.0,
+                }
+
+            indice_forca = calcular_indice_forca(df, periodo=3)
+            bb = calcular_bollinger(df, periodo=8, desvios=2.0)
+            self._executar_sinal(sinal_dict, df, indice_forca, bb)
+
+    def _publicar_historico_inicial(self, df) -> None:
+        """Publica os últimos candles no Supabase para preencher o gráfico na inicialização."""
+        try:
+            candles = []
+            for ts, row in df.tail(200).iterrows():
+                candles.append({
+                    'time':   int(ts.timestamp()),
+                    'open':   round(float(row['open']),  5),
+                    'high':   round(float(row['high']),  5),
+                    'low':    round(float(row['low']),   5),
+                    'close':  round(float(row['close']), 5),
+                    'volume': round(float(row.get('volume', 0)), 2),
+                    'rafi':   None,
+                })
+            publicar_candles_batch(candles)
+        except Exception as e:
+            logger.debug(f"Erro ao publicar histórico inicial: {e}")
 
     # ─────────────────────────────────────────────────────────────────────────
     # PROTEÇÕES
