@@ -1,5 +1,5 @@
 """
-criar_tabelas_supabase.py — Cria as tabelas necessárias no Supabase via API REST.
+criar_tabelas_supabase.py — Cria as tabelas necessárias no Supabase via Management API.
 
 Rode no VPS:
   cd C:\RafiBot\rafi-bot
@@ -8,6 +8,9 @@ Rode no VPS:
 
 import os
 import sys
+import urllib.request
+import urllib.error
+import json
 from pathlib import Path
 
 # Carrega .env com suporte a BOM do PowerShell
@@ -21,76 +24,105 @@ for env_path in [Path('.env'), Path(__file__).parent.parent / '.env']:
         print(f"[OK] .env carregado de: {env_path.resolve()}")
         break
 
-try:
-    from supabase import create_client
-except ImportError:
-    print("[ERRO] supabase não instalado. Execute: pip install supabase")
+SUPABASE_URL = os.getenv('SUPABASE_URL', '').rstrip('/')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY', '')
+
+if not SUPABASE_URL or not SUPABASE_KEY or 'xxxx' in SUPABASE_URL:
+    print("[ERRO] SUPABASE_URL ou SUPABASE_KEY não configuradas")
     sys.exit(1)
 
-url = os.getenv('SUPABASE_URL', '')
-key = os.getenv('SUPABASE_KEY', '')
+# Extrai o project ref da URL (ex: fvvxwycdeirjenaytqif)
+project_ref = SUPABASE_URL.replace('https://', '').split('.')[0]
+print(f"[OK] Project ref: {project_ref}")
 
-if not url or not key or 'xxxx' in url:
-    print("[ERRO] SUPABASE_URL ou SUPABASE_KEY não configuradas no .env")
-    sys.exit(1)
 
-print(f"[OK] Conectando ao Supabase: {url}")
-cliente = create_client(url, key)
-
-# ── Teste de conexão ──────────────────────────────────────────────────────────
-print("\n[1/3] Testando conexão com rafi_trades...")
-try:
-    res = cliente.table('rafi_trades').select('id').limit(1).execute()
-    print(f"      OK — rafi_trades acessível ({len(res.data)} rows lidas)")
-except Exception as e:
-    print(f"      ERRO — {e}")
-    print("      O banco ainda não está aceitando conexões. Aguarde mais alguns minutos.")
-    sys.exit(1)
-
-# ── Adicionar coluna pnl em rafi_trades ──────────────────────────────────────
-print("\n[2/3] Verificando coluna pnl em rafi_trades...")
-try:
-    # Tenta ler a coluna pnl — se existir, não precisa criar
-    res = cliente.table('rafi_trades').select('pnl').limit(1).execute()
-    print("      OK — coluna pnl já existe")
-except Exception as e:
-    if 'pnl' in str(e).lower() or 'column' in str(e).lower():
-        print("      Coluna pnl não existe — use o SQL Editor para adicionar:")
-        print("      alter table rafi_trades add column if not exists pnl numeric(10,2);")
-    else:
+def sql_via_rest(query: str, descricao: str) -> bool:
+    """Executa SQL via Supabase REST API (endpoint /rest/v1/rpc não serve para DDL).
+    Usa a Management API do Supabase para executar SQL bruto."""
+    # Endpoint de execução SQL via Management API
+    url = f"https://api.supabase.com/v1/projects/{project_ref}/database/query"
+    payload = json.dumps({"query": query}).encode('utf-8')
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {SUPABASE_KEY}',
+        },
+        method='POST'
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            print(f"      OK — {descricao}")
+            return True
+    except urllib.error.HTTPError as e:
+        body = e.read().decode('utf-8', errors='ignore')
+        # 400 com "already exists" = já existe = OK
+        if 'already exists' in body or 'duplicate' in body.lower():
+            print(f"      OK — {descricao} (já existia)")
+            return True
+        print(f"      ERRO HTTP {e.code} — {body[:200]}")
+        return False
+    except Exception as e:
         print(f"      ERRO — {e}")
+        return False
 
-# ── Criar rafi_bot_status via upsert (cria a linha se a tabela existir) ──────
-print("\n[3/3] Verificando rafi_bot_status...")
-try:
-    res = cliente.table('rafi_bot_status').select('id').limit(1).execute()
-    print("      OK — tabela rafi_bot_status já existe")
-    # Insere linha inicial se vazia
-    if not res.data:
-        cliente.table('rafi_bot_status').upsert({
-            'id': 'main',
-            'status': 'stopped',
-            'balance': 0,
-            'equity': 0,
-            'open_positions': 0,
-            'pnl_today': 0,
-            'par': 'EURUSD',
-        }, on_conflict='id').execute()
-        print("      Linha inicial 'main' criada")
-except Exception as e:
-    print(f"      ERRO — tabela rafi_bot_status não existe ainda: {e}")
-    print("      Crie via SQL Editor quando o banco estiver disponível.")
 
-# ── Verificar rafi_bot_commands ───────────────────────────────────────────────
-print("\n[4/4] Verificando rafi_bot_commands...")
-try:
-    res = cliente.table('rafi_bot_commands').select('id').limit(1).execute()
-    print("      OK — tabela rafi_bot_commands já existe")
-except Exception as e:
-    print(f"      ERRO — tabela rafi_bot_commands não existe ainda: {e}")
-    print("      Crie via SQL Editor quando o banco estiver disponível.")
+def testar_conexao() -> bool:
+    """Testa conexão com a tabela rafi_trades via REST."""
+    url = f"{SUPABASE_URL}/rest/v1/rafi_trades?select=id&limit=1"
+    req = urllib.request.Request(url, headers={
+        'apikey': SUPABASE_KEY,
+        'Authorization': f'Bearer {SUPABASE_KEY}',
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            print("      OK — rafi_trades acessível")
+            return True
+    except Exception as e:
+        print(f"      ERRO — {e}")
+        return False
+
+
+print("\n[1/4] Testando conexão com rafi_trades...")
+if not testar_conexao():
+    print("      Banco inacessível. Aguarde e tente novamente.")
+    sys.exit(1)
+
+print("\n[2/4] Criando tabela rafi_bot_status...")
+sql_via_rest("""
+create table if not exists rafi_bot_status (
+  id              text primary key default 'main',
+  status          text not null default 'stopped',
+  balance         numeric(12,2) default 0,
+  equity          numeric(12,2) default 0,
+  open_positions  int default 0,
+  pnl_today       numeric(12,2) default 0,
+  par             text default 'EURUSD',
+  server          text default '',
+  account         bigint default 0,
+  last_signal     text,
+  updated_at      timestamptz default now()
+)
+""", "rafi_bot_status")
+
+print("\n[3/4] Criando tabela rafi_bot_commands...")
+sql_via_rest("""
+create table if not exists rafi_bot_commands (
+  id           bigint generated always as identity primary key,
+  command      text not null,
+  pending      boolean default true,
+  created_at   timestamptz default now(),
+  processed_at timestamptz
+)
+""", "rafi_bot_commands")
+
+print("\n[4/4] Adicionando coluna pnl em rafi_trades...")
+sql_via_rest(
+    "alter table rafi_trades add column if not exists pnl numeric(10,2)",
+    "coluna pnl"
+)
 
 print("\n─────────────────────────────────────────")
-print("Resultado: verifique as mensagens acima.")
-print("Tabelas que existem = bot funcionará normalmente.")
-print("Tabelas com ERRO = ainda precisam ser criadas via SQL Editor.")
+print("Pronto! Reinicie o bot para começar a sincronizar.")
+print("Comando: & \"$env:LOCALAPPDATA\\Programs\\Python\\Python311\\python.exe\" -m src.executor")
