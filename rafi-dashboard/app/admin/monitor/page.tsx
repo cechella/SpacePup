@@ -262,11 +262,17 @@ function LiveChart({ candles, trades, pending }: {
     if (rSeriesRef.current) {
       const rafiData = candles
         .filter(c => c.rafi != null)
-        .map(c => ({
-          time: c.time,
-          value: Math.min(5, Math.abs(c.rafi!)),
-          color: c.rafi! >= 2.5 ? '#10b981' : c.rafi! >= 1.0 ? '#22c55e88' : '#484f5866',
-        }))
+        .map((c, i, arr) => {
+          const prev = arr[i - 1]?.rafi ?? 0
+          const exaustao = prev >= 2.5 && c.rafi! <= -2.5
+          const r = c.rafi!
+          const color = exaustao       ? '#f59e0b'   // amarelo = exaustão
+                      : r >=  2.5     ? '#10b981'   // verde forte
+                      : r >=  0       ? '#22c55e'   // verde fraco
+                      : r >= -2.5     ? '#f87171'   // vermelho fraco
+                      :                 '#ef4444'   // vermelho forte
+          return { time: c.time, value: Math.min(5, Math.abs(r)), color }
+        })
       if (rafiData.length > 0) rSeriesRef.current.setData(rafiData)
     }
 
