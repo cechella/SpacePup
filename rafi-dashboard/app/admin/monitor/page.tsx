@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@supabase/supabase-js'
-import { applyRAFICandleColors } from '@/lib/indicators'
+import { applyRAFICandleColors, calcRAFI } from '@/lib/indicators'
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
@@ -279,15 +279,8 @@ function LiveChart({ candles, trades, pending }: {
   useEffect(() => {
     if (!cSeriesRef.current || candles.length === 0) return
 
-    // Usa a mesma função do Gráfico RAFI (applyRAFICandleColors) para colorir os candles
-    const rafiPoints = candles
-      .filter(c => c.rafi != null)
-      .map(c => ({
-        time:  c.time,
-        value: Math.abs(c.rafi!),
-        dir:   (c.rafi! >= 0 ? 'bull' : 'bear') as 'bull' | 'bear',
-        color: '',
-      }))
+    // Calcula RAFI client-side (igual ao /admin/chart) para ter ponto em TODOS os candles
+    const rafiPoints = calcRAFI(candles as any)
     cSeriesRef.current.setData(
       applyRAFICandleColors(candles as any, rafiPoints) as any
     )
