@@ -130,7 +130,7 @@ rsi_rev_ema_tendencia: 200     # EMA200: só compra acima, só vende abaixo (fil
 rsi_rev_invertir: false        # false=mean-reversion
 
 # --- Indicador RAFI (usado apenas no modo 'rafi') ---
-forca_limiar: 0.00             # 0 = desativado no modo epm; RAFI aprox. é INVERTIDO em limiar alto
+forca_limiar: 2.50             # RAFI ≥ 2.50 obrigatório — replica backtest vencedor (56 trades, +$3.769)
 forca_exaustao: -1.0           # saída por exaustão (inativo no modo epm)
 
 # --- Suporte e Resistência (usado no modo 'rafi') ---

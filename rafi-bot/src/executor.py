@@ -329,10 +329,13 @@ class RafiBot:
         """
         Verifica se o último candle gerou sinal de entrada RAFI.
 
-        Condições (todas obrigatórias):
-          1. BB estava estreita no candle anterior e está abrindo agora
-          2. Preço rompeu S/R relevante com candle direcional
-          3. RAFI ≥ 2.5 no candle do rompimento
+        Replica exatamente os filtros do backtest vencedor (56 trades, +$3.769, WR~70%):
+          1. Tendência M5: MA20 > MA50 (compra) ou MA20 < MA50 (venda)
+          2. RAFI ≥ 2.50: confirma força do movimento
+          3. Bollinger estava em squeeze e está abrindo (se bb_filtro_ativo=true)
+          4. Cor do candle confirma direção (verde=compra, vermelho=venda)
+          5. Rompimento S/R: close acima do rolling_high ou abaixo do rolling_low
+          6. SL = swing_stop dos últimos swing_stop_lookback candles (estrutura de mercado)
 
         Retorna dict com {direcao, entry, stop_loss, take_profit, rafi, bb_width}
         ou None se não há sinal.
@@ -340,47 +343,106 @@ class RafiBot:
         if bb is None or len(bb) < 2:
             return None
 
-        c    = df.iloc[-1]   # candle atual (fechado)
-        prev = df.iloc[-2]   # candle anterior
+        n_needed = max(
+            self.cfg.get('ma_lenta', 50),
+            self.cfg.get('sr_lookback', 50),
+            self.cfg.get('swing_stop_lookback', 150),
+        ) + 2
+        if len(df) < n_needed:
+            return None
 
-        # ── Filtro BB: squeeze → abertura ────────────────────────────────────
-        bb_prev_width = bb['bb_superior'].iloc[-2] - bb['bb_inferior'].iloc[-2]
-        bb_curr_width = bb['bb_superior'].iloc[-1] - bb['bb_inferior'].iloc[-1]
-        bb_mid        = bb['bb_media'].iloc[-1]
-        squeeze_ratio = self.cfg.get('bb_limiar_estreita', 0.0012)
-
-        prev_ratio = bb_prev_width / bb_mid if bb_mid else 0
-        curr_ratio = bb_curr_width / bb_mid if bb_mid else 0
-
-        if prev_ratio >= squeeze_ratio:
-            return None    # não era squeeze
-        if curr_ratio <= prev_ratio * 1.05:
-            return None    # não está abrindo
-
-        # ── Resistência / Suporte (janela de 20 candles anteriores) ──────────
-        janela      = df.iloc[-21:-1]
-        resistencia = float(janela['high'].max())
-        suporte     = float(janela['low'].min())
-        min_breakout = 0.00003   # 0.3 pip mínimo de rompimento
-
+        c      = df.iloc[-1]
         rafi_atual = float(indice_forca.iloc[-1]) if indice_forca is not None else 0.0
-        p = lambda v: round(v, 5)
 
-        # ── COMPRA: fecha acima da resistência com candle de alta ────────────
-        if (c['close'] > resistencia and
-            c['close'] - resistencia >= min_breakout and
-            c['close'] >= c['open']):
+        # ── Filtro 1: Tendência M5 — MA20 vs MA50 ────────────────────────────
+        ma_r   = int(self.cfg.get('ma_rapida', 20))
+        ma_l   = int(self.cfg.get('ma_lenta', 50))
+        ma_thr = float(self.cfg.get('ma_threshold', 0.0003))
+        ma20   = float(df['close'].rolling(ma_r).mean().iloc[-1])
+        ma50   = float(df['close'].rolling(ma_l).mean().iloc[-1])
+        diff   = ma20 - ma50
+        if abs(diff) < ma_thr:
+            return None   # mercado lateral
+        direcao = 'compra' if diff > 0 else 'venda'
 
-            entry  = p(resistencia)
-            stop   = p(float(c['low']) - 0.00015)
-            risco  = entry - stop
+        # ── Filtro 2: RAFI ≥ limiar (padrão 2.50) ────────────────────────────
+        forca_limiar = float(self.cfg.get('forca_limiar', 2.50))
+        if rafi_atual < forca_limiar:
+            # Sinal em formação: RAFI entre 1.75 e limiar
+            LIMIAR_FORMANDO = 1.75
+            if LIMIAR_FORMANDO <= rafi_atual < forca_limiar:
+                sr_lb    = int(self.cfg.get('sr_lookback', 50))
+                resist2  = float(df['high'].iloc[-(sr_lb+1):-1].max())
+                suporte2 = float(df['low'].iloc[-(sr_lb+1):-1].min())
+                f_dir    = 'buy' if direcao == 'compra' else 'sell'
+                f_price  = resist2 if f_dir == 'buy' else suporte2
+                bb_curr_width2 = float(bb['bb_superior'].iloc[-1] - bb['bb_inferior'].iloc[-1])
+                bb_prev_width2 = float(bb['bb_superior'].iloc[-2] - bb['bb_inferior'].iloc[-2])
+                publicar_heartbeat(
+                    status='waiting', balance=self.capital,
+                    equity=self.mt5.equity_atual() or self.capital,
+                    open_positions=len(self.mt5.posicoes_abertas()),
+                    pnl_hoje=self._pnl_hoje, par=self.par,
+                    server=self._conta_server, account=self._conta_account,
+                    forming_signal=True, forming_direction=f_dir,
+                    forming_rafi=rafi_atual, forming_tf_count=2,
+                    forming_bb_open=bool(bb_curr_width2 > bb_prev_width2 * 1.05),
+                    forming_price=f_price,
+                )
+                publicar_log(
+                    f"Sinal em formação: {f_dir.upper()} | RAFI={rafi_atual:.2f} "
+                    f"(falta {forca_limiar - rafi_atual:.2f}) | Nível={f_price:.5f}",
+                    level='info',
+                )
+            return None
+
+        # ── Filtro 3: Bollinger squeeze → abrindo (se ativo) ─────────────────
+        bb_prev_width = float(bb['bb_superior'].iloc[-2] - bb['bb_inferior'].iloc[-2])
+        bb_curr_width = float(bb['bb_superior'].iloc[-1] - bb['bb_inferior'].iloc[-1])
+        if self.cfg.get('bb_filtro_ativo', True):
+            bb_mid = float(bb['bb_media'].iloc[-1])
+            squeeze_ratio = float(self.cfg.get('bb_limiar_estreita', 0.0012))
+            prev_ratio = bb_prev_width / bb_mid if bb_mid else 0
+            curr_ratio = bb_curr_width / bb_mid if bb_mid else 0
+            if prev_ratio >= squeeze_ratio:
+                return None
+            if curr_ratio <= prev_ratio * 1.05:
+                return None
+
+        # ── Filtro 4: Cor do candle confirma direção ──────────────────────────
+        candle_verde = float(c['close']) >= float(c['open'])
+        if direcao == 'compra' and not candle_verde:
+            return None
+        if direcao == 'venda' and candle_verde:
+            return None
+
+        # ── Filtro 5: Rompimento de S/R (rolling high/low dos últimos N candles) ─
+        sr_lb       = int(self.cfg.get('sr_lookback', 50))
+        close_atual = float(c['close'])
+        rolling_high = float(df['high'].iloc[-(sr_lb+1):-1].max())
+        rolling_low  = float(df['low'].iloc[-(sr_lb+1):-1].min())
+
+        if direcao == 'compra' and close_atual <= rolling_high:
+            return None
+        if direcao == 'venda' and close_atual >= rolling_low:
+            return None
+
+        # ── Stop na estrutura: swing_stop dos últimos N candles ───────────────
+        sw_lb        = int(self.cfg.get('swing_stop_lookback', 150))
+        p            = lambda v: round(v, 5)
+        ratio_rr     = float(self.cfg.get('ratio_risco_retorno', 1.5))
+
+        if direcao == 'compra':
+            nivel_sr = rolling_high
+            stop     = p(float(df['low'].iloc[-(sw_lb+1):-1].min()))
+            entry    = p(nivel_sr)
+            risco    = entry - stop
             if risco <= 0:
                 return None
-            tp = p(entry + risco * self.cfg.get('ratio_risco_retorno', 1.5))
-
+            tp = p(entry + risco * ratio_rr)
             logger.info(
                 f"SINAL COMPRA | Entry: {entry:.5f} | SL: {stop:.5f} | TP: {tp:.5f} "
-                f"| RAFI: {rafi_atual:.2f} | BB width: {bb_curr_width:.5f}"
+                f"| RAFI: {rafi_atual:.2f} | MA20-MA50: {diff:+.5f}"
             )
             return {
                 'direcao': 'compra', 'entry': entry,
@@ -388,59 +450,23 @@ class RafiBot:
                 'rafi': rafi_atual, 'rafi_dir': 'bull', 'bb_width': bb_curr_width,
             }
 
-        # ── VENDA: fecha abaixo do suporte com candle de baixa ───────────────
-        if (c['close'] < suporte and
-            suporte - c['close'] >= min_breakout and
-            c['close'] < c['open']):
-
-            entry  = p(suporte)
-            stop   = p(float(c['high']) + 0.00015)
-            risco  = stop - entry
+        else:
+            nivel_sr = rolling_low
+            stop     = p(float(df['high'].iloc[-(sw_lb+1):-1].max()))
+            entry    = p(nivel_sr)
+            risco    = stop - entry
             if risco <= 0:
                 return None
-            tp = p(entry - risco * self.cfg.get('ratio_risco_retorno', 1.5))
-
+            tp = p(entry - risco * ratio_rr)
             logger.info(
                 f"SINAL VENDA | Entry: {entry:.5f} | SL: {stop:.5f} | TP: {tp:.5f} "
-                f"| RAFI: {rafi_atual:.2f} | BB width: {bb_curr_width:.5f}"
+                f"| RAFI: {rafi_atual:.2f} | MA20-MA50: {diff:+.5f}"
             )
             return {
                 'direcao': 'venda', 'entry': entry,
                 'stop_loss': stop, 'take_profit': tp,
                 'rafi': rafi_atual, 'rafi_dir': 'bear', 'bb_width': bb_curr_width,
             }
-
-        # ── Sinal em formação: RAFI entre 1.75 e 2.50 — publica no heartbeat ──
-        LIMIAR_FORMANDO = 1.75
-        if LIMIAR_FORMANDO <= rafi_atual < 2.5:
-            janela2    = df.iloc[-21:-1]
-            resist2    = float(janela2['high'].max())
-            suporte2   = float(janela2['low'].min())
-            c_close    = float(c['close'])
-            f_dir      = 'buy' if c_close > (resist2 + suporte2) / 2 else 'sell'
-            f_price    = resist2 if f_dir == 'buy' else suporte2
-            publicar_heartbeat(
-                status         = 'waiting',
-                balance        = self.capital,
-                equity         = self.mt5.equity_atual() or self.capital,
-                open_positions = len(self.mt5.posicoes_abertas()),
-                pnl_hoje       = self._pnl_hoje,
-                par            = self.par,
-                server         = self._conta_server,
-                account        = self._conta_account,
-                forming_signal    = True,
-                forming_direction = f_dir,
-                forming_rafi      = rafi_atual,
-                forming_tf_count  = 2,
-                forming_bb_open   = bool(curr_ratio > prev_ratio * 1.05),
-                forming_price     = f_price,
-            )
-            publicar_log(
-                f"Sinal em formação: {f_dir.upper()} | RAFI={rafi_atual:.2f} (falta {2.5-rafi_atual:.2f}) | Preço nível={f_price:.5f}",
-                level='info',
-            )
-
-        return None
 
     # ─────────────────────────────────────────────────────────────────────────
     # EXECUÇÃO DA ORDEM
