@@ -1474,45 +1474,79 @@ export default function MonitorPage() {
             </div>
 
             {/* Quick actions */}
-            <div style={{ ...card, padding: 14 }}>
-              <div style={{ ...lbl }}>Controle Rápido</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+            <div style={{ ...card, overflow: 'hidden' }}>
+              <div style={{ padding: '9px 14px', borderBottom: `1px solid ${C.bd}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ ...lbl, marginBottom: 0 }}>Controle do Bot</div>
+                {/* Status pill */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '3px 8px', borderRadius: 20,
+                  background: !isOnline ? `${C.re}15` : status?.status === 'running' ? `${C.gr}15` : `${C.am}15`,
+                  border: `1px solid ${!isOnline ? C.re : status?.status === 'running' ? C.gr : C.am}40` }}>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%',
+                    background: !isOnline ? C.re : status?.status === 'running' ? C.gr : C.am,
+                    animation: isOnline ? 'pulse 2s ease-in-out infinite' : 'none' }} />
+                  <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: '0.1em',
+                    color: !isOnline ? C.re : status?.status === 'running' ? C.gr : C.am }}>
+                    {!isOnline ? 'OFFLINE' : status?.status === 'running' ? 'ATIVO' : status?.status === 'stopped' ? 'PARADO' : 'AGUARDANDO'}
+                  </span>
+                </div>
+              </div>
+              <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                {/* Bot ON/OFF/RESTART — row of 3 */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                  <button onClick={() => enviarComando('start')} disabled={cmdSent}
+                    title="Iniciar o bot"
+                    style={{ padding: '10px 4px', border: `1px solid ${C.gr}50`,
+                      background: `${C.gr}18`, color: C.gr, fontSize: 9, fontWeight: 800,
+                      letterSpacing: '0.05em', cursor: cmdSent ? 'not-allowed' : 'pointer',
+                      borderRadius: 4, transition: 'background 0.2s' }}>
+                    ▶ INICIAR
+                  </button>
+                  <button onClick={() => enviarComando('restart')} disabled={cmdSent}
+                    title="Reiniciar o bot"
+                    style={{ padding: '10px 4px', border: `1px solid ${C.am}50`,
+                      background: `${C.am}18`, color: C.am, fontSize: 9, fontWeight: 800,
+                      letterSpacing: '0.05em', cursor: cmdSent ? 'not-allowed' : 'pointer',
+                      borderRadius: 4, transition: 'background 0.2s' }}>
+                    ↺ REINICIAR
+                  </button>
+                  <button onClick={() => enviarComando('stop')} disabled={cmdSent}
+                    title="Parar o bot"
+                    style={{ padding: '10px 4px', border: `1px solid ${C.re}50`,
+                      background: `${C.re}18`, color: C.re, fontSize: 9, fontWeight: 800,
+                      letterSpacing: '0.05em', cursor: cmdSent ? 'not-allowed' : 'pointer',
+                      borderRadius: 4, transition: 'background 0.2s' }}>
+                    ■ PARAR
+                  </button>
+                </div>
+                {/* Divider */}
+                <div style={{ height: 1, background: C.bd, margin: '2px 0' }} />
+                {/* Manual trades */}
                 <button onClick={() => enviarComando('buy_manual')} disabled={cmdSent}
                   style={{ width: '100%', padding: 10, border: `1px solid ${C.cy}30`,
-                    background: C.cya, color: C.cy, fontSize: 10, fontWeight: 700,
-                    letterSpacing: '0.06em', cursor: cmdSent ? 'not-allowed' : 'pointer' }}>
+                    background: `${C.cy}12`, color: C.cy, fontSize: 10, fontWeight: 700,
+                    letterSpacing: '0.06em', cursor: cmdSent ? 'not-allowed' : 'pointer', borderRadius: 4 }}>
                   ▲ COMPRA MANUAL
                 </button>
                 <button onClick={() => enviarComando('sell_manual')} disabled={cmdSent}
                   style={{ width: '100%', padding: 10, border: `1px solid ${C.am}30`,
-                    background: C.ama, color: C.am, fontSize: 10, fontWeight: 700,
-                    letterSpacing: '0.06em', cursor: cmdSent ? 'not-allowed' : 'pointer' }}>
+                    background: `${C.am}12`, color: C.am, fontSize: 10, fontWeight: 700,
+                    letterSpacing: '0.06em', cursor: cmdSent ? 'not-allowed' : 'pointer', borderRadius: 4 }}>
                   ▼ VENDA MANUAL
                 </button>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                  <button onClick={() => enviarComando('stop')} disabled={cmdSent}
-                    style={{ padding: 10, border: `1px solid ${C.re}30`, background: C.rea,
-                      color: C.re, fontSize: 9, fontWeight: 700, cursor: cmdSent ? 'not-allowed' : 'pointer' }}>
-                    ■ PARAR
-                  </button>
-                  <button onClick={() => enviarComando('start')} disabled={cmdSent}
-                    style={{ padding: 10, border: `1px solid ${C.gr}30`, background: C.gra,
-                      color: C.gr, fontSize: 9, fontWeight: 700, cursor: cmdSent ? 'not-allowed' : 'pointer' }}>
-                    ▶ INICIAR
-                  </button>
-                </div>
                 {pending.length > 0 && (
                   <button onClick={() => enviarComando('close_position')} disabled={cmdSent}
-                    style={{ width: '100%', padding: 10, border: `1px solid ${C.re}30`,
-                      background: C.rea, color: C.re, fontSize: 10, fontWeight: 700,
+                    style={{ width: '100%', padding: 10, border: `1px solid ${C.re}40`,
+                      background: `${C.re}18`, color: C.re, fontSize: 10, fontWeight: 700,
                       letterSpacing: '0.06em', cursor: cmdSent ? 'not-allowed' : 'pointer',
-                      animation: 'pulse 2s ease-in-out infinite' }}>
+                      borderRadius: 4, animation: 'pulse 2s ease-in-out infinite' }}>
                     ■ FECHAR POSIÇÃO
                   </button>
                 )}
                 {cmdSent && (
-                  <div style={{ fontSize: 9, color: C.am, textAlign: 'center' }}>
-                    Comando enviado...
+                  <div style={{ fontSize: 9, color: C.am, textAlign: 'center', padding: '4px 0' }}>
+                    ⏳ Comando enviado — aguardando bot...
                   </div>
                 )}
               </div>
