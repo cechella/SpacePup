@@ -556,8 +556,12 @@ export default function MonitorPage() {
       if (st) setStatus(st as BotStatus)
       if (tr) setTrades(tr as Trade[])
     } catch {}
+  }, [])
+
+  const fetchLogs = useCallback(async () => {
+    if (!supa) return
     try {
-      const { data: lg } = await supa!.from('rafi_bot_logs')
+      const { data: lg } = await supa.from('rafi_bot_logs')
         .select('*').order('created_at', { ascending: false }).limit(80)
       if (lg) setBotLogs(lg as BotLog[])
     } catch {}
@@ -575,16 +579,17 @@ export default function MonitorPage() {
 
   const refresh = useCallback(async () => {
     setLoading(true)
-    await Promise.all([fetchAll(), fetchCandles()])
+    await Promise.all([fetchAll(), fetchCandles(), fetchLogs()])
     setLoading(false)
-  }, [fetchAll, fetchCandles])
+  }, [fetchAll, fetchCandles, fetchLogs])
 
   useEffect(() => {
     refresh()
     const iv1 = setInterval(fetchAll,     10_000)
     const iv2 = setInterval(fetchCandles,  5_000)
-    return () => { clearInterval(iv1); clearInterval(iv2) }
-  }, [fetchAll, fetchCandles, refresh])
+    const iv3 = setInterval(fetchLogs,     5_000)
+    return () => { clearInterval(iv1); clearInterval(iv2); clearInterval(iv3) }
+  }, [fetchAll, fetchCandles, fetchLogs, refresh])
 
   // ── M5 countdown ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -685,6 +690,20 @@ export default function MonitorPage() {
   const m5ss = String(m5Secs % 60).padStart(2, '0')
   const m5pct = ((300 - m5Secs) / 300 * 100).toFixed(1)
 
+  // ── Computed forming state from latest candle (no bot required) ───────────────
+  const lastCandle      = candles.length > 0 ? candles[candles.length - 1] : null
+  const liveRafi        = lastCandle?.rafi ?? null
+  const computedForming = liveRafi !== null && Math.abs(liveRafi) >= 1.75 && Math.abs(liveRafi) < 2.5
+  const computedDir     = lastCandle
+    ? (lastCandle.close >= lastCandle.open ? 'buy' : 'sell') as 'buy' | 'sell'
+    : undefined
+  const showForming     = status?.forming_signal || computedForming
+  const formingDir      = status?.forming_direction ?? computedDir ?? 'buy'
+  const formingRafi     = status?.forming_rafi ?? (liveRafi !== null ? Math.abs(liveRafi) : 0)
+  const formingTf       = status?.forming_tf_count ?? (computedForming ? 2 : 0)
+  const formingBb       = status?.forming_bb_open ?? false
+  const formingPrice    = status?.forming_price ?? lastCandle?.high ?? 0
+
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.tx, fontSize: 13, lineHeight: 1.5 }}>
 
@@ -766,12 +785,12 @@ export default function MonitorPage() {
       </nav>
 
       {/* ── Quase Rompendo banner ─────────────────────────────────────────────── */}
-      {status?.forming_signal && (() => {
-        const fDir   = status.forming_direction ?? 'buy'
-        const fRafi  = status.forming_rafi ?? 0
-        const fTf    = status.forming_tf_count ?? 0
-        const fBb    = status.forming_bb_open ?? false
-        const fPrice = status.forming_price ?? 0
+      {showForming && (() => {
+        const fDir   = formingDir
+        const fRafi  = formingRafi
+        const fTf    = formingTf
+        const fBb    = formingBb
+        const fPrice = formingPrice
         const fColor = fDir === 'buy' ? C.cy : C.am
         const fPct   = Math.min(100, Math.round((fRafi / 2.5) * 100))
         const fLabel = fDir === 'buy' ? '▲ COMPRA SE ROMPER' : '▼ VENDA SE ROMPER'
@@ -1171,12 +1190,12 @@ export default function MonitorPage() {
 
             {/* Sinal em Formação */}
             {(() => {
-              const forming = status?.forming_signal
-              const fDir    = status?.forming_direction
-              const fRafi   = status?.forming_rafi ?? 0
-              const fTf     = status?.forming_tf_count ?? 0
-              const fBb     = status?.forming_bb_open ?? false
-              const fPrice  = status?.forming_price
+              const forming = showForming
+              const fDir    = formingDir
+              const fRafi   = formingRafi
+              const fTf     = formingTf
+              const fBb     = formingBb
+              const fPrice  = formingPrice || undefined
               const fColor  = fDir === 'buy' ? C.cy : fDir === 'sell' ? C.am : C.bl
               const fPct    = Math.min(100, Math.round((fRafi / 2.5) * 100))
               return (
