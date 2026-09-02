@@ -250,8 +250,9 @@ function LiveChart({ candles, trades, pending }: {
       priceScaleId: 'rafi', priceLineVisible: false, lastValueVisible: false,
     })
     chart.priceScale('rafi').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
-    // Linha de limiar 2.50 (pontilhada amarela — igual à simulação)
-    rSeries.createPriceLine({ price: 2.5, color: '#f59e0b', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '2.50' })
+    // Linhas de limiar ±2.50 (padrão oficial RAFI)
+    rSeries.createPriceLine({ price:  2.5, color: '#f0a500', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '+2.50' })
+    rSeries.createPriceLine({ price: -2.5, color: '#f0a500', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '-2.50' })
 
     chartRef.current = chart
     cSeriesRef.current = cSeries
@@ -305,16 +306,9 @@ function LiveChart({ candles, trades, pending }: {
       const rafiData = candles
         .filter(c => c.rafi != null)
         .map((c, i, arr) => {
-          const prev = arr[i - 1]?.rafi ?? 0
-          const exaustao = prev >= 2.5 && c.rafi! <= -2.5
           const r = c.rafi!
-          // Igual à simulação: barras para cima (abs), cor por direção e força
-          const color = exaustao   ? '#f59e0b'   // âmbar = exaustão
-                      : r >=  2.5 ? '#10b981'   // verde forte (Alta)
-                      : r >=  0   ? '#22c55e'   // verde fraco
-                      : r >  -2.5 ? '#f87171'   // vermelho fraco
-                      :              '#ef4444'   // vermelho forte (Baixa)
-          return { time: c.time, value: Math.min(5, Math.abs(r)), color }
+          // Padrão oficial RAFI: âmbar único, barras com sinal (+ sobe, - desce)
+          return { time: c.time, value: Math.max(-5, Math.min(5, r)), color: '#f0a500' }
         })
       if (rafiData.length > 0) rSeriesRef.current.setData(rafiData)
     }
