@@ -28,12 +28,26 @@ const DEFAULTS = {
   bb_limiar_estreita:     0.0012,
   bb_periodo:             8,
   bb_desvios:             2.0,
-  risco_por_trade:        0.02,
   ratio_risco_retorno:    1.5,
   max_trades_simultaneos: 1,
-  risco_maximo_diario:    9.0,
 }
 type Config = typeof DEFAULTS
+
+// Tabela de escalonamento de lotes (hardcoded no risk_manager.py — não é configurável)
+const FAIXAS_LOTE = [
+  { min:      0, max:    40, lote:   0.10, pip: '$1/pip'    },
+  { min:     40, max:    80, lote:   0.20, pip: '$2/pip'    },
+  { min:     80, max:   150, lote:   0.40, pip: '$4/pip'    },
+  { min:    150, max:   200, lote:   0.70, pip: '$7/pip'    },
+  { min:    200, max:   400, lote:   1.00, pip: '$10/pip'   },
+  { min:    400, max:   800, lote:   2.00, pip: '$20/pip'   },
+  { min:    800, max:  1500, lote:   4.00, pip: '$40/pip'   },
+  { min:   1500, max:  3000, lote:   8.00, pip: '$80/pip'   },
+  { min:   3000, max:  6000, lote:  15.00, pip: '$150/pip'  },
+  { min:   6000, max: 10000, lote:  30.00, pip: '$300/pip'  },
+  { min:  10000, max: 20000, lote:  50.00, pip: '$500/pip'  },
+  { min:  20000, max: Infinity, lote: 100.00, pip: '$1k/pip' },
+]
 
 const GRUPOS: {
   label: string; cor: string
@@ -58,11 +72,9 @@ const GRUPOS: {
     { key: 'bb_periodo',         label: 'Período',        desc: 'Janela das Bandas de Bollinger',            tipo: 'int',   min: 5,     max: 50              },
     { key: 'bb_desvios',         label: 'Desvios',        desc: 'Número de desvios padrão',                  tipo: 'float', min: 1,     max: 4,    step: 0.1  },
   ]},
-  { label: 'Gestão de Risco', cor: C.re, campos: [
-    { key: 'risco_por_trade',        label: 'Risco/Trade',       desc: '% do capital arriscado por trade',          tipo: 'float', min: 0.005, max: 0.1, step: 0.005 },
-    { key: 'ratio_risco_retorno',    label: 'R:R',               desc: 'Razão risco:retorno (1.5 = backtest)',      tipo: 'float', min: 1,     max: 5,   step: 0.1   },
-    { key: 'max_trades_simultaneos', label: 'Máx. Posições',     desc: 'Trades simultâneos permitidos',             tipo: 'int',   min: 1,     max: 5              },
-    { key: 'risco_maximo_diario',    label: 'Perda Máx. Diária', desc: '% de perda diária que para o bot',          tipo: 'float', min: 1,     max: 20,  step: 0.5  },
+  { label: 'Execução', cor: C.re, campos: [
+    { key: 'ratio_risco_retorno',    label: 'R:R',           desc: 'Razão risco:retorno (1.5 = backtest)',  tipo: 'float', min: 1, max: 5, step: 0.1 },
+    { key: 'max_trades_simultaneos', label: 'Máx. Posições', desc: 'Trades simultâneos permitidos',        tipo: 'int',   min: 1, max: 5            },
   ]},
 ]
 
@@ -294,6 +306,40 @@ export default function ConfigPage() {
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* Tabela de crescimento de lote */}
+            <div style={{ margin: '0 20px 14px', borderRadius: 6, overflow: 'hidden', border: `1px solid ${C.bd}` }}>
+              <div style={{ padding: '7px 12px', background: `${C.am}15`, borderBottom: `1px solid ${C.am}20`,
+                fontSize: 8, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.am }}>
+                Crescimento de Lote — Capital → Lote Automático
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 9, fontFamily: 'monospace' }}>
+                  <thead>
+                    <tr style={{ background: C.s2 }}>
+                      {['Capital', 'Lote', 'Pip value'].map(h => (
+                        <th key={h} style={{ padding: '4px 10px', color: C.t2, fontWeight: 600,
+                          textAlign: 'left', borderBottom: `1px solid ${C.bd}` }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {FAIXAS_LOTE.map((f, i) => (
+                      <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : `${C.s2}80` }}>
+                        <td style={{ padding: '3px 10px', color: C.t2 }}>
+                          ${f.min.toLocaleString()}{f.max === Infinity ? '+' : `–$${f.max.toLocaleString()}`}
+                        </td>
+                        <td style={{ padding: '3px 10px', color: C.am, fontWeight: 700 }}>{f.lote.toFixed(2)}L</td>
+                        <td style={{ padding: '3px 10px', color: C.t2 }}>{f.pip}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ padding: '5px 12px', fontSize: 7, color: C.t3, borderTop: `1px solid ${C.bd}` }}>
+                Lote sobe automaticamente com o capital — hardcoded em risk_manager.py
+              </div>
             </div>
 
             {/* Botão salvar */}
