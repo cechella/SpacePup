@@ -960,13 +960,61 @@ export default function MonitorPage() {
         .bhex{clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)}
         .bcta{opacity:0;transition:opacity .15s}
         .bcard:hover .bcta{opacity:1}
-        .logrow:nth-child(even){background:rgba(13,25,39,.5)}
+        .logrow:nth-child(even){background:rgba(4,11,20,.6)}
         .forming-card{animation:rafiPulse 2.8s ease-in-out infinite}
         @keyframes slideDown{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
         .qr-panel{animation:slideDown .18s ease-out both}
+        .log-terminal::-webkit-scrollbar{width:3px}
+        .log-terminal::-webkit-scrollbar-track{background:transparent}
+        .log-terminal::-webkit-scrollbar-thumb{background:#2d4a60;border-radius:2px}
       `}</style>
 
-      <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* ── RAFI Strip — sempre visível ────────────────────────────────────── */}
+      {(() => {
+        const absRafi    = liveRafi !== null ? Math.abs(liveRafi) : 0
+        const stripColor = liveRafi === null ? C.t3 : absRafi >= 2.5 ? C.cy : absRafi >= 1.75 ? C.am : C.t3
+        const stripLabel = liveRafi === null ? 'AGUARDANDO' : absRafi >= 2.5 ? 'SINAL ATIVO' : absRafi >= 1.75 ? 'FORMANDO' : 'MONITORANDO'
+        const stripPct   = Math.min(100, (absRafi / 2.5) * 100)
+        return (
+          <div style={{ background: C.s1, borderBottom: `1px solid ${stripColor}22`,
+            padding: '5px 24px', display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: stripColor,
+                boxShadow: liveRafi !== null && absRafi >= 1.75 ? `0 0 5px ${stripColor}` : 'none',
+                animation: liveRafi !== null && absRafi >= 1.75 ? 'pulse 1.5s ease-in-out infinite' : 'none',
+                display: 'inline-block' }} />
+              <span style={{ fontSize: 7, fontWeight: 700, letterSpacing: '0.12em', color: stripColor, fontFamily: 'monospace' }}>{stripLabel}</span>
+            </div>
+            <div style={{ flex: 1, position: 'relative', height: 3, background: C.s3, overflow: 'visible' }}>
+              <div style={{ position: 'absolute', left: 0, top: 0, height: '100%',
+                width: `${stripPct}%`, background: `linear-gradient(90deg, ${C.t3}88, ${stripColor})`,
+                transition: 'width 1s linear, background 0.5s' }} />
+              <div style={{ position: 'absolute', left: '70%', top: -3, width: 1, height: 9, background: `${C.am}60` }} />
+              <div style={{ position: 'absolute', left: '70%', top: 10, fontSize: 6, color: C.am,
+                transform: 'translateX(-50%)', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>1.75</div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: stripColor }}>
+                {liveRafi !== null ? Math.abs(liveRafi).toFixed(2) : '—'}
+                <span style={{ fontSize: 8, color: C.t3, fontWeight: 400 }}>/2.50</span>
+              </span>
+              <span style={{ fontSize: 7, color: C.t2, fontFamily: 'monospace' }}>RAFI</span>
+            </div>
+            {liveRafi !== null && absRafi >= 1.75 && (
+              <div style={{ flexShrink: 0, fontSize: 7, fontWeight: 700, padding: '2px 8px',
+                border: `1px solid ${stripColor}30`, color: stripColor, background: `${stripColor}08`,
+                fontFamily: 'monospace' }}>
+                {liveRafi > 0 ? '▲ ALTA' : '▼ BAIXA'}
+              </div>
+            )}
+            <div style={{ flexShrink: 0, fontSize: 8, color: C.t3, fontFamily: 'monospace' }}>
+              M5 <span style={{ color: C.cy }}>{m5mm}:{m5ss}</span>
+            </div>
+          </div>
+        )
+      })()}
+
+      <div style={{ padding: '16px 24px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
         {/* ── Hero KPIs ──────────────────────────────────────────────────────── */}
         <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1fr 1fr 1fr 1fr', gap: 10 }}>
@@ -1140,38 +1188,130 @@ export default function MonitorPage() {
         </div>
 
         {/* ── Main grid ─────────────────────────────────────────────────────── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 290px', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 10, alignItems: 'start' }}>
 
           {/* Left column */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
 
-            {/* Live chart */}
-            <div style={{ ...card }}>
-              <div style={{ padding: '10px 18px', borderBottom: `1px solid ${C.bd}`,
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
-                  fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
-                  <BarChart2 size={11} style={{ color: C.bl }} />
-                  EURUSD# · M5 · Tempo Real
-                  {candles.length > 0 && (
-                    <span style={{ fontSize: 7, padding: '2px 6px', border: `1px solid ${C.gr}30`,
-                      color: C.gr, background: C.gra }}>{candles.length} candles</span>
-                  )}
+            {/* Chart row: LiveChart + Sinal em Formação lado a lado */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+
+              {/* Live chart */}
+              <div style={{ ...card }}>
+                <div style={{ padding: '10px 18px', borderBottom: `1px solid ${C.bd}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
+                    fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
+                    <BarChart2 size={11} style={{ color: C.bl }} />
+                    EURUSD# · M5
+                    {candles.length > 0 && (
+                      <span style={{ fontSize: 7, padding: '2px 6px', border: `1px solid ${C.gr}30`,
+                        color: C.gr, background: C.gra }}>{candles.length}</span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, fontSize: 7, ...mono, color: C.t2 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <span style={{ width: 7, height: 1, background: C.gr, display: 'inline-block' }} /> TP
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <span style={{ width: 7, height: 1, background: C.re, display: 'inline-block' }} /> SL
+                    </span>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: 14, fontSize: 8, ...mono, color: C.t2 }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ width: 8, height: 1, background: C.gr, display: 'inline-block' }} /> TP
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ width: 8, height: 1, background: C.re, display: 'inline-block' }} /> SL
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ width: 8, height: 1, background: C.am, display: 'inline-block' }} /> Entry
-                  </span>
-                </div>
+                <LiveChart candles={candles} trades={trades} pending={pending} />
               </div>
-              <LiveChart candles={candles} trades={trades} pending={pending} />
-            </div>
+
+              {/* Sinal em Formação — gauge RAFI */}
+              {(() => {
+                const forming = showForming
+                const fDir    = formingDir
+                const fRafi   = formingRafi
+                const fTf     = formingTf
+                const fBb     = formingBb
+                const fPrice  = formingPrice || undefined
+                const fColor  = fDir === 'buy' ? C.cy : fDir === 'sell' ? C.am : C.bl
+                return (
+                  <div className={forming ? 'forming-card' : ''} style={{
+                    ...card,
+                    borderColor: forming ? `${fColor}40` : C.bd,
+                    background: forming ? `linear-gradient(135deg, ${C.s1}, ${fColor}06)` : C.s1,
+                    display: 'flex', flexDirection: 'column',
+                  }}>
+                    <div style={{ padding: '10px 14px', borderBottom: `1px solid ${forming ? fColor + '25' : C.bd}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 8,
+                        fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%',
+                          background: forming ? fColor : C.t3,
+                          boxShadow: forming ? `0 0 6px ${fColor}` : 'none',
+                          animation: forming ? 'pulse 1.5s ease-in-out infinite' : 'none' }} />
+                        Sinal em Formação
+                      </div>
+                      <div style={{ fontSize: 7, fontWeight: 700, padding: '2px 6px',
+                        border: `1px solid ${forming ? fColor + '30' : C.bd}`,
+                        color: forming ? fColor : C.t3,
+                        background: forming ? `${fColor}08` : 'transparent' }}>
+                        {forming ? (fDir === 'buy' ? '▲ ALTA' : '▼ BAIXA') : 'AGUARDANDO'}
+                      </div>
+                    </div>
+                    <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, flex: 1 }}>
+                      {/* Arc gauge */}
+                      <svg width="100%" viewBox="0 0 140 80" style={{ maxWidth: 200 }}>
+                        <path d="M 14 72 A 56 56 0 0 1 126 72" fill="none" stroke={C.s3} strokeWidth="10" strokeLinecap="round" />
+                        {(() => {
+                          const pct = Math.min(1, fRafi / 2.5)
+                          const ang = pct * Math.PI
+                          const ex  = 70 - 56 * Math.cos(ang)
+                          const ey  = 72 - 56 * Math.sin(ang)
+                          const lg  = pct > 0.5 ? 1 : 0
+                          return (
+                            <path d={`M 14 72 A 56 56 0 ${lg} 1 ${ex.toFixed(1)} ${ey.toFixed(1)}`}
+                              fill="none" stroke={fColor} strokeWidth="10" strokeLinecap="round" />
+                          )
+                        })()}
+                        {/* Threshold 1.75 marker */}
+                        {(() => {
+                          const a175 = (1.75 / 2.5) * Math.PI
+                          const mx = 70 - 56 * Math.cos(a175)
+                          const my = 72 - 56 * Math.sin(a175)
+                          const ox = 70 - 68 * Math.cos(a175)
+                          const oy = 72 - 68 * Math.sin(a175)
+                          return <line x1={mx.toFixed(1)} y1={my.toFixed(1)} x2={ox.toFixed(1)} y2={oy.toFixed(1)}
+                            stroke={C.am} strokeWidth="1.5" strokeDasharray="2 2" />
+                        })()}
+                        <text x="70" y="61" textAnchor="middle" fill={forming ? fColor : C.t2}
+                          fontFamily="monospace" fontSize="22" fontWeight="800">{fRafi.toFixed(2)}</text>
+                        <text x="70" y="76" textAnchor="middle" fill={C.t3}
+                          fontFamily="monospace" fontSize="7">de 2.50</text>
+                        <text x="14" y="79" fill={C.t3} fontSize="6" textAnchor="middle">0</text>
+                        <text x="126" y="79" fill={forming ? fColor : C.t3} fontSize="6" textAnchor="middle">2.5</text>
+                      </svg>
+                      {/* Status grid */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, width: '100%' }}>
+                        {[
+                          { label: 'Timeframes', val: `${fTf}/3`, ok: fTf >= 2 },
+                          { label: 'Bollinger',  val: fBb ? 'ABRINDO' : 'FECHADO', ok: fBb },
+                          { label: 'Direção',    val: fDir === 'buy' ? '▲ COMPRA' : '▼ VENDA', ok: forming },
+                          { label: 'Nível',      val: fPrice ? fPrice.toFixed(5) : '—', ok: !!fPrice },
+                        ].map(item => (
+                          <div key={item.label} style={{ background: C.bg, border: `1px solid ${C.bd}`, padding: '7px 9px' }}>
+                            <div style={{ fontSize: 7, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>{item.label}</div>
+                            <div style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700,
+                              color: item.ok ? fColor : C.t2 }}>{item.val}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {!forming && (
+                        <div style={{ fontSize: 8, color: C.t3, textAlign: 'center' }}>
+                          Próx. análise <span style={{ fontFamily: 'monospace', color: C.cy }}>{m5mm}:{m5ss}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })()}
+
+            </div>{/* end chart row */}
 
             {/* Previsão de Trades */}
             <div style={{ ...card }}>
@@ -1187,70 +1327,6 @@ export default function MonitorPage() {
               </div>
               <ForecastSection trades={trades} />
             </div>
-
-            {/* Sinal em Formação */}
-            {(() => {
-              const forming = showForming
-              const fDir    = formingDir
-              const fRafi   = formingRafi
-              const fTf     = formingTf
-              const fBb     = formingBb
-              const fPrice  = formingPrice || undefined
-              const fColor  = fDir === 'buy' ? C.cy : fDir === 'sell' ? C.am : C.bl
-              const fPct    = Math.min(100, Math.round((fRafi / 2.5) * 100))
-              return (
-                <div className={forming ? 'forming-card' : ''} style={{
-                  ...card,
-                  borderColor: forming ? `${fColor}40` : C.bd,
-                  background: forming ? `linear-gradient(135deg, ${C.s1}, ${fColor}06)` : C.s1,
-                }}>
-                  <div style={{ padding: '10px 18px', borderBottom: `1px solid ${forming ? fColor + '25' : C.bd}`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
-                      fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
-                      <span style={{ width: 6, height: 6, borderRadius: '50%',
-                        background: forming ? fColor : C.t3,
-                        boxShadow: forming ? `0 0 6px ${fColor}` : 'none',
-                        animation: forming ? 'pulse 1.5s ease-in-out infinite' : 'none' }} />
-                      Sinal em Formação
-                    </div>
-                    <div style={{ fontSize: 7, fontWeight: 700, padding: '2px 7px',
-                      border: `1px solid ${forming ? fColor + '30' : C.bd}`,
-                      color: forming ? fColor : C.t3,
-                      background: forming ? `${fColor}08` : 'transparent' }}>
-                      {forming ? (fDir === 'buy' ? '▲ ROMPIMENTO ALTA' : '▼ ROMPIMENTO BAIXA') : 'AGUARDANDO'}
-                    </div>
-                  </div>
-                  {forming ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 0 }}>
-                      {[
-                        { label: 'Força RAFI', val: fRafi.toFixed(2), sub: fRafi >= 2.5 ? '≥ 2.50 ✓' : `${fPct}% do limiar`, color: fRafi >= 2.5 ? C.gr : C.am },
-                        { label: 'Timeframes', val: `${fTf}/3`, sub: fTf === 3 ? 'Alinhados ✓' : 'Parcial', color: fTf === 3 ? C.gr : C.am },
-                        { label: 'Bollinger', val: fBb ? 'ABRINDO' : 'FECHADO', sub: fBb ? 'Expansão ✓' : 'Sem expansão', color: fBb ? C.gr : C.t2 },
-                        { label: 'Preço', val: fPrice ? fPrice.toFixed(5) : '—', sub: `Dir: ${fDir === 'buy' ? 'compra' : 'venda'}`, color: fColor },
-                      ].map((item, i) => (
-                        <div key={i} style={{ padding: '12px 18px', borderRight: i < 3 ? `1px solid ${C.bd}` : 'none' }}>
-                          <div style={{ fontSize: 8, color: C.t2, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>{item.label}</div>
-                          <div style={{ fontFamily: 'monospace', fontSize: '1.1rem', fontWeight: 700, color: item.color, lineHeight: 1 }}>{item.val}</div>
-                          <div style={{ fontSize: 8, color: C.t3, marginTop: 3 }}>{item.sub}</div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div style={{ padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <div style={{ flex: 1, fontSize: 9, color: C.t3 }}>
-                        Bot monitora cada candle M5 — quando RAFI ≥ 1.75, timeframes parcialmente alinhados
-                        e Bollinger começando a abrir, exibe aqui antes de confirmar entrada.
-                      </div>
-                      <div style={{ textAlign: 'right', ...mono, fontSize: 9, color: C.t2, flexShrink: 0 }}>
-                        <div>Próx. análise</div>
-                        <div style={{ fontSize: '1.1rem', fontWeight: 700, color: C.cy }}>{m5mm}:{m5ss}</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )
-            })()}
 
             {/* Signal feed */}
             <div style={{ ...card }}>
@@ -1311,60 +1387,67 @@ export default function MonitorPage() {
               )}
             </div>
 
-            {/* ActivityFeed — bot log */}
-            <div style={{ ...card }}>
-              <div style={{ padding: '10px 18px', borderBottom: `1px solid ${C.bd}`,
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
-                  fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.bl,
+          </div>{/* end left column */}
+
+          {/* Right sidebar */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+            {/* Log do Bot — terminal premium */}
+            <div style={{ ...card, overflow: 'hidden' }}>
+              <div style={{ padding: '9px 14px', borderBottom: `1px solid ${C.bd}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                background: `linear-gradient(90deg, ${C.s1}, ${C.bg})` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: C.re }} />
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: C.am }} />
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: C.gr }} />
+                  </div>
+                  <span style={{ fontSize: 7, fontWeight: 700, textTransform: 'uppercase',
+                    letterSpacing: '0.12em', color: C.t2 }}>Log do Bot</span>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: C.bl,
                     animation: 'pulse 2s ease-in-out infinite' }} />
-                  Log do Bot — Feed ao Vivo
                 </div>
-                <div style={{ fontSize: 7, fontWeight: 700, padding: '2px 7px',
-                  border: `1px solid ${C.bd}`, color: C.t2 }}>{botLogs.length} entradas</div>
+                <span style={{ fontFamily: 'monospace', fontSize: 7, color: C.t3 }}>{botLogs.length} linhas</span>
               </div>
-              {botLogs.length === 0 ? (
-                <div style={{ padding: '20px 18px', fontSize: 10, color: C.t3, textAlign: 'center' }}>
-                  Aguardando logs do bot (tabela <code style={{ color: C.t2 }}>rafi_bot_logs</code>)...
-                </div>
-              ) : (
-                <div style={{ maxHeight: 280, overflowY: 'auto' }}>
-                  {botLogs.slice(0, 40).map(log => {
+              <div className="log-terminal" style={{
+                maxHeight: 380, overflowY: 'auto', background: '#040b14',
+                fontFamily: 'monospace', fontSize: 8,
+              }}>
+                {botLogs.length === 0 ? (
+                  <div style={{ padding: '20px 14px', color: C.t3, lineHeight: 1.8 }}>
+                    <span style={{ color: C.gr }}>$</span>{' '}aguardando{' '}
+                    <span style={{ color: C.cy }}>rafi_bot_logs</span>...
+                    <span style={{ animation: 'pulse 1s ease-in-out infinite', display: 'inline-block' }}>_</span>
+                  </div>
+                ) : (
+                  botLogs.slice(0, 60).map(log => {
                     const lc = log.level === 'error' ? C.re : log.level === 'warn' ? C.am
                       : log.level === 'signal' ? C.cy : C.t2
+                    const prefix = log.level === 'error' ? '✕' : log.level === 'signal' ? '◆'
+                      : log.level === 'warn' ? '⚠' : '›'
                     return (
-                      <div key={log.id} className="logrow" style={{ display: 'grid',
-                        gridTemplateColumns: '60px 44px 1fr', gap: 6,
-                        padding: '5px 18px', fontSize: 8, fontFamily: 'monospace',
-                        borderBottom: `1px solid ${C.bd}` }}>
-                        <span style={{ color: C.t3 }}>
+                      <div key={log.id} className="logrow" style={{ display: 'flex', gap: 7,
+                        padding: '4px 14px', borderBottom: `1px solid ${C.bd}20`, lineHeight: 1.5 }}>
+                        <span style={{ color: C.t3, whiteSpace: 'nowrap', flexShrink: 0 }}>
                           {new Date(log.created_at).toLocaleTimeString('pt-BR',
                             { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                         </span>
-                        <span style={{ fontWeight: 700, fontSize: 7, padding: '1px 4px',
-                          color: lc, border: `1px solid ${lc}30`, textAlign: 'center',
-                          alignSelf: 'center' }}>
-                          {log.level.toUpperCase()}
-                        </span>
+                        <span style={{ color: lc, flexShrink: 0, width: 8, textAlign: 'center' }}>{prefix}</span>
                         <span style={{ color: log.level === 'error' ? C.re
                           : log.level === 'signal' ? C.tx : C.t2,
-                          wordBreak: 'break-all', lineHeight: 1.6 }}>
+                          wordBreak: 'break-word', flex: 1 }}>
                           {log.message}
                           {log.details && (
-                            <span style={{ color: C.t3, marginLeft: 6 }}>{log.details}</span>
+                            <span style={{ color: C.t3, marginLeft: 4, fontSize: 7 }}>{log.details}</span>
                           )}
                         </span>
                       </div>
                     )
-                  })}
-                </div>
-              )}
+                  })
+                )}
+              </div>
             </div>
-          </div>
-
-          {/* Right column */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
 
             {/* M5 countdown */}
             <div style={{ ...card, padding: '18px 18px 14px' }}>
