@@ -161,8 +161,8 @@ class ClienteMT5:
         if rates is None or len(rates) == 0:
             err = mt5.last_error()
             logger.error(f"Sem dados MT5 para {self.par} {timeframe}: {err}")
-            # IPC send failed (-1) → tenta reconectar e repetir uma vez
-            if err[0] == -1:
+            # IPC send failed (-10001) → tenta reconectar e repetir uma vez
+            if err[0] in (-1, -10001) or 'IPC send failed' in str(err):
                 if self._tentar_reconectar():
                     if data_inicio and data_fim:
                         rates = mt5.copy_rates_range(self.par, tf_id, data_inicio, data_fim)
@@ -194,7 +194,8 @@ class ClienteMT5:
         tf_id = self._TF_MAP.get('M5')
         rates = mt5.copy_rates_from_pos(self.par, tf_id, 0, 1)
         if rates is None or len(rates) == 0:
-            if mt5.last_error()[0] == -1:
+            err = mt5.last_error()
+            if err[0] in (-1, -10001) or 'IPC send failed' in str(err):
                 self._tentar_reconectar()
                 rates = mt5.copy_rates_from_pos(self.par, tf_id, 0, 1)
         if rates is None or len(rates) == 0:
