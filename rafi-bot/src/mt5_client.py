@@ -180,6 +180,13 @@ class ClienteMT5:
         info = mt5.account_info()
         return float(info.balance) if info else None
 
+    def equity_atual(self) -> Optional[float]:
+        """Retorna o equity atual (balance + P&L flutuante das posições abertas)."""
+        if not MT5_DISPONIVEL or not self.conectado:
+            return None
+        info = mt5.account_info()
+        return float(info.equity) if info else None
+
     # ─────────────────────────────────────────────────────────
     # ORDENS
     # ─────────────────────────────────────────────────────────

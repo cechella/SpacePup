@@ -195,7 +195,7 @@ class RafiBot:
                         publicar_heartbeat(
                             status         = 'waiting',
                             balance        = self.capital,
-                            equity         = self.capital,
+                            equity         = self.mt5.equity_atual() or self.capital,
                             open_positions = len(self.mt5.posicoes_abertas()),
                             pnl_hoje       = self._pnl_hoje,
                             par            = self.par,
@@ -247,7 +247,7 @@ class RafiBot:
         publicar_heartbeat(
             status         = status_hb,
             balance        = self.capital,
-            equity         = self.capital,
+            equity         = self.mt5.equity_atual() or self.capital,
             open_positions = len(posicoes_abertas_hb),
             pnl_hoje       = self._pnl_hoje,
             par            = self.par,

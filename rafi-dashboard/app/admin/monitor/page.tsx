@@ -378,6 +378,8 @@ export default function MonitorPage() {
   const [cmdSent,   setCmdSent]   = useState(false)
   const [activeTab, setActiveTab] = useState<'history' | 'open'>('history')
   const [alert,     setAlert]     = useState<string | null>(null)
+  // Countdown até próximo candle M5
+  const [m5Secs, setM5Secs] = useState(0)
 
   const prevPendingLen = useRef(0)
 
@@ -418,6 +420,18 @@ export default function MonitorPage() {
     const iv2 = setInterval(fetchCandles, 5_000)
     return () => { clearInterval(iv1); clearInterval(iv2) }
   }, [fetchAll, fetchCandles, refresh])
+
+  // Countdown até próximo fechamento M5 (calculado localmente, sem precisar do bot)
+  useEffect(() => {
+    const tick = () => {
+      const now = Math.floor(Date.now() / 1000)
+      const next = (Math.floor(now / 300) + 1) * 300
+      setM5Secs(next - now)
+    }
+    tick()
+    const iv = setInterval(tick, 1000)
+    return () => clearInterval(iv)
+  }, [])
 
   // ── Alerta quando novo trade dispara ────────────────────────────────────────
   const pending = useMemo(() => trades.filter(t => t.result === 'pending'), [trades])
@@ -488,10 +502,11 @@ export default function MonitorPage() {
   const pnl30d   = pnlPeriod(day30Start)
   const wr7d     = wrPeriod(day7Start)
 
-  const bal       = status?.balance ?? 0
-  const pctToday  = bal > 0 ? (pnlToday / (bal - pnlToday)) * 100 : 0
-  const pct7d     = bal > 0 ? (pnl7d    / (bal - pnl7d))    * 100 : 0
-  const pct30d    = bal > 0 ? (pnl30d   / (bal - pnl30d))   * 100 : 0
+  const bal        = status?.balance ?? 0
+  const floatPnL   = status ? (status.equity - status.balance) : 0
+  const pctToday   = bal > 0 ? (pnlToday / (bal - pnlToday)) * 100 : 0
+  const pct7d      = bal > 0 ? (pnl7d    / (bal - pnl7d))    * 100 : 0
+  const pct30d     = bal > 0 ? (pnl30d   / (bal - pnl30d))   * 100 : 0
 
   const tradesHoje    = closed.filter(t => t.time >= todayStart).length
   const tradesSemana  = closed.filter(t => t.time >= weekStart).length
@@ -645,11 +660,20 @@ export default function MonitorPage() {
           {/* Posições abertas com botão fechar */}
           {pending.length > 0 && (
             <div className="bg-[#161b22] border border-[#f59e0b]/25 rounded-xl p-4 flex flex-col gap-3">
-              <div className="flex items-center gap-2">
-                <Zap size={11} className="text-[#f59e0b] animate-pulse" />
-                <span className="text-xs font-semibold text-[#f0f6fc]">
-                  Posição Aberta ({pending.length})
-                </span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Zap size={11} className="text-[#f59e0b] animate-pulse" />
+                  <span className="text-xs font-semibold text-[#f0f6fc]">
+                    Posição Aberta ({pending.length})
+                  </span>
+                </div>
+                {/* P&L flutuante: equity - balance */}
+                {status && Math.abs(floatPnL) > 0.001 && (
+                  <span className={cn('text-sm font-black font-mono',
+                    floatPnL >= 0 ? 'text-[#10b981]' : 'text-[#ef4444]')}>
+                    {fmtUSD(floatPnL, true)}
+                  </span>
+                )}
               </div>
               {pending.map(t => {
                 const isBuy = t.direction === 'buy'
@@ -688,7 +712,7 @@ export default function MonitorPage() {
             </div>
           )}
 
-          {/* Status MT5 */}
+          {/* Status MT5 + Countdown + Win Rate */}
           <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
             <div className="flex items-center gap-2 mb-3">
               <Clock size={11} className="text-[#f59e0b]" />
@@ -701,9 +725,13 @@ export default function MonitorPage() {
                     <Wifi size={11} /> ONLINE
                   </div>
                   <div className="text-[#8b949e]">Conta: <span className="text-[#f0f6fc]">{status?.account}</span></div>
+                  <div className="text-[#8b949e]">Servidor: <span className="text-[#f0f6fc]">{status?.server}</span></div>
                   <div className="text-[#8b949e]">Par: <span className="text-[#f0f6fc]">{status?.par}</span></div>
-                  <div className="text-[#8b949e]">Posições: <span className="text-[#f0f6fc]">{status?.open_positions}</span></div>
+                  <div className="text-[#8b949e]">Posições abertas: <span className="text-[#f0f6fc]">{status?.open_positions}</span></div>
                   <div className="text-[#8b949e]">Heartbeat: <span className="text-[#f0f6fc]">{status ? secondsAgo(status.updated_at) : '—'}</span></div>
+                  {wr !== null && (
+                    <div className="text-[#8b949e]">Win Rate geral: <span className={cn('font-bold', wr >= 60 ? 'text-[#10b981]' : wr >= 50 ? 'text-[#f59e0b]' : 'text-[#ef4444]')}>{wr}%</span></div>
+                  )}
                 </>
               ) : (
                 <div className="flex items-center gap-2 text-[#ef4444]">
@@ -711,6 +739,26 @@ export default function MonitorPage() {
                   {status ? `Offline · ${secondsAgo(status.updated_at)}` : 'Bot não iniciado'}
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Próximo candle M5 */}
+          <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Clock size={11} className="text-[#3b82f6]" />
+              <span className="text-xs font-semibold text-[#f0f6fc]">Próxima Análise</span>
+            </div>
+            <div className="flex items-end gap-2">
+              <span className="text-2xl font-black font-mono text-[#3b82f6]">
+                {String(Math.floor(m5Secs / 60)).padStart(2, '0')}:{String(m5Secs % 60).padStart(2, '0')}
+              </span>
+              <span className="text-[9px] text-[#484f58] mb-1">até próximo M5</span>
+            </div>
+            <div className="mt-2 h-1 rounded-full bg-[#21262d] overflow-hidden">
+              <div
+                className="h-full rounded-full bg-[#3b82f6] transition-all duration-1000"
+                style={{ width: `${((300 - m5Secs) / 300) * 100}%` }}
+              />
             </div>
           </div>
         </div>
