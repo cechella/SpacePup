@@ -854,3 +854,435 @@
 2026-07-06 17:12:36,029 | INFO |     2023-02: $-3.51
 2026-07-06 17:12:36,029 | INFO | =======================================================
 2026-07-06 17:12:36,029 | WARNING | ✘ Metas de Fase 1A não atingidas — revisar parâmetros
+2026-09-03 20:59:44,546 | INFO | === Bot RAFI — Iniciando backtest ===
+2026-09-03 20:59:44,547 | INFO | Config hash: 47e01c88 (arquivo: config.yaml)
+2026-09-03 20:59:44,547 | INFO | Carregando dados CSV: M5=data/EURUSD_demo_jan2025.csv (M15 será gerado do M5)
+2026-09-03 20:59:44,566 | INFO | CSV carregado | M5: 1440 | M15: 1440
+2026-09-03 20:59:44,567 | INFO | Pré-calculando indicadores (RAFI, MA20/50 M5, S/R)...
+2026-09-03 20:59:44,575 | INFO | Sessões ativas: ['00:00–23:59']
+2026-09-03 20:59:44,575 | INFO | Iniciando backtest | Período: 2025-01-06 00:00:00+00:00 → 2025-01-10 23:55:00+00:00 | Candles M5: 1440 | Capital: $100.00 | Max simultâneos: 1
+2026-09-03 20:59:44,575 | INFO | Novo dia (2025-01-06). Resetando contadores diários.
+2026-09-03 20:59:44,575 | INFO | Nova semana (2025-W02). P&L semana anterior: $0.00 | Losses seguidos: 0
+2026-09-03 20:59:44,578 | INFO | Lote [faixa]: 0.4 | Capital: $100.00 | Pip value: $4.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,578 | INFO | [2025-01-06 14:05] AUTOSCAN COMPRA | Lote: 0.4 | Entry: 1.03232 | SL: 1.03199 | TP: 1.03281 | Risco: 3.3p ($13.20) | Capital: $100.00
+2026-09-03 20:59:44,580 | INFO | Lucro: $20.20 | P&L semana: $20.20
+2026-09-03 20:59:44,580 | INFO | [2025-01-06 15:35] FECHAMENTO | Take-profit atingido @ 1.03289 | Pips: +5.1 | P&L: +$20.20 | Capital: $120.20
+2026-09-03 20:59:44,580 | INFO | Lote [faixa]: 0.4 | Capital: $120.20 | Pip value: $4.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,580 | INFO | [2025-01-06 15:35] AUTOSCAN COMPRA | Lote: 0.4 | Entry: 1.03283 | SL: 1.03251 | TP: 1.03331 | Risco: 3.2p ($12.80) | Capital: $120.20
+2026-09-03 20:59:44,581 | WARNING | Perda: $17.40 | Perdas hoje: 1/100 | Losses seguidos: 1/3
+2026-09-03 20:59:44,581 | INFO | [2025-01-06 16:10] FECHAMENTO | Stop-loss atingido @ 1.03246 | Pips: -4.3 | P&L: $-17.40 | Capital: $102.80
+2026-09-03 20:59:44,589 | INFO | Lote [faixa]: 0.4 | Capital: $102.80 | Pip value: $4.00/pip | Losses seguidos: 1
+2026-09-03 20:59:44,589 | INFO | [2025-01-06 20:00] AUTOSCAN VENDA | Lote: 0.4 | Entry: 1.03289 | SL: 1.03315 | TP: 1.03250 | Risco: 2.6p ($10.40) | Capital: $102.80
+2026-09-03 20:59:44,589 | INFO | Lucro: $13.40 | P&L semana: $16.20
+2026-09-03 20:59:44,589 | INFO | [2025-01-06 20:10] FECHAMENTO | Take-profit atingido @ 1.03249 | Pips: +3.4 | P&L: +$13.40 | Capital: $116.20
+2026-09-03 20:59:44,595 | INFO | Lote [faixa]: 0.4 | Capital: $116.20 | Pip value: $4.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,595 | INFO | [2025-01-06 23:10] AUTOSCAN VENDA | Lote: 0.4 | Entry: 1.03151 | SL: 1.03170 | TP: 1.03122 | Risco: 1.9p ($7.60) | Capital: $116.20
+2026-09-03 20:59:44,596 | INFO | Novo dia (2025-01-07). Resetando contadores diários.
+2026-09-03 20:59:44,596 | INFO | Lucro: $9.00 | P&L semana: $25.20
+2026-09-03 20:59:44,597 | INFO | [2025-01-07 00:25] FECHAMENTO | Take-profit atingido @ 1.03122 | Pips: +2.2 | P&L: +$9.00 | Capital: $125.20
+2026-09-03 20:59:44,599 | INFO | Lote [faixa]: 0.4 | Capital: $125.20 | Pip value: $4.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,600 | INFO | [2025-01-07 01:40] AUTOSCAN COMPRA | Lote: 0.4 | Entry: 1.03167 | SL: 1.03145 | TP: 1.03200 | Risco: 2.2p ($8.80) | Capital: $125.20
+2026-09-03 20:59:44,600 | INFO | Lucro: $12.60 | P&L semana: $37.80
+2026-09-03 20:59:44,600 | INFO | [2025-01-07 02:00] FECHAMENTO | Take-profit atingido @ 1.03205 | Pips: +3.1 | P&L: +$12.60 | Capital: $137.80
+2026-09-03 20:59:44,605 | INFO | Lote [faixa]: 0.4 | Capital: $137.80 | Pip value: $4.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,605 | INFO | [2025-01-07 04:25] AUTOSCAN VENDA | Lote: 0.4 | Entry: 1.03148 | SL: 1.03169 | TP: 1.03116 | Risco: 2.1p ($8.40) | Capital: $137.80
+2026-09-03 20:59:44,607 | INFO | Lucro: $10.60 | P&L semana: $48.40
+2026-09-03 20:59:44,607 | INFO | [2025-01-07 06:45] FECHAMENTO | Take-profit atingido @ 1.03115 | Pips: +2.6 | P&L: +$10.60 | Capital: $148.40
+2026-09-03 20:59:44,608 | INFO | Lote [faixa]: 0.4 | Capital: $148.40 | Pip value: $4.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,608 | INFO | [2025-01-07 07:00] AUTOSCAN VENDA | Lote: 0.4 | Entry: 1.03111 | SL: 1.03143 | TP: 1.03063 | Risco: 3.2p ($12.80) | Capital: $148.40
+2026-09-03 20:59:44,609 | INFO | Lucro: $17.80 | P&L semana: $66.20
+2026-09-03 20:59:44,610 | INFO | [2025-01-07 08:20] FECHAMENTO | Take-profit atingido @ 1.03060 | Pips: +4.5 | P&L: +$17.80 | Capital: $166.20
+2026-09-03 20:59:44,610 | INFO | Lote [faixa]: 0.7 | Capital: $166.20 | Pip value: $7.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,610 | INFO | [2025-01-07 08:20] AUTOSCAN VENDA | Lote: 0.7 | Entry: 1.03064 | SL: 1.03089 | TP: 1.03026 | Risco: 2.5p ($17.50) | Capital: $166.20
+2026-09-03 20:59:44,610 | INFO | Lucro: $22.05 | P&L semana: $88.25
+2026-09-03 20:59:44,611 | INFO | [2025-01-07 08:40] FECHAMENTO | Take-profit atingido @ 1.03026 | Pips: +3.2 | P&L: +$22.05 | Capital: $188.25
+2026-09-03 20:59:44,613 | INFO | Lote [faixa]: 0.7 | Capital: $188.25 | Pip value: $7.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,613 | INFO | [2025-01-07 09:50] AUTOSCAN COMPRA | Lote: 0.7 | Entry: 1.03122 | SL: 1.03087 | TP: 1.03175 | Risco: 3.5p ($24.50) | Capital: $188.25
+2026-09-03 20:59:44,613 | INFO | Lucro: $36.75 | P&L semana: $125.00
+2026-09-03 20:59:44,613 | INFO | [2025-01-07 10:10] FECHAMENTO | Take-profit atingido @ 1.03181 | Pips: +5.2 | P&L: +$36.75 | Capital: $225.00
+2026-09-03 20:59:44,615 | INFO | Lote [faixa]: 1.0 | Capital: $225.00 | Pip value: $10.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,615 | INFO | [2025-01-07 11:00] AUTOSCAN COMPRA | Lote: 1.0 | Entry: 1.03254 | SL: 1.03219 | TP: 1.03307 | Risco: 3.5p ($35.00) | Capital: $225.00
+2026-09-03 20:59:44,616 | INFO | Lucro: $64.50 | P&L semana: $189.50
+2026-09-03 20:59:44,616 | INFO | [2025-01-07 12:00] FECHAMENTO | Take-profit atingido @ 1.03325 | Pips: +6.5 | P&L: +$64.50 | Capital: $289.50
+2026-09-03 20:59:44,617 | INFO | Lote [faixa]: 1.0 | Capital: $289.50 | Pip value: $10.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,617 | INFO | [2025-01-07 12:00] AUTOSCAN COMPRA | Lote: 1.0 | Entry: 1.03312 | SL: 1.03278 | TP: 1.03363 | Risco: 3.4p ($34.00) | Capital: $289.50
+2026-09-03 20:59:44,617 | WARNING | Perda: $40.50 | Perdas hoje: 1/100 | Losses seguidos: 1/3
+2026-09-03 20:59:44,617 | INFO | [2025-01-07 12:30] FECHAMENTO | Stop-loss atingido @ 1.03278 | Pips: -4.0 | P&L: $-40.50 | Capital: $249.00
+2026-09-03 20:59:44,624 | INFO | Lote [faixa]: 1.0 | Capital: $249.00 | Pip value: $10.00/pip | Losses seguidos: 1
+2026-09-03 20:59:44,624 | INFO | [2025-01-07 15:20] AUTOSCAN COMPRA | Lote: 1.0 | Entry: 1.03294 | SL: 1.03271 | TP: 1.03328 | Risco: 2.3p ($23.00) | Capital: $249.00
+2026-09-03 20:59:44,625 | INFO | Lucro: $29.50 | P&L semana: $178.50
+2026-09-03 20:59:44,625 | INFO | [2025-01-07 15:50] FECHAMENTO | Take-profit atingido @ 1.03330 | Pips: +3.0 | P&L: +$29.50 | Capital: $278.50
+2026-09-03 20:59:44,625 | INFO | Lote [faixa]: 1.0 | Capital: $278.50 | Pip value: $10.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,626 | INFO | [2025-01-07 16:00] AUTOSCAN COMPRA | Lote: 1.0 | Entry: 1.03348 | SL: 1.03307 | TP: 1.03410 | Risco: 4.1p ($41.00) | Capital: $278.50
+2026-09-03 20:59:44,627 | INFO | Lucro: $58.50 | P&L semana: $237.00
+2026-09-03 20:59:44,627 | INFO | [2025-01-07 17:45] FECHAMENTO | Take-profit atingido @ 1.03413 | Pips: +5.9 | P&L: +$58.50 | Capital: $337.00
+2026-09-03 20:59:44,629 | INFO | Lote [faixa]: 1.0 | Capital: $337.00 | Pip value: $10.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,630 | INFO | [2025-01-07 18:40] AUTOSCAN COMPRA | Lote: 1.0 | Entry: 1.03439 | SL: 1.03412 | TP: 1.03479 | Risco: 2.7p ($27.00) | Capital: $337.00
+2026-09-03 20:59:44,632 | INFO | Lucro: $39.50 | P&L semana: $276.50
+2026-09-03 20:59:44,632 | INFO | [2025-01-07 21:30] FECHAMENTO | Take-profit atingido @ 1.03485 | Pips: +4.0 | P&L: +$39.50 | Capital: $376.50
+2026-09-03 20:59:44,634 | INFO | Lote [faixa]: 1.0 | Capital: $376.50 | Pip value: $10.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,634 | INFO | [2025-01-07 22:35] AUTOSCAN COMPRA | Lote: 1.0 | Entry: 1.03525 | SL: 1.03500 | TP: 1.03562 | Risco: 2.5p ($25.00) | Capital: $376.50
+2026-09-03 20:59:44,635 | INFO | Lucro: $32.50 | P&L semana: $309.00
+2026-09-03 20:59:44,636 | INFO | [2025-01-07 23:35] FECHAMENTO | Take-profit atingido @ 1.03564 | Pips: +3.2 | P&L: +$32.50 | Capital: $409.00
+2026-09-03 20:59:44,636 | INFO | Lote [faixa]: 2.0 | Capital: $409.00 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,636 | INFO | [2025-01-07 23:40] AUTOSCAN COMPRA | Lote: 2.0 | Entry: 1.03564 | SL: 1.03545 | TP: 1.03592 | Risco: 1.9p ($38.00) | Capital: $409.00
+2026-09-03 20:59:44,636 | INFO | Novo dia (2025-01-08). Resetando contadores diários.
+2026-09-03 20:59:44,637 | INFO | Lucro: $47.00 | P&L semana: $356.00
+2026-09-03 20:59:44,638 | INFO | [2025-01-08 01:10] FECHAMENTO | Take-profit atingido @ 1.03594 | Pips: +2.4 | P&L: +$47.00 | Capital: $456.00
+2026-09-03 20:59:44,643 | INFO | Lote [faixa]: 2.0 | Capital: $456.00 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,643 | INFO | [2025-01-08 03:45] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03559 | SL: 1.03578 | TP: 1.03531 | Risco: 1.9p ($38.00) | Capital: $456.00
+2026-09-03 20:59:44,643 | INFO | Lucro: $45.00 | P&L semana: $401.00
+2026-09-03 20:59:44,643 | INFO | [2025-01-08 04:00] FECHAMENTO | Take-profit atingido @ 1.03530 | Pips: +2.2 | P&L: +$45.00 | Capital: $501.00
+2026-09-03 20:59:44,646 | INFO | Lote [faixa]: 2.0 | Capital: $501.00 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,647 | INFO | [2025-01-08 05:40] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03527 | SL: 1.03549 | TP: 1.03494 | Risco: 2.2p ($44.00) | Capital: $501.00
+2026-09-03 20:59:44,648 | INFO | Lucro: $63.00 | P&L semana: $464.00
+2026-09-03 20:59:44,648 | INFO | [2025-01-08 07:00] FECHAMENTO | Take-profit atingido @ 1.03489 | Pips: +3.1 | P&L: +$63.00 | Capital: $564.00
+2026-09-03 20:59:44,648 | INFO | Lote [faixa]: 2.0 | Capital: $564.00 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,648 | INFO | [2025-01-08 07:00] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03507 | SL: 1.03535 | TP: 1.03465 | Risco: 2.8p ($56.00) | Capital: $564.00
+2026-09-03 20:59:44,649 | INFO | Lucro: $79.00 | P&L semana: $543.00
+2026-09-03 20:59:44,649 | INFO | [2025-01-08 07:45] FECHAMENTO | Take-profit atingido @ 1.03461 | Pips: +3.9 | P&L: +$79.00 | Capital: $643.00
+2026-09-03 20:59:44,650 | INFO | Lote [faixa]: 2.0 | Capital: $643.00 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,650 | INFO | [2025-01-08 08:05] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03449 | SL: 1.03489 | TP: 1.03389 | Risco: 4.0p ($80.00) | Capital: $643.00
+2026-09-03 20:59:44,651 | WARNING | Perda: $109.00 | Perdas hoje: 1/100 | Losses seguidos: 1/3
+2026-09-03 20:59:44,651 | INFO | [2025-01-08 09:30] FECHAMENTO | Stop-loss atingido @ 1.03497 | Pips: -5.5 | P&L: $-109.00 | Capital: $534.00
+2026-09-03 20:59:44,652 | INFO | Lote [faixa]: 2.0 | Capital: $534.00 | Pip value: $20.00/pip | Losses seguidos: 1
+2026-09-03 20:59:44,652 | INFO | [2025-01-08 09:30] AUTOSCAN COMPRA | Lote: 2.0 | Entry: 1.03491 | SL: 1.03461 | TP: 1.03536 | Risco: 3.0p ($60.00) | Capital: $534.00
+2026-09-03 20:59:44,652 | WARNING | Perda: $75.00 | Perdas hoje: 2/100 | Losses seguidos: 2/3
+2026-09-03 20:59:44,652 | INFO | [2025-01-08 10:05] FECHAMENTO | Stop-loss atingido @ 1.03460 | Pips: -3.8 | P&L: $-75.00 | Capital: $459.00
+2026-09-03 20:59:44,653 | WARNING | Drawdown semanal 28.6% > 20% → Reduzindo lote: 2.0 → 1.0
+2026-09-03 20:59:44,653 | INFO | Lote [faixa]: 1.0 | Capital: $459.00 | Pip value: $10.00/pip | Losses seguidos: 2
+2026-09-03 20:59:44,653 | INFO | [2025-01-08 10:20] AUTOSCAN VENDA | Lote: 1.0 | Entry: 1.03406 | SL: 1.03445 | TP: 1.03347 | Risco: 3.9p ($39.00) | Capital: $459.00
+2026-09-03 20:59:44,654 | INFO | Lucro: $64.50 | P&L semana: $423.50
+2026-09-03 20:59:44,654 | INFO | [2025-01-08 10:45] FECHAMENTO | Take-profit atingido @ 1.03335 | Pips: +6.5 | P&L: +$64.50 | Capital: $523.50
+2026-09-03 20:59:44,655 | INFO | Lote [faixa]: 2.0 | Capital: $523.50 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,655 | INFO | [2025-01-08 11:30] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03328 | SL: 1.03362 | TP: 1.03277 | Risco: 3.4p ($68.00) | Capital: $523.50
+2026-09-03 20:59:44,656 | INFO | Lucro: $121.00 | P&L semana: $544.50
+2026-09-03 20:59:44,656 | INFO | [2025-01-08 12:25] FECHAMENTO | Take-profit atingido @ 1.03261 | Pips: +6.0 | P&L: +$121.00 | Capital: $644.50
+2026-09-03 20:59:44,657 | INFO | Lote [faixa]: 2.0 | Capital: $644.50 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,657 | INFO | [2025-01-08 12:25] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03268 | SL: 1.03310 | TP: 1.03205 | Risco: 4.2p ($84.00) | Capital: $644.50
+2026-09-03 20:59:44,664 | INFO | Lucro: $119.00 | P&L semana: $663.50
+2026-09-03 20:59:44,664 | INFO | [2025-01-08 20:55] FECHAMENTO | Take-profit atingido @ 1.03202 | Pips: +6.0 | P&L: +$119.00 | Capital: $763.50
+2026-09-03 20:59:44,665 | INFO | Lote [faixa]: 2.0 | Capital: $763.50 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,665 | INFO | [2025-01-08 21:20] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03188 | SL: 1.03217 | TP: 1.03144 | Risco: 2.9p ($58.00) | Capital: $763.50
+2026-09-03 20:59:44,667 | INFO | Novo dia (2025-01-09). Resetando contadores diários.
+2026-09-03 20:59:44,669 | WARNING | Perda: $79.00 | Perdas hoje: 1/100 | Losses seguidos: 1/3
+2026-09-03 20:59:44,669 | INFO | [2025-01-09 01:15] FECHAMENTO | Stop-loss atingido @ 1.03221 | Pips: -4.0 | P&L: $-79.00 | Capital: $684.50
+2026-09-03 20:59:44,669 | INFO | Lote [faixa]: 2.0 | Capital: $684.50 | Pip value: $20.00/pip | Losses seguidos: 1
+2026-09-03 20:59:44,669 | INFO | [2025-01-09 01:15] AUTOSCAN COMPRA | Lote: 2.0 | Entry: 1.03213 | SL: 1.03194 | TP: 1.03241 | Risco: 1.9p ($38.00) | Capital: $684.50
+2026-09-03 20:59:44,669 | INFO | Lucro: $45.00 | P&L semana: $629.50
+2026-09-03 20:59:44,669 | INFO | [2025-01-09 01:40] FECHAMENTO | Take-profit atingido @ 1.03242 | Pips: +2.2 | P&L: +$45.00 | Capital: $729.50
+2026-09-03 20:59:44,673 | INFO | Lote [faixa]: 2.0 | Capital: $729.50 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,673 | INFO | [2025-01-09 03:35] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03232 | SL: 1.03251 | TP: 1.03203 | Risco: 1.9p ($38.00) | Capital: $729.50
+2026-09-03 20:59:44,674 | WARNING | Perda: $53.00 | Perdas hoje: 2/100 | Losses seguidos: 1/3
+2026-09-03 20:59:44,674 | INFO | [2025-01-09 04:10] FECHAMENTO | Stop-loss atingido @ 1.03252 | Pips: -2.7 | P&L: $-53.00 | Capital: $676.50
+2026-09-03 20:59:44,675 | INFO | Lote [faixa]: 2.0 | Capital: $676.50 | Pip value: $20.00/pip | Losses seguidos: 1
+2026-09-03 20:59:44,675 | INFO | [2025-01-09 04:45] AUTOSCAN COMPRA | Lote: 2.0 | Entry: 1.03261 | SL: 1.03239 | TP: 1.03294 | Risco: 2.2p ($44.00) | Capital: $676.50
+2026-09-03 20:59:44,677 | INFO | Lucro: $57.00 | P&L semana: $633.50
+2026-09-03 20:59:44,677 | INFO | [2025-01-09 06:30] FECHAMENTO | Take-profit atingido @ 1.03296 | Pips: +2.9 | P&L: +$57.00 | Capital: $733.50
+2026-09-03 20:59:44,678 | INFO | Lote [faixa]: 2.0 | Capital: $733.50 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,678 | INFO | [2025-01-09 06:40] AUTOSCAN COMPRA | Lote: 2.0 | Entry: 1.03302 | SL: 1.03278 | TP: 1.03338 | Risco: 2.4p ($48.00) | Capital: $733.50
+2026-09-03 20:59:44,679 | WARNING | Perda: $101.00 | Perdas hoje: 3/100 | Losses seguidos: 1/3
+2026-09-03 20:59:44,679 | INFO | [2025-01-09 07:50] FECHAMENTO | Stop-loss atingido @ 1.03258 | Pips: -5.0 | P&L: $-101.00 | Capital: $632.50
+2026-09-03 20:59:44,679 | INFO | Lote [faixa]: 2.0 | Capital: $632.50 | Pip value: $20.00/pip | Losses seguidos: 1
+2026-09-03 20:59:44,679 | INFO | [2025-01-09 07:50] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03273 | SL: 1.03305 | TP: 1.03225 | Risco: 3.2p ($64.00) | Capital: $632.50
+2026-09-03 20:59:44,680 | INFO | Lucro: $99.00 | P&L semana: $631.50
+2026-09-03 20:59:44,680 | INFO | [2025-01-09 08:05] FECHAMENTO | Take-profit atingido @ 1.03217 | Pips: +4.9 | P&L: +$99.00 | Capital: $731.50
+2026-09-03 20:59:44,681 | INFO | Lote [faixa]: 2.0 | Capital: $731.50 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,681 | INFO | [2025-01-09 08:50] AUTOSCAN COMPRA | Lote: 2.0 | Entry: 1.03321 | SL: 1.03295 | TP: 1.03360 | Risco: 2.6p ($52.00) | Capital: $731.50
+2026-09-03 20:59:44,682 | INFO | Lucro: $85.00 | P&L semana: $716.50
+2026-09-03 20:59:44,682 | INFO | [2025-01-09 09:00] FECHAMENTO | Take-profit atingido @ 1.03370 | Pips: +4.3 | P&L: +$85.00 | Capital: $816.50
+2026-09-03 20:59:44,684 | INFO | Lote [faixa]: 4.0 | Capital: $816.50 | Pip value: $40.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,684 | INFO | [2025-01-09 10:25] AUTOSCAN COMPRA | Lote: 4.0 | Entry: 1.03446 | SL: 1.03410 | TP: 1.03500 | Risco: 3.6p ($144.00) | Capital: $816.50
+2026-09-03 20:59:44,685 | INFO | Lucro: $210.00 | P&L semana: $926.50
+2026-09-03 20:59:44,685 | INFO | [2025-01-09 11:45] FECHAMENTO | Take-profit atingido @ 1.03505 | Pips: +5.3 | P&L: +$210.00 | Capital: $1026.50
+2026-09-03 20:59:44,686 | INFO | Lote [faixa]: 4.0 | Capital: $1026.50 | Pip value: $40.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,686 | INFO | [2025-01-09 11:45] AUTOSCAN COMPRA | Lote: 4.0 | Entry: 1.03497 | SL: 1.03454 | TP: 1.03562 | Risco: 4.3p ($172.00) | Capital: $1026.50
+2026-09-03 20:59:44,687 | WARNING | Perda: $218.00 | Perdas hoje: 4/100 | Losses seguidos: 1/3
+2026-09-03 20:59:44,687 | INFO | [2025-01-09 13:35] FECHAMENTO | Stop-loss atingido @ 1.03449 | Pips: -5.5 | P&L: $-218.00 | Capital: $808.50
+2026-09-03 20:59:44,688 | WARNING | Drawdown semanal 21.2% > 20% → Reduzindo lote: 4.0 → 2.0
+2026-09-03 20:59:44,688 | INFO | Lote [faixa]: 2.0 | Capital: $808.50 | Pip value: $20.00/pip | Losses seguidos: 1
+2026-09-03 20:59:44,688 | INFO | [2025-01-09 13:35] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03452 | SL: 1.03483 | TP: 1.03406 | Risco: 3.1p ($62.00) | Capital: $808.50
+2026-09-03 20:59:44,689 | INFO | Lucro: $87.00 | P&L semana: $795.50
+2026-09-03 20:59:44,689 | INFO | [2025-01-09 15:25] FECHAMENTO | Take-profit atingido @ 1.03402 | Pips: +4.4 | P&L: +$87.00 | Capital: $895.50
+2026-09-03 20:59:44,690 | INFO | Lote [faixa]: 4.0 | Capital: $895.50 | Pip value: $40.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,691 | INFO | [2025-01-09 15:55] AUTOSCAN COMPRA | Lote: 4.0 | Entry: 1.03472 | SL: 1.03452 | TP: 1.03502 | Risco: 2.0p ($80.00) | Capital: $895.50
+2026-09-03 20:59:44,691 | INFO | Lucro: $126.00 | P&L semana: $921.50
+2026-09-03 20:59:44,691 | INFO | [2025-01-09 16:20] FECHAMENTO | Take-profit atingido @ 1.03510 | Pips: +3.1 | P&L: +$126.00 | Capital: $1021.50
+2026-09-03 20:59:44,692 | INFO | Lote [faixa]: 4.0 | Capital: $1021.50 | Pip value: $40.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,693 | INFO | [2025-01-09 17:10] AUTOSCAN COMPRA | Lote: 4.0 | Entry: 1.03549 | SL: 1.03525 | TP: 1.03585 | Risco: 2.4p ($96.00) | Capital: $1021.50
+2026-09-03 20:59:44,693 | INFO | Lucro: $122.00 | P&L semana: $1043.50
+2026-09-03 20:59:44,693 | INFO | [2025-01-09 17:25] FECHAMENTO | Take-profit atingido @ 1.03586 | Pips: +3.0 | P&L: +$122.00 | Capital: $1143.50
+2026-09-03 20:59:44,697 | INFO | Lote [faixa]: 4.0 | Capital: $1143.50 | Pip value: $40.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,697 | INFO | [2025-01-09 19:40] AUTOSCAN VENDA | Lote: 4.0 | Entry: 1.03510 | SL: 1.03535 | TP: 1.03472 | Risco: 2.5p ($100.00) | Capital: $1143.50
+2026-09-03 20:59:44,698 | INFO | Lucro: $138.00 | P&L semana: $1181.50
+2026-09-03 20:59:44,698 | INFO | [2025-01-09 19:55] FECHAMENTO | Take-profit atingido @ 1.03469 | Pips: +3.4 | P&L: +$138.00 | Capital: $1281.50
+2026-09-03 20:59:44,699 | INFO | Lote [faixa]: 4.0 | Capital: $1281.50 | Pip value: $40.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,699 | INFO | [2025-01-09 20:40] AUTOSCAN VENDA | Lote: 4.0 | Entry: 1.03459 | SL: 1.03480 | TP: 1.03427 | Risco: 2.1p ($84.00) | Capital: $1281.50
+2026-09-03 20:59:44,699 | INFO | Lucro: $142.00 | P&L semana: $1323.50
+2026-09-03 20:59:44,699 | INFO | [2025-01-09 20:55] FECHAMENTO | Take-profit atingido @ 1.03417 | Pips: +3.5 | P&L: +$142.00 | Capital: $1423.50
+2026-09-03 20:59:44,702 | INFO | Lote [faixa]: 4.0 | Capital: $1423.50 | Pip value: $40.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,702 | INFO | [2025-01-09 22:20] AUTOSCAN COMPRA | Lote: 4.0 | Entry: 1.03508 | SL: 1.03487 | TP: 1.03540 | Risco: 2.1p ($84.00) | Capital: $1423.50
+2026-09-03 20:59:44,703 | WARNING | Perda: $126.00 | Perdas hoje: 5/100 | Losses seguidos: 1/3
+2026-09-03 20:59:44,703 | INFO | [2025-01-09 23:20] FECHAMENTO | Stop-loss atingido @ 1.03483 | Pips: -3.2 | P&L: $-126.00 | Capital: $1297.50
+2026-09-03 20:59:44,704 | INFO | Novo dia (2025-01-10). Resetando contadores diários.
+2026-09-03 20:59:44,708 | INFO | Lote [faixa]: 4.0 | Capital: $1297.50 | Pip value: $40.00/pip | Losses seguidos: 1
+2026-09-03 20:59:44,708 | INFO | [2025-01-10 01:45] AUTOSCAN COMPRA | Lote: 4.0 | Entry: 1.03511 | SL: 1.03489 | TP: 1.03544 | Risco: 2.2p ($88.00) | Capital: $1297.50
+2026-09-03 20:59:44,710 | INFO | Lucro: $134.00 | P&L semana: $1331.50
+2026-09-03 20:59:44,710 | INFO | [2025-01-10 03:35] FECHAMENTO | Take-profit atingido @ 1.03551 | Pips: +3.3 | P&L: +$134.00 | Capital: $1431.50
+2026-09-03 20:59:44,710 | INFO | Lote [faixa]: 4.0 | Capital: $1431.50 | Pip value: $40.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,710 | INFO | [2025-01-10 03:35] AUTOSCAN COMPRA | Lote: 4.0 | Entry: 1.03544 | SL: 1.03517 | TP: 1.03584 | Risco: 2.7p ($108.00) | Capital: $1431.50
+2026-09-03 20:59:44,712 | INFO | Lucro: $142.00 | P&L semana: $1473.50
+2026-09-03 20:59:44,712 | INFO | [2025-01-10 06:10] FECHAMENTO | Take-profit atingido @ 1.03586 | Pips: +3.6 | P&L: +$142.00 | Capital: $1573.50
+2026-09-03 20:59:44,713 | INFO | Lote [faixa]: 8.0 | Capital: $1573.50 | Pip value: $80.00/pip | Losses seguidos: 0
+2026-09-03 20:59:44,713 | INFO | [2025-01-10 06:10] AUTOSCAN COMPRA | Lote: 8.0 | Entry: 1.03578 | SL: 1.03553 | TP: 1.03615 | Risco: 2.5p ($200.00) | Capital: $1573.50
+2026-09-03 20:59:44,714 | WARNING | Perda: $324.00 | Perdas hoje: 1/100 | Losses seguidos: 1/3
+2026-09-03 20:59:44,714 | INFO | [2025-01-10 07:35] FECHAMENTO | Stop-loss atingido @ 1.03544 | Pips: -4.0 | P&L: $-324.00 | Capital: $1249.50
+2026-09-03 20:59:44,715 | INFO | Lote [faixa]: 4.0 | Capital: $1249.50 | Pip value: $40.00/pip | Losses seguidos: 1
+2026-09-03 20:59:44,715 | INFO | [2025-01-10 07:50] AUTOSCAN VENDA | Lote: 4.0 | Entry: 1.03528 | SL: 1.03550 | TP: 1.03495 | Risco: 2.2p ($88.00) | Capital: $1249.50
+2026-09-03 20:59:44,716 | WARNING | Perda: $162.00 | Perdas hoje: 2/100 | Losses seguidos: 2/3
+2026-09-03 20:59:44,716 | INFO | [2025-01-10 08:45] FECHAMENTO | Stop-loss atingido @ 1.03562 | Pips: -4.0 | P&L: $-162.00 | Capital: $1087.50
+2026-09-03 20:59:44,717 | WARNING | Drawdown semanal 30.9% > 20% → Reduzindo lote: 4.0 → 2.0
+2026-09-03 20:59:44,717 | INFO | Lote [faixa]: 2.0 | Capital: $1087.50 | Pip value: $20.00/pip | Losses seguidos: 2
+2026-09-03 20:59:44,717 | INFO | [2025-01-10 09:15] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03485 | SL: 1.03520 | TP: 1.03433 | Risco: 3.5p ($70.00) | Capital: $1087.50
+2026-09-03 20:59:44,718 | WARNING | Perda: $83.00 | Perdas hoje: 3/100 | Losses seguidos: 3/3
+2026-09-03 20:59:44,718 | INFO | [2025-01-10 10:35] FECHAMENTO | Stop-loss atingido @ 1.03520 | Pips: -4.1 | P&L: $-83.00 | Capital: $1004.50
+2026-09-03 20:59:44,730 | INFO | [DIAGNÓSTICO AUTOSCAN] Candles M5: 1440 → trades: 44
+2026-09-03 20:59:44,730 | INFO | Backtest concluído | Trades: 44 | Capital final: $1004.50
+2026-09-03 20:59:44,731 | INFO | =======================================================
+2026-09-03 20:59:44,731 | INFO |            RELATÓRIO DE BACKTEST — BOT RAFI
+2026-09-03 20:59:44,731 | INFO | =======================================================
+2026-09-03 20:59:44,731 | INFO |   Total de trades  : 44
+2026-09-03 20:59:44,731 | INFO |   Ganhos / Perdas  : 32 / 12
+2026-09-03 20:59:44,731 | INFO |   Win Rate         : 72.7%
+2026-09-03 20:59:44,731 | INFO |   Profit Factor    : 1.652
+2026-09-03 20:59:44,731 | INFO |   Expectativa/trade: $20.56
+2026-09-03 20:59:44,731 | INFO |   Retorno total    : $904.50 (904.5%)
+2026-09-03 20:59:44,731 | INFO |   Capital inicial  : $100.00
+2026-09-03 20:59:44,731 | INFO |   Capital final    : $1004.50
+2026-09-03 20:59:44,731 | INFO |   Drawdown máximo  : $569.00 (36.2%)
+2026-09-03 20:59:44,731 | INFO |   Sharpe Ratio     : 2.795
+2026-09-03 20:59:44,731 | INFO |   Duração média    : 75 min
+2026-09-03 20:59:44,731 | INFO | =======================================================
+2026-09-03 20:59:44,731 | WARNING |   ⚠ Drawdown alto: 36.2%
+2026-09-03 20:59:44,731 | INFO |   Resultados por mês:
+2026-09-03 20:59:44,731 | INFO |     2025-01: +$904.50
+2026-09-03 20:59:44,731 | INFO | =======================================================
+2026-09-03 20:59:44,733 | INFO | CSV detalhado exportado: logs/autoscan_demo.csv | 44 trades | WR=72.7% | Config: 47e01c88
+2026-09-03 20:59:44,733 | INFO | CSV detalhado: logs/autoscan_demo.csv | Config hash: 47e01c88
+2026-09-03 20:59:44,733 | INFO | ✔ METAS DE FASE 1A ATINGIDAS: win rate ≥55% e profit factor ≥1.5
+2026-09-03 20:59:50,870 | INFO | === Bot RAFI — Iniciando backtest ===
+2026-09-03 20:59:50,870 | INFO | Config hash: 47e01c88 (arquivo: config.yaml)
+2026-09-03 20:59:50,870 | INFO | Carregando dados CSV: M5=data/EURUSD_demo_jan2025.csv (M15 será gerado do M5)
+2026-09-03 20:59:50,885 | INFO | CSV carregado | M5: 1440 | M15: 1440
+2026-09-03 20:59:50,886 | INFO | Pré-calculando indicadores (RAFI, MA20/50 M5, S/R)...
+2026-09-03 20:59:50,894 | INFO | Sessões ativas: ['00:00–23:59']
+2026-09-03 20:59:50,894 | INFO | Iniciando backtest | Período: 2025-01-06 00:00:00+00:00 → 2025-01-10 23:55:00+00:00 | Candles M5: 1440 | Capital: $100.00 | Max simultâneos: 1
+2026-09-03 20:59:50,895 | INFO | Novo dia (2025-01-06). Resetando contadores diários.
+2026-09-03 20:59:50,895 | INFO | Nova semana (2025-W02). P&L semana anterior: $0.00 | Losses seguidos: 0
+2026-09-03 20:59:50,897 | INFO | Lote [faixa]: 0.4 | Capital: $100.00 | Pip value: $4.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,897 | INFO | [2025-01-06 14:05] AUTOSCAN COMPRA | Lote: 0.4 | Entry: 1.03232 | SL: 1.03199 | TP: 1.03281 | Risco: 3.3p ($13.20) | Capital: $100.00
+2026-09-03 20:59:50,899 | INFO | Lucro: $20.20 | P&L semana: $20.20
+2026-09-03 20:59:50,899 | INFO | [2025-01-06 15:35] FECHAMENTO | Take-profit atingido @ 1.03289 | Pips: +5.1 | P&L: +$20.20 | Capital: $120.20
+2026-09-03 20:59:50,899 | INFO | Lote [faixa]: 0.4 | Capital: $120.20 | Pip value: $4.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,899 | INFO | [2025-01-06 15:35] AUTOSCAN COMPRA | Lote: 0.4 | Entry: 1.03283 | SL: 1.03251 | TP: 1.03331 | Risco: 3.2p ($12.80) | Capital: $120.20
+2026-09-03 20:59:50,900 | WARNING | Perda: $17.40 | Perdas hoje: 1/100 | Losses seguidos: 1/3
+2026-09-03 20:59:50,900 | INFO | [2025-01-06 16:10] FECHAMENTO | Stop-loss atingido @ 1.03246 | Pips: -4.3 | P&L: $-17.40 | Capital: $102.80
+2026-09-03 20:59:50,908 | INFO | Lote [faixa]: 0.4 | Capital: $102.80 | Pip value: $4.00/pip | Losses seguidos: 1
+2026-09-03 20:59:50,908 | INFO | [2025-01-06 20:00] AUTOSCAN VENDA | Lote: 0.4 | Entry: 1.03289 | SL: 1.03315 | TP: 1.03250 | Risco: 2.6p ($10.40) | Capital: $102.80
+2026-09-03 20:59:50,908 | INFO | Lucro: $13.40 | P&L semana: $16.20
+2026-09-03 20:59:50,908 | INFO | [2025-01-06 20:10] FECHAMENTO | Take-profit atingido @ 1.03249 | Pips: +3.4 | P&L: +$13.40 | Capital: $116.20
+2026-09-03 20:59:50,913 | INFO | Lote [faixa]: 0.4 | Capital: $116.20 | Pip value: $4.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,914 | INFO | [2025-01-06 23:10] AUTOSCAN VENDA | Lote: 0.4 | Entry: 1.03151 | SL: 1.03170 | TP: 1.03122 | Risco: 1.9p ($7.60) | Capital: $116.20
+2026-09-03 20:59:50,914 | INFO | Novo dia (2025-01-07). Resetando contadores diários.
+2026-09-03 20:59:50,915 | INFO | Lucro: $9.00 | P&L semana: $25.20
+2026-09-03 20:59:50,915 | INFO | [2025-01-07 00:25] FECHAMENTO | Take-profit atingido @ 1.03122 | Pips: +2.2 | P&L: +$9.00 | Capital: $125.20
+2026-09-03 20:59:50,918 | INFO | Lote [faixa]: 0.4 | Capital: $125.20 | Pip value: $4.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,918 | INFO | [2025-01-07 01:40] AUTOSCAN COMPRA | Lote: 0.4 | Entry: 1.03167 | SL: 1.03145 | TP: 1.03200 | Risco: 2.2p ($8.80) | Capital: $125.20
+2026-09-03 20:59:50,918 | INFO | Lucro: $12.60 | P&L semana: $37.80
+2026-09-03 20:59:50,918 | INFO | [2025-01-07 02:00] FECHAMENTO | Take-profit atingido @ 1.03205 | Pips: +3.1 | P&L: +$12.60 | Capital: $137.80
+2026-09-03 20:59:50,923 | INFO | Lote [faixa]: 0.4 | Capital: $137.80 | Pip value: $4.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,923 | INFO | [2025-01-07 04:25] AUTOSCAN VENDA | Lote: 0.4 | Entry: 1.03148 | SL: 1.03169 | TP: 1.03116 | Risco: 2.1p ($8.40) | Capital: $137.80
+2026-09-03 20:59:50,925 | INFO | Lucro: $10.60 | P&L semana: $48.40
+2026-09-03 20:59:50,925 | INFO | [2025-01-07 06:45] FECHAMENTO | Take-profit atingido @ 1.03115 | Pips: +2.6 | P&L: +$10.60 | Capital: $148.40
+2026-09-03 20:59:50,925 | INFO | Lote [faixa]: 0.4 | Capital: $148.40 | Pip value: $4.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,926 | INFO | [2025-01-07 07:00] AUTOSCAN VENDA | Lote: 0.4 | Entry: 1.03111 | SL: 1.03143 | TP: 1.03063 | Risco: 3.2p ($12.80) | Capital: $148.40
+2026-09-03 20:59:50,927 | INFO | Lucro: $17.80 | P&L semana: $66.20
+2026-09-03 20:59:50,927 | INFO | [2025-01-07 08:20] FECHAMENTO | Take-profit atingido @ 1.03060 | Pips: +4.5 | P&L: +$17.80 | Capital: $166.20
+2026-09-03 20:59:50,927 | INFO | Lote [faixa]: 0.7 | Capital: $166.20 | Pip value: $7.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,928 | INFO | [2025-01-07 08:20] AUTOSCAN VENDA | Lote: 0.7 | Entry: 1.03064 | SL: 1.03089 | TP: 1.03026 | Risco: 2.5p ($17.50) | Capital: $166.20
+2026-09-03 20:59:50,928 | INFO | Lucro: $22.05 | P&L semana: $88.25
+2026-09-03 20:59:50,928 | INFO | [2025-01-07 08:40] FECHAMENTO | Take-profit atingido @ 1.03026 | Pips: +3.2 | P&L: +$22.05 | Capital: $188.25
+2026-09-03 20:59:50,931 | INFO | Lote [faixa]: 0.7 | Capital: $188.25 | Pip value: $7.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,931 | INFO | [2025-01-07 09:50] AUTOSCAN COMPRA | Lote: 0.7 | Entry: 1.03122 | SL: 1.03087 | TP: 1.03175 | Risco: 3.5p ($24.50) | Capital: $188.25
+2026-09-03 20:59:50,931 | INFO | Lucro: $36.75 | P&L semana: $125.00
+2026-09-03 20:59:50,932 | INFO | [2025-01-07 10:10] FECHAMENTO | Take-profit atingido @ 1.03181 | Pips: +5.2 | P&L: +$36.75 | Capital: $225.00
+2026-09-03 20:59:50,933 | INFO | Lote [faixa]: 1.0 | Capital: $225.00 | Pip value: $10.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,933 | INFO | [2025-01-07 11:00] AUTOSCAN COMPRA | Lote: 1.0 | Entry: 1.03254 | SL: 1.03219 | TP: 1.03307 | Risco: 3.5p ($35.00) | Capital: $225.00
+2026-09-03 20:59:50,934 | INFO | Lucro: $64.50 | P&L semana: $189.50
+2026-09-03 20:59:50,934 | INFO | [2025-01-07 12:00] FECHAMENTO | Take-profit atingido @ 1.03325 | Pips: +6.5 | P&L: +$64.50 | Capital: $289.50
+2026-09-03 20:59:50,935 | INFO | Lote [faixa]: 1.0 | Capital: $289.50 | Pip value: $10.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,935 | INFO | [2025-01-07 12:00] AUTOSCAN COMPRA | Lote: 1.0 | Entry: 1.03312 | SL: 1.03278 | TP: 1.03363 | Risco: 3.4p ($34.00) | Capital: $289.50
+2026-09-03 20:59:50,936 | WARNING | Perda: $40.50 | Perdas hoje: 1/100 | Losses seguidos: 1/3
+2026-09-03 20:59:50,936 | INFO | [2025-01-07 12:30] FECHAMENTO | Stop-loss atingido @ 1.03278 | Pips: -4.0 | P&L: $-40.50 | Capital: $249.00
+2026-09-03 20:59:50,943 | INFO | Lote [faixa]: 1.0 | Capital: $249.00 | Pip value: $10.00/pip | Losses seguidos: 1
+2026-09-03 20:59:50,943 | INFO | [2025-01-07 15:20] AUTOSCAN COMPRA | Lote: 1.0 | Entry: 1.03294 | SL: 1.03271 | TP: 1.03328 | Risco: 2.3p ($23.00) | Capital: $249.00
+2026-09-03 20:59:50,944 | INFO | Lucro: $29.50 | P&L semana: $178.50
+2026-09-03 20:59:50,944 | INFO | [2025-01-07 15:50] FECHAMENTO | Take-profit atingido @ 1.03330 | Pips: +3.0 | P&L: +$29.50 | Capital: $278.50
+2026-09-03 20:59:50,945 | INFO | Lote [faixa]: 1.0 | Capital: $278.50 | Pip value: $10.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,945 | INFO | [2025-01-07 16:00] AUTOSCAN COMPRA | Lote: 1.0 | Entry: 1.03348 | SL: 1.03307 | TP: 1.03410 | Risco: 4.1p ($41.00) | Capital: $278.50
+2026-09-03 20:59:50,947 | INFO | Lucro: $58.50 | P&L semana: $237.00
+2026-09-03 20:59:50,947 | INFO | [2025-01-07 17:45] FECHAMENTO | Take-profit atingido @ 1.03413 | Pips: +5.9 | P&L: +$58.50 | Capital: $337.00
+2026-09-03 20:59:50,950 | INFO | Lote [faixa]: 1.0 | Capital: $337.00 | Pip value: $10.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,950 | INFO | [2025-01-07 18:40] AUTOSCAN COMPRA | Lote: 1.0 | Entry: 1.03439 | SL: 1.03412 | TP: 1.03479 | Risco: 2.7p ($27.00) | Capital: $337.00
+2026-09-03 20:59:50,952 | INFO | Lucro: $39.50 | P&L semana: $276.50
+2026-09-03 20:59:50,952 | INFO | [2025-01-07 21:30] FECHAMENTO | Take-profit atingido @ 1.03485 | Pips: +4.0 | P&L: +$39.50 | Capital: $376.50
+2026-09-03 20:59:50,954 | INFO | Lote [faixa]: 1.0 | Capital: $376.50 | Pip value: $10.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,955 | INFO | [2025-01-07 22:35] AUTOSCAN COMPRA | Lote: 1.0 | Entry: 1.03525 | SL: 1.03500 | TP: 1.03562 | Risco: 2.5p ($25.00) | Capital: $376.50
+2026-09-03 20:59:50,956 | INFO | Lucro: $32.50 | P&L semana: $309.00
+2026-09-03 20:59:50,956 | INFO | [2025-01-07 23:35] FECHAMENTO | Take-profit atingido @ 1.03564 | Pips: +3.2 | P&L: +$32.50 | Capital: $409.00
+2026-09-03 20:59:50,956 | INFO | Lote [faixa]: 2.0 | Capital: $409.00 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,956 | INFO | [2025-01-07 23:40] AUTOSCAN COMPRA | Lote: 2.0 | Entry: 1.03564 | SL: 1.03545 | TP: 1.03592 | Risco: 1.9p ($38.00) | Capital: $409.00
+2026-09-03 20:59:50,957 | INFO | Novo dia (2025-01-08). Resetando contadores diários.
+2026-09-03 20:59:50,958 | INFO | Lucro: $47.00 | P&L semana: $356.00
+2026-09-03 20:59:50,958 | INFO | [2025-01-08 01:10] FECHAMENTO | Take-profit atingido @ 1.03594 | Pips: +2.4 | P&L: +$47.00 | Capital: $456.00
+2026-09-03 20:59:50,963 | INFO | Lote [faixa]: 2.0 | Capital: $456.00 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,963 | INFO | [2025-01-08 03:45] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03559 | SL: 1.03578 | TP: 1.03531 | Risco: 1.9p ($38.00) | Capital: $456.00
+2026-09-03 20:59:50,963 | INFO | Lucro: $45.00 | P&L semana: $401.00
+2026-09-03 20:59:50,964 | INFO | [2025-01-08 04:00] FECHAMENTO | Take-profit atingido @ 1.03530 | Pips: +2.2 | P&L: +$45.00 | Capital: $501.00
+2026-09-03 20:59:50,967 | INFO | Lote [faixa]: 2.0 | Capital: $501.00 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,967 | INFO | [2025-01-08 05:40] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03527 | SL: 1.03549 | TP: 1.03494 | Risco: 2.2p ($44.00) | Capital: $501.00
+2026-09-03 20:59:50,968 | INFO | Lucro: $63.00 | P&L semana: $464.00
+2026-09-03 20:59:50,968 | INFO | [2025-01-08 07:00] FECHAMENTO | Take-profit atingido @ 1.03489 | Pips: +3.1 | P&L: +$63.00 | Capital: $564.00
+2026-09-03 20:59:50,968 | INFO | Lote [faixa]: 2.0 | Capital: $564.00 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,969 | INFO | [2025-01-08 07:00] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03507 | SL: 1.03535 | TP: 1.03465 | Risco: 2.8p ($56.00) | Capital: $564.00
+2026-09-03 20:59:50,969 | INFO | Lucro: $79.00 | P&L semana: $543.00
+2026-09-03 20:59:50,969 | INFO | [2025-01-08 07:45] FECHAMENTO | Take-profit atingido @ 1.03461 | Pips: +3.9 | P&L: +$79.00 | Capital: $643.00
+2026-09-03 20:59:50,970 | INFO | Lote [faixa]: 2.0 | Capital: $643.00 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,970 | INFO | [2025-01-08 08:05] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03449 | SL: 1.03489 | TP: 1.03389 | Risco: 4.0p ($80.00) | Capital: $643.00
+2026-09-03 20:59:50,972 | WARNING | Perda: $109.00 | Perdas hoje: 1/100 | Losses seguidos: 1/3
+2026-09-03 20:59:50,972 | INFO | [2025-01-08 09:30] FECHAMENTO | Stop-loss atingido @ 1.03497 | Pips: -5.5 | P&L: $-109.00 | Capital: $534.00
+2026-09-03 20:59:50,972 | INFO | Lote [faixa]: 2.0 | Capital: $534.00 | Pip value: $20.00/pip | Losses seguidos: 1
+2026-09-03 20:59:50,972 | INFO | [2025-01-08 09:30] AUTOSCAN COMPRA | Lote: 2.0 | Entry: 1.03491 | SL: 1.03461 | TP: 1.03536 | Risco: 3.0p ($60.00) | Capital: $534.00
+2026-09-03 20:59:50,973 | WARNING | Perda: $75.00 | Perdas hoje: 2/100 | Losses seguidos: 2/3
+2026-09-03 20:59:50,973 | INFO | [2025-01-08 10:05] FECHAMENTO | Stop-loss atingido @ 1.03460 | Pips: -3.8 | P&L: $-75.00 | Capital: $459.00
+2026-09-03 20:59:50,974 | WARNING | Drawdown semanal 28.6% > 20% → Reduzindo lote: 2.0 → 1.0
+2026-09-03 20:59:50,974 | INFO | Lote [faixa]: 1.0 | Capital: $459.00 | Pip value: $10.00/pip | Losses seguidos: 2
+2026-09-03 20:59:50,974 | INFO | [2025-01-08 10:20] AUTOSCAN VENDA | Lote: 1.0 | Entry: 1.03406 | SL: 1.03445 | TP: 1.03347 | Risco: 3.9p ($39.00) | Capital: $459.00
+2026-09-03 20:59:50,974 | INFO | Lucro: $64.50 | P&L semana: $423.50
+2026-09-03 20:59:50,974 | INFO | [2025-01-08 10:45] FECHAMENTO | Take-profit atingido @ 1.03335 | Pips: +6.5 | P&L: +$64.50 | Capital: $523.50
+2026-09-03 20:59:50,976 | INFO | Lote [faixa]: 2.0 | Capital: $523.50 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,976 | INFO | [2025-01-08 11:30] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03328 | SL: 1.03362 | TP: 1.03277 | Risco: 3.4p ($68.00) | Capital: $523.50
+2026-09-03 20:59:50,977 | INFO | Lucro: $121.00 | P&L semana: $544.50
+2026-09-03 20:59:50,977 | INFO | [2025-01-08 12:25] FECHAMENTO | Take-profit atingido @ 1.03261 | Pips: +6.0 | P&L: +$121.00 | Capital: $644.50
+2026-09-03 20:59:50,977 | INFO | Lote [faixa]: 2.0 | Capital: $644.50 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,977 | INFO | [2025-01-08 12:25] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03268 | SL: 1.03310 | TP: 1.03205 | Risco: 4.2p ($84.00) | Capital: $644.50
+2026-09-03 20:59:50,984 | INFO | Lucro: $119.00 | P&L semana: $663.50
+2026-09-03 20:59:50,984 | INFO | [2025-01-08 20:55] FECHAMENTO | Take-profit atingido @ 1.03202 | Pips: +6.0 | P&L: +$119.00 | Capital: $763.50
+2026-09-03 20:59:50,986 | INFO | Lote [faixa]: 2.0 | Capital: $763.50 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,986 | INFO | [2025-01-08 21:20] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03188 | SL: 1.03217 | TP: 1.03144 | Risco: 2.9p ($58.00) | Capital: $763.50
+2026-09-03 20:59:50,988 | INFO | Novo dia (2025-01-09). Resetando contadores diários.
+2026-09-03 20:59:50,989 | WARNING | Perda: $79.00 | Perdas hoje: 1/100 | Losses seguidos: 1/3
+2026-09-03 20:59:50,989 | INFO | [2025-01-09 01:15] FECHAMENTO | Stop-loss atingido @ 1.03221 | Pips: -4.0 | P&L: $-79.00 | Capital: $684.50
+2026-09-03 20:59:50,989 | INFO | Lote [faixa]: 2.0 | Capital: $684.50 | Pip value: $20.00/pip | Losses seguidos: 1
+2026-09-03 20:59:50,989 | INFO | [2025-01-09 01:15] AUTOSCAN COMPRA | Lote: 2.0 | Entry: 1.03213 | SL: 1.03194 | TP: 1.03241 | Risco: 1.9p ($38.00) | Capital: $684.50
+2026-09-03 20:59:50,990 | INFO | Lucro: $45.00 | P&L semana: $629.50
+2026-09-03 20:59:50,990 | INFO | [2025-01-09 01:40] FECHAMENTO | Take-profit atingido @ 1.03242 | Pips: +2.2 | P&L: +$45.00 | Capital: $729.50
+2026-09-03 20:59:50,993 | INFO | Lote [faixa]: 2.0 | Capital: $729.50 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,994 | INFO | [2025-01-09 03:35] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03232 | SL: 1.03251 | TP: 1.03203 | Risco: 1.9p ($38.00) | Capital: $729.50
+2026-09-03 20:59:50,994 | WARNING | Perda: $53.00 | Perdas hoje: 2/100 | Losses seguidos: 1/3
+2026-09-03 20:59:50,994 | INFO | [2025-01-09 04:10] FECHAMENTO | Stop-loss atingido @ 1.03252 | Pips: -2.7 | P&L: $-53.00 | Capital: $676.50
+2026-09-03 20:59:50,996 | INFO | Lote [faixa]: 2.0 | Capital: $676.50 | Pip value: $20.00/pip | Losses seguidos: 1
+2026-09-03 20:59:50,996 | INFO | [2025-01-09 04:45] AUTOSCAN COMPRA | Lote: 2.0 | Entry: 1.03261 | SL: 1.03239 | TP: 1.03294 | Risco: 2.2p ($44.00) | Capital: $676.50
+2026-09-03 20:59:50,997 | INFO | Lucro: $57.00 | P&L semana: $633.50
+2026-09-03 20:59:50,997 | INFO | [2025-01-09 06:30] FECHAMENTO | Take-profit atingido @ 1.03296 | Pips: +2.9 | P&L: +$57.00 | Capital: $733.50
+2026-09-03 20:59:50,998 | INFO | Lote [faixa]: 2.0 | Capital: $733.50 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:50,998 | INFO | [2025-01-09 06:40] AUTOSCAN COMPRA | Lote: 2.0 | Entry: 1.03302 | SL: 1.03278 | TP: 1.03338 | Risco: 2.4p ($48.00) | Capital: $733.50
+2026-09-03 20:59:50,999 | WARNING | Perda: $101.00 | Perdas hoje: 3/100 | Losses seguidos: 1/3
+2026-09-03 20:59:50,999 | INFO | [2025-01-09 07:50] FECHAMENTO | Stop-loss atingido @ 1.03258 | Pips: -5.0 | P&L: $-101.00 | Capital: $632.50
+2026-09-03 20:59:50,999 | INFO | Lote [faixa]: 2.0 | Capital: $632.50 | Pip value: $20.00/pip | Losses seguidos: 1
+2026-09-03 20:59:51,000 | INFO | [2025-01-09 07:50] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03273 | SL: 1.03305 | TP: 1.03225 | Risco: 3.2p ($64.00) | Capital: $632.50
+2026-09-03 20:59:51,000 | INFO | Lucro: $99.00 | P&L semana: $631.50
+2026-09-03 20:59:51,000 | INFO | [2025-01-09 08:05] FECHAMENTO | Take-profit atingido @ 1.03217 | Pips: +4.9 | P&L: +$99.00 | Capital: $731.50
+2026-09-03 20:59:51,001 | INFO | Lote [faixa]: 2.0 | Capital: $731.50 | Pip value: $20.00/pip | Losses seguidos: 0
+2026-09-03 20:59:51,001 | INFO | [2025-01-09 08:50] AUTOSCAN COMPRA | Lote: 2.0 | Entry: 1.03321 | SL: 1.03295 | TP: 1.03360 | Risco: 2.6p ($52.00) | Capital: $731.50
+2026-09-03 20:59:51,002 | INFO | Lucro: $85.00 | P&L semana: $716.50
+2026-09-03 20:59:51,002 | INFO | [2025-01-09 09:00] FECHAMENTO | Take-profit atingido @ 1.03370 | Pips: +4.3 | P&L: +$85.00 | Capital: $816.50
+2026-09-03 20:59:51,004 | INFO | Lote [faixa]: 4.0 | Capital: $816.50 | Pip value: $40.00/pip | Losses seguidos: 0
+2026-09-03 20:59:51,004 | INFO | [2025-01-09 10:25] AUTOSCAN COMPRA | Lote: 4.0 | Entry: 1.03446 | SL: 1.03410 | TP: 1.03500 | Risco: 3.6p ($144.00) | Capital: $816.50
+2026-09-03 20:59:51,006 | INFO | Lucro: $210.00 | P&L semana: $926.50
+2026-09-03 20:59:51,006 | INFO | [2025-01-09 11:45] FECHAMENTO | Take-profit atingido @ 1.03505 | Pips: +5.3 | P&L: +$210.00 | Capital: $1026.50
+2026-09-03 20:59:51,006 | INFO | Lote [faixa]: 4.0 | Capital: $1026.50 | Pip value: $40.00/pip | Losses seguidos: 0
+2026-09-03 20:59:51,006 | INFO | [2025-01-09 11:45] AUTOSCAN COMPRA | Lote: 4.0 | Entry: 1.03497 | SL: 1.03454 | TP: 1.03562 | Risco: 4.3p ($172.00) | Capital: $1026.50
+2026-09-03 20:59:51,008 | WARNING | Perda: $218.00 | Perdas hoje: 4/100 | Losses seguidos: 1/3
+2026-09-03 20:59:51,008 | INFO | [2025-01-09 13:35] FECHAMENTO | Stop-loss atingido @ 1.03449 | Pips: -5.5 | P&L: $-218.00 | Capital: $808.50
+2026-09-03 20:59:51,008 | WARNING | Drawdown semanal 21.2% > 20% → Reduzindo lote: 4.0 → 2.0
+2026-09-03 20:59:51,008 | INFO | Lote [faixa]: 2.0 | Capital: $808.50 | Pip value: $20.00/pip | Losses seguidos: 1
+2026-09-03 20:59:51,008 | INFO | [2025-01-09 13:35] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03452 | SL: 1.03483 | TP: 1.03406 | Risco: 3.1p ($62.00) | Capital: $808.50
+2026-09-03 20:59:51,010 | INFO | Lucro: $87.00 | P&L semana: $795.50
+2026-09-03 20:59:51,010 | INFO | [2025-01-09 15:25] FECHAMENTO | Take-profit atingido @ 1.03402 | Pips: +4.4 | P&L: +$87.00 | Capital: $895.50
+2026-09-03 20:59:51,011 | INFO | Lote [faixa]: 4.0 | Capital: $895.50 | Pip value: $40.00/pip | Losses seguidos: 0
+2026-09-03 20:59:51,011 | INFO | [2025-01-09 15:55] AUTOSCAN COMPRA | Lote: 4.0 | Entry: 1.03472 | SL: 1.03452 | TP: 1.03502 | Risco: 2.0p ($80.00) | Capital: $895.50
+2026-09-03 20:59:51,012 | INFO | Lucro: $126.00 | P&L semana: $921.50
+2026-09-03 20:59:51,012 | INFO | [2025-01-09 16:20] FECHAMENTO | Take-profit atingido @ 1.03510 | Pips: +3.1 | P&L: +$126.00 | Capital: $1021.50
+2026-09-03 20:59:51,014 | INFO | Lote [faixa]: 4.0 | Capital: $1021.50 | Pip value: $40.00/pip | Losses seguidos: 0
+2026-09-03 20:59:51,014 | INFO | [2025-01-09 17:10] AUTOSCAN COMPRA | Lote: 4.0 | Entry: 1.03549 | SL: 1.03525 | TP: 1.03585 | Risco: 2.4p ($96.00) | Capital: $1021.50
+2026-09-03 20:59:51,014 | INFO | Lucro: $122.00 | P&L semana: $1043.50
+2026-09-03 20:59:51,014 | INFO | [2025-01-09 17:25] FECHAMENTO | Take-profit atingido @ 1.03586 | Pips: +3.0 | P&L: +$122.00 | Capital: $1143.50
+2026-09-03 20:59:51,018 | INFO | Lote [faixa]: 4.0 | Capital: $1143.50 | Pip value: $40.00/pip | Losses seguidos: 0
+2026-09-03 20:59:51,018 | INFO | [2025-01-09 19:40] AUTOSCAN VENDA | Lote: 4.0 | Entry: 1.03510 | SL: 1.03535 | TP: 1.03472 | Risco: 2.5p ($100.00) | Capital: $1143.50
+2026-09-03 20:59:51,019 | INFO | Lucro: $138.00 | P&L semana: $1181.50
+2026-09-03 20:59:51,019 | INFO | [2025-01-09 19:55] FECHAMENTO | Take-profit atingido @ 1.03469 | Pips: +3.4 | P&L: +$138.00 | Capital: $1281.50
+2026-09-03 20:59:51,020 | INFO | Lote [faixa]: 4.0 | Capital: $1281.50 | Pip value: $40.00/pip | Losses seguidos: 0
+2026-09-03 20:59:51,020 | INFO | [2025-01-09 20:40] AUTOSCAN VENDA | Lote: 4.0 | Entry: 1.03459 | SL: 1.03480 | TP: 1.03427 | Risco: 2.1p ($84.00) | Capital: $1281.50
+2026-09-03 20:59:51,020 | INFO | Lucro: $142.00 | P&L semana: $1323.50
+2026-09-03 20:59:51,020 | INFO | [2025-01-09 20:55] FECHAMENTO | Take-profit atingido @ 1.03417 | Pips: +3.5 | P&L: +$142.00 | Capital: $1423.50
+2026-09-03 20:59:51,023 | INFO | Lote [faixa]: 4.0 | Capital: $1423.50 | Pip value: $40.00/pip | Losses seguidos: 0
+2026-09-03 20:59:51,023 | INFO | [2025-01-09 22:20] AUTOSCAN COMPRA | Lote: 4.0 | Entry: 1.03508 | SL: 1.03487 | TP: 1.03540 | Risco: 2.1p ($84.00) | Capital: $1423.50
+2026-09-03 20:59:51,024 | WARNING | Perda: $126.00 | Perdas hoje: 5/100 | Losses seguidos: 1/3
+2026-09-03 20:59:51,024 | INFO | [2025-01-09 23:20] FECHAMENTO | Stop-loss atingido @ 1.03483 | Pips: -3.2 | P&L: $-126.00 | Capital: $1297.50
+2026-09-03 20:59:51,025 | INFO | Novo dia (2025-01-10). Resetando contadores diários.
+2026-09-03 20:59:51,029 | INFO | Lote [faixa]: 4.0 | Capital: $1297.50 | Pip value: $40.00/pip | Losses seguidos: 1
+2026-09-03 20:59:51,029 | INFO | [2025-01-10 01:45] AUTOSCAN COMPRA | Lote: 4.0 | Entry: 1.03511 | SL: 1.03489 | TP: 1.03544 | Risco: 2.2p ($88.00) | Capital: $1297.50
+2026-09-03 20:59:51,030 | INFO | Lucro: $134.00 | P&L semana: $1331.50
+2026-09-03 20:59:51,030 | INFO | [2025-01-10 03:35] FECHAMENTO | Take-profit atingido @ 1.03551 | Pips: +3.3 | P&L: +$134.00 | Capital: $1431.50
+2026-09-03 20:59:51,031 | INFO | Lote [faixa]: 4.0 | Capital: $1431.50 | Pip value: $40.00/pip | Losses seguidos: 0
+2026-09-03 20:59:51,031 | INFO | [2025-01-10 03:35] AUTOSCAN COMPRA | Lote: 4.0 | Entry: 1.03544 | SL: 1.03517 | TP: 1.03584 | Risco: 2.7p ($108.00) | Capital: $1431.50
+2026-09-03 20:59:51,033 | INFO | Lucro: $142.00 | P&L semana: $1473.50
+2026-09-03 20:59:51,034 | INFO | [2025-01-10 06:10] FECHAMENTO | Take-profit atingido @ 1.03586 | Pips: +3.6 | P&L: +$142.00 | Capital: $1573.50
+2026-09-03 20:59:51,034 | INFO | Lote [faixa]: 8.0 | Capital: $1573.50 | Pip value: $80.00/pip | Losses seguidos: 0
+2026-09-03 20:59:51,034 | INFO | [2025-01-10 06:10] AUTOSCAN COMPRA | Lote: 8.0 | Entry: 1.03578 | SL: 1.03553 | TP: 1.03615 | Risco: 2.5p ($200.00) | Capital: $1573.50
+2026-09-03 20:59:51,036 | WARNING | Perda: $324.00 | Perdas hoje: 1/100 | Losses seguidos: 1/3
+2026-09-03 20:59:51,036 | INFO | [2025-01-10 07:35] FECHAMENTO | Stop-loss atingido @ 1.03544 | Pips: -4.0 | P&L: $-324.00 | Capital: $1249.50
+2026-09-03 20:59:51,037 | INFO | Lote [faixa]: 4.0 | Capital: $1249.50 | Pip value: $40.00/pip | Losses seguidos: 1
+2026-09-03 20:59:51,037 | INFO | [2025-01-10 07:50] AUTOSCAN VENDA | Lote: 4.0 | Entry: 1.03528 | SL: 1.03550 | TP: 1.03495 | Risco: 2.2p ($88.00) | Capital: $1249.50
+2026-09-03 20:59:51,038 | WARNING | Perda: $162.00 | Perdas hoje: 2/100 | Losses seguidos: 2/3
+2026-09-03 20:59:51,038 | INFO | [2025-01-10 08:45] FECHAMENTO | Stop-loss atingido @ 1.03562 | Pips: -4.0 | P&L: $-162.00 | Capital: $1087.50
+2026-09-03 20:59:51,040 | WARNING | Drawdown semanal 30.9% > 20% → Reduzindo lote: 4.0 → 2.0
+2026-09-03 20:59:51,040 | INFO | Lote [faixa]: 2.0 | Capital: $1087.50 | Pip value: $20.00/pip | Losses seguidos: 2
+2026-09-03 20:59:51,040 | INFO | [2025-01-10 09:15] AUTOSCAN VENDA | Lote: 2.0 | Entry: 1.03485 | SL: 1.03520 | TP: 1.03433 | Risco: 3.5p ($70.00) | Capital: $1087.50
+2026-09-03 20:59:51,041 | WARNING | Perda: $83.00 | Perdas hoje: 3/100 | Losses seguidos: 3/3
+2026-09-03 20:59:51,041 | INFO | [2025-01-10 10:35] FECHAMENTO | Stop-loss atingido @ 1.03520 | Pips: -4.1 | P&L: $-83.00 | Capital: $1004.50
+2026-09-03 20:59:51,052 | INFO | [DIAGNÓSTICO AUTOSCAN] Candles M5: 1440 → trades: 44
+2026-09-03 20:59:51,052 | INFO | Backtest concluído | Trades: 44 | Capital final: $1004.50
+2026-09-03 20:59:51,053 | INFO | =======================================================
+2026-09-03 20:59:51,053 | INFO |            RELATÓRIO DE BACKTEST — BOT RAFI
+2026-09-03 20:59:51,054 | INFO | =======================================================
+2026-09-03 20:59:51,054 | INFO |   Total de trades  : 44
+2026-09-03 20:59:51,054 | INFO |   Ganhos / Perdas  : 32 / 12
+2026-09-03 20:59:51,054 | INFO |   Win Rate         : 72.7%
+2026-09-03 20:59:51,054 | INFO |   Profit Factor    : 1.652
+2026-09-03 20:59:51,054 | INFO |   Expectativa/trade: $20.56
+2026-09-03 20:59:51,054 | INFO |   Retorno total    : $904.50 (904.5%)
+2026-09-03 20:59:51,054 | INFO |   Capital inicial  : $100.00
+2026-09-03 20:59:51,054 | INFO |   Capital final    : $1004.50
+2026-09-03 20:59:51,054 | INFO |   Drawdown máximo  : $569.00 (36.2%)
+2026-09-03 20:59:51,054 | INFO |   Sharpe Ratio     : 2.795
+2026-09-03 20:59:51,054 | INFO |   Duração média    : 75 min
+2026-09-03 20:59:51,054 | INFO | =======================================================
+2026-09-03 20:59:51,054 | WARNING |   ⚠ Drawdown alto: 36.2%
+2026-09-03 20:59:51,054 | INFO |   Resultados por mês:
+2026-09-03 20:59:51,054 | INFO |     2025-01: +$904.50
+2026-09-03 20:59:51,054 | INFO | =======================================================
+2026-09-03 20:59:51,057 | INFO | CSV detalhado exportado: logs/autoscan_demo.csv | 44 trades | WR=72.7% | Config: 47e01c88
+2026-09-03 20:59:51,057 | INFO | CSV detalhado: logs/autoscan_demo.csv | Config hash: 47e01c88
+2026-09-03 20:59:51,057 | INFO | ✔ METAS DE FASE 1A ATINGIDAS: win rate ≥55% e profit factor ≥1.5
