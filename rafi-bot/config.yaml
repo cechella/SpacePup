@@ -27,7 +27,7 @@ corretoras:
     login: 51552485
     servidor: "PepperstoneBS-MT5-Live01"
     simbolo: "EURUSD"
-    senha: "Med2026$$"
+    senha: "Med2026$$$"
 
 # --- Capital e alavancagem ---
 capital_inicial: 100.0         # USD — capital mínimo viável com Kelly
