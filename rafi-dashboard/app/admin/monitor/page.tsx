@@ -72,6 +72,11 @@ interface CandleRow {
   time: number; open: number; high: number; low: number; close: number
   volume: number; rafi: number | null
 }
+interface BrokerRow {
+  id: string; nome: string; simbolo: string; enabled: boolean
+  saldo: number | null; posicoes: number | null; pnl_hoje: number | null
+  status_text: string | null; updated_at: string | null
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function secondsAgo(iso: string) {
@@ -530,6 +535,7 @@ export default function MonitorPage() {
   const [m5Secs,    setM5Secs]    = useState(0)
   const [londonTime, setLondonTime] = useState('')
   const [botLogs,   setBotLogs]   = useState<BotLog[]>([])
+  const [brokers,   setBrokers]   = useState<BrokerRow[]>([])
   const [showQR,    setShowQR]    = useState(false)
   const prevPendingLen = useRef(0)
 
@@ -577,19 +583,30 @@ export default function MonitorPage() {
     } catch {}
   }, [])
 
+  const fetchBrokers = useCallback(async () => {
+    try {
+      const res = await fetch('/api/brokers')
+      if (res.ok) {
+        const json = await res.json()
+        if (json.brokers) setBrokers(json.brokers as BrokerRow[])
+      }
+    } catch {}
+  }, [])
+
   const refresh = useCallback(async () => {
     setLoading(true)
-    await Promise.all([fetchAll(), fetchCandles(), fetchLogs()])
+    await Promise.all([fetchAll(), fetchCandles(), fetchLogs(), fetchBrokers()])
     setLoading(false)
-  }, [fetchAll, fetchCandles, fetchLogs])
+  }, [fetchAll, fetchCandles, fetchLogs, fetchBrokers])
 
   useEffect(() => {
     refresh()
     const iv1 = setInterval(fetchAll,     10_000)
     const iv2 = setInterval(fetchCandles,  5_000)
     const iv3 = setInterval(fetchLogs,     5_000)
-    return () => { clearInterval(iv1); clearInterval(iv2); clearInterval(iv3) }
-  }, [fetchAll, fetchCandles, fetchLogs, refresh])
+    const iv4 = setInterval(fetchBrokers,  5_000)
+    return () => { clearInterval(iv1); clearInterval(iv2); clearInterval(iv3); clearInterval(iv4) }
+  }, [fetchAll, fetchCandles, fetchLogs, fetchBrokers, refresh])
 
   // ── M5 countdown ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1695,103 +1712,125 @@ export default function MonitorPage() {
             <span style={{ fontSize: 8, color: C.t3, ...mono }}>WIN RATE ALVO ML: 90–95%</span>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, marginBottom: 8 }}>
-            {([
-              { name: 'XM Global',   initials: 'XM', sub: 'EURUSD# · MT5 · B-book', status: 'ATIVO',
-                sc: C.gr, health: 97, saldo: bal > 0 ? fmtUSD(bal) : '$31.96', active: true,
-                spark: [60,65,62,70,68,75,72,80,77,85,82,90,88,95,97] },
-              { name: 'IC Markets',  initials: 'IC', sub: 'ECN/STP · MT5 · 0.1 pip', status: 'ETAPA 6',
-                sc: C.am, health: null, saldo: null, active: false, spark: [] },
-              { name: 'Pepperstone', initials: 'PP', sub: 'ECN/STP · MT5 · Razor',   status: 'ETAPA 7',
-                sc: C.t3, health: null, saldo: null, active: false, spark: [] },
-              { name: 'Tickmill',    initials: 'TK', sub: 'ECN/STP · MT5 · Pro',     status: 'ETAPA 7',
-                sc: C.t3, health: null, saldo: null, active: false, spark: [] },
-            ] as { name:string; initials:string; sub:string; status:string; sc:string; health:number|null; saldo:string|null; active:boolean; spark:number[] }[]).map(b => {
-              const r = 20; const circ = 2 * Math.PI * r
-              const dash = b.health !== null ? circ * (b.health / 100) : 0
-              const sparkMax = b.spark.length ? Math.max(...b.spark) : 100
-              const sparkMin = b.spark.length ? Math.min(...b.spark) : 0
-              const sparkW = 100, sparkH = 28
-              const sparkPts = b.spark.map((v, i) =>
-                `${(i / (b.spark.length - 1)) * sparkW},${sparkH - ((v - sparkMin) / (sparkMax - sparkMin + 0.01)) * (sparkH - 4)}`
-              ).join(' ')
-              return (
-                <div key={b.name} className={`bcard ${b.active ? 'bc-gr' : 'bc-t3'}`} style={{
-                  ...card, padding: 18, position: 'relative',
-                  opacity: b.active ? 1 : 0.55,
-                }}>
-                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: b.sc }} />
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 12 }}>
-                    {/* Hex badge */}
-                    <div className="bhex" style={{ width: 44, height: 44, background: `${b.sc}18`,
-                      border: `1.5px solid ${b.sc}30`, display: 'flex', alignItems: 'center',
-                      justifyContent: 'center', flexShrink: 0 }}>
-                      <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 800, color: b.sc }}>
-                        {b.initials}
-                      </span>
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: b.active ? C.tx : C.t2 }}>{b.name}</div>
-                        <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 7px',
-                          border: `1px solid ${b.sc}40`, color: b.sc, background: `${b.sc}08` }}>
-                          {b.status}
+          {brokers.length === 0 ? (
+            <div style={{ ...card, padding: '18px 20px', marginBottom: 8, fontSize: 10, color: C.t3 }}>
+              Carregando corretoras...
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, marginBottom: 8 }}>
+              {brokers.map(b => {
+                const active = b.enabled
+                const sc = active ? C.gr : C.t3
+                const initials = b.nome.substring(0, 2).toUpperCase()
+                const statusLabel = active ? 'ATIVO' : 'INATIVA'
+                const saldoStr = b.saldo !== null ? fmtUSD(b.saldo) : null
+                const secsSinceUpdate = b.updated_at
+                  ? Math.floor((Date.now() - new Date(b.updated_at).getTime()) / 1000)
+                  : null
+                const health = active && secsSinceUpdate !== null
+                  ? Math.max(10, Math.min(100, Math.round(100 - (secsSinceUpdate / 420) * 40)))
+                  : null
+                const r = 20; const circ = 2 * Math.PI * r
+                const dash = health !== null ? circ * (health / 100) : 0
+                const posicoes = b.posicoes ?? 0
+                const pnlHoje = b.pnl_hoje ?? 0
+                const statusText = b.status_text ?? (active ? 'AGUARDANDO SINAL' : '—')
+
+                return (
+                  <div key={b.id} className={`bcard ${active ? 'bc-gr' : 'bc-t3'}`} style={{
+                    ...card, padding: 18, position: 'relative',
+                    opacity: active ? 1 : 0.55,
+                  }}>
+                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: sc }} />
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 12 }}>
+                      <div className="bhex" style={{ width: 44, height: 44, background: `${sc}18`,
+                        border: `1.5px solid ${sc}30`, display: 'flex', alignItems: 'center',
+                        justifyContent: 'center', flexShrink: 0 }}>
+                        <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 800, color: sc }}>
+                          {initials}
                         </span>
                       </div>
-                      <div style={{ fontSize: 8, color: C.t2 }}>{b.sub}</div>
-                    </div>
-                  </div>
-                  {b.health !== null ? (
-                    <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-                      {/* Health ring */}
-                      <svg width="52" height="52" viewBox="0 0 52 52" style={{ flexShrink: 0 }}>
-                        <circle cx="26" cy="26" r={r} fill="none" stroke={C.s3} strokeWidth="4" />
-                        <circle cx="26" cy="26" r={r} fill="none" stroke={b.sc} strokeWidth="4"
-                          strokeDasharray={`${dash.toFixed(1)} ${circ.toFixed(1)}`}
-                          strokeLinecap="round" transform="rotate(-90 26 26)" />
-                        <text x="26" y="30" textAnchor="middle" fill={b.sc}
-                          fontFamily="monospace" fontSize="10" fontWeight="700">{b.health}</text>
-                      </svg>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 8, color: C.t2, marginBottom: 4 }}>Saúde do sistema</div>
-                        {/* Sparkline */}
-                        <svg viewBox={`0 0 ${sparkW} ${sparkH}`} style={{ width: '100%', height: 28 }}>
-                          <polyline points={sparkPts} fill="none" stroke={b.sc} strokeWidth="1.5"
-                            strokeLinejoin="round" strokeLinecap="round" opacity="0.8" />
-                        </svg>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-                          <span style={{ fontSize: 8, color: C.t2 }}>Saldo</span>
-                          <span style={{ fontFamily: 'monospace', fontSize: 9, color: C.tx, fontWeight: 700 }}>
-                            {b.saldo}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: active ? C.tx : C.t2 }}>{b.nome}</div>
+                          <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 7px',
+                            border: `1px solid ${sc}40`, color: sc, background: `${sc}08` }}>
+                            {statusLabel}
                           </span>
                         </div>
+                        <div style={{ fontSize: 8, color: C.t2 }}>{b.simbolo} · MT5</div>
                       </div>
                     </div>
-                  ) : (
-                    <div style={{ fontSize: 9, color: C.t3, padding: '4px 0' }}>
-                      Conta não aberta · Aguarda etapas anteriores
-                    </div>
-                  )}
-                  <button className="bcta" style={{ marginTop: 10, width: '100%', padding: '6px 0',
-                    border: `1px solid ${b.sc}30`, background: `${b.sc}08`, color: b.sc,
-                    fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', cursor: 'pointer' }}>
-                    VER CONFIG →
-                  </button>
-                </div>
-              )
-            })}
-          </div>
+                    {active ? (
+                      <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+                        {health !== null && (
+                          <svg width="52" height="52" viewBox="0 0 52 52" style={{ flexShrink: 0 }}>
+                            <circle cx="26" cy="26" r={r} fill="none" stroke={C.s3} strokeWidth="4" />
+                            <circle cx="26" cy="26" r={r} fill="none" stroke={sc} strokeWidth="4"
+                              strokeDasharray={`${dash.toFixed(1)} ${circ.toFixed(1)}`}
+                              strokeLinecap="round" transform="rotate(-90 26 26)" />
+                            <text x="26" y="30" textAnchor="middle" fill={sc}
+                              fontFamily="monospace" fontSize="10" fontWeight="700">{health}</text>
+                          </svg>
+                        )}
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 8, color: C.t2, marginBottom: 6 }}>{statusText}</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ fontSize: 8, color: C.t2 }}>Saldo</span>
+                              <span style={{ fontFamily: 'monospace', fontSize: 9, color: C.tx, fontWeight: 700 }}>
+                                {saldoStr ?? '—'}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ fontSize: 8, color: C.t2 }}>Posições</span>
+                              <span style={{ fontFamily: 'monospace', fontSize: 9, color: posicoes > 0 ? C.cy : C.t2 }}>
+                                {posicoes}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ fontSize: 8, color: C.t2 }}>P&L hoje</span>
+                              <span style={{ fontFamily: 'monospace', fontSize: 9,
+                                color: pnlHoje > 0 ? C.gr : pnlHoje < 0 ? C.re : C.t2, fontWeight: 700 }}>
+                                {fmtUSD(pnlHoje, true)}
+                              </span>
+                            </div>
+                            {b.updated_at && (
+                              <div style={{ fontSize: 7, color: C.t3, marginTop: 2 }}>
+                                sync {secondsAgo(b.updated_at)}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 9, color: C.t3, padding: '4px 0' }}>
+                        Toggle no painel Corretoras para ativar
+                      </div>
+                    )}
+                    <a href="/admin/brokers" className="bcta" style={{ display: 'block', marginTop: 10,
+                      width: '100%', padding: '6px 0', textAlign: 'center',
+                      border: `1px solid ${sc}30`, background: `${sc}08`, color: sc,
+                      fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', cursor: 'pointer',
+                      textDecoration: 'none' }}>
+                      VER CONFIG →
+                    </a>
+                  </div>
+                )
+              })}
+            </div>
+          )}
 
           {/* Roadmap strip */}
           <div style={{ ...card, padding: '14px 18px' }}>
             <div style={{ ...lbl }}>Roadmap · 12 Etapas</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 8 }}>
               {[
-                { id: 'E0',    label: 'Bot XM',      color: C.gr,  op: 1,   done: true },
-                { id: 'E1',    label: 'Supabase',    color: C.cy,  op: 1,   pulse: true },
+                { id: 'E0',    label: 'Bot live',     color: C.gr,  op: 1,   done: true },
+                { id: 'E1',    label: 'Multi-broker', color: C.gr,  op: 1,   done: true, pulse: false },
                 { id: 'E2-3',  label: 'Dataset ML',  color: C.am,  op: 0.8 },
                 { id: 'E4-5',  label: 'ML vivo',     color: C.bl,  op: 0.6 },
-                { id: 'E6-9',  label: '4 Brokers',   color: C.t3,  op: 0.7 },
+                { id: 'E6-9',  label: 'Scale up',    color: C.t3,  op: 0.7 },
                 { id: 'E10-11', label: 'Cripto/B3',  color: C.t3,  op: 0.4 },
               ].map(s => (
                 <div key={s.id} style={{ textAlign: 'center', opacity: s.op }}>
