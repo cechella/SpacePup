@@ -101,7 +101,7 @@ slippage_pips: 0.5             # slippage estimado em pontos
 # 'epm'     = EMA Pullback Momentum (TESTE Y/Z — abandonado)
 # 'scalp'   = alta frequência EMA9/21/50 + ATR + RSI (TESTE AB — WR=36%, falhou)
 # 'rsi_rev' = mean-reversion RSI(3) extremos (TESTE AC — atual)
-estrategia_modo: "rafi"
+estrategia_modo: "autoscan"      # autoscan = replica exata do browser (sem filtros RAFI/MA/sessão)
 
 # --- Parâmetros EPM (EMA Pullback Momentum) ---
 # Lógica: EMA21 acima de EMA55 (tendência de alta) → preço recua até tocar
@@ -145,12 +145,18 @@ rsi_rev_sl_pips: 10.0          # stop loss fixo em pips
 rsi_rev_ema_tendencia: 200     # EMA200: só compra acima, só vende abaixo (filtro tendência macro)
 rsi_rev_invertir: false        # false=mean-reversion
 
+# --- Modo Autoscan (replica browser autoScanBreakouts — sem filtros RAFI/MA/sessão) ---
+autoscan_min_breakout:   0.00003  # 0.3 pips mínimo de rompimento
+autoscan_min_gap_candles: 8       # 8 candles = 40 min mínimo entre trades
+autoscan_stop_offset:    0.00015  # 1.5 pips de buffer no stop (candle_low − 1.5p)
+bb_squeeze_expansao_min: 1.05     # BB deve expandir pelo menos 5% vs candle anterior
+
 # --- Indicador RAFI (usado apenas no modo 'rafi') ---
 forca_limiar: 2.50             # RAFI ≥ 2.50 obrigatório — replica backtest vencedor (56 trades, +$3.769)
 forca_exaustao: -1.0           # saída por exaustão (inativo no modo epm)
 
 # --- Suporte e Resistência (usado no modo 'rafi') ---
-sr_lookback: 50                # candles para trás para S/R
+sr_lookback: 20                # autoscan usa 20 (bot rafi usa 50)
 sr_tolerancia: 0.0005          # tolerância de 5 pips
 swing_stop_lookback: 150       # OTIMIZADO: 150c=12.5h → WR=37.5%, PF=1.800 (modo rafi)
 
@@ -179,8 +185,8 @@ sessoes:
 
 # --- Backtest ---
 backtest:
-  data_inicio: "2023-01-01"
-  data_fim: "2026-07-03"
+  data_inicio: "2025-01-06"
+  data_fim: "2025-01-11"
   timeframe_base: "M5"
   incluir_spread: true
   incluir_slippage: true

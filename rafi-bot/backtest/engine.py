@@ -303,6 +303,7 @@ class Backtest:
         # Suporte a múltiplas posições simultâneas
         posicoes_abertas: list[dict] = []
         forca_anterior: float = 0.0
+        last_autoscan_candle: int = -9999  # rastreia gap mínimo entre trades no modo autoscan
         # Rastreamento do pico de capital para proteção de drawdown
         capital_pico: float = self.capital
 
@@ -638,6 +639,112 @@ class Backtest:
                     f"| Capital: ${self.capital:.2f}"
                 )
 
+            elif modo == 'autoscan':
+                # ── AUTOSCAN: replica exata do autoScanBreakouts() do browser ──
+                # Sem filtro RAFI, sem MA, sem sessão, sem multi-TF.
+                # 5 filtros: BB squeeze → BB expandindo → S/R rompido → cor candle → gap
+
+                # Parâmetros do autoscan (lidos do config)
+                squeeze_ratio   = float(self.config.get('bb_limiar_estreita',      0.0012))
+                expansao_min    = float(self.config.get('bb_squeeze_expansao_min', 1.05))
+                min_breakout    = float(self.config.get('autoscan_min_breakout',   0.00003))
+                min_gap         = int(self.config.get('autoscan_min_gap_candles',  8))
+                stop_offset     = float(self.config.get('autoscan_stop_offset',    0.00015))
+
+                # Filtro 5: gap mínimo entre trades (mesmo sem posição aberta)
+                if i - last_autoscan_candle < min_gap:
+                    continue
+
+                # BB do candle anterior e atual
+                bb_sup_prev = float(bb['bb_superior'].iloc[i - 1])
+                bb_inf_prev = float(bb['bb_inferior'].iloc[i - 1])
+                bb_sup_curr = float(bb['bb_superior'].iloc[i])
+                bb_inf_curr = float(bb['bb_inferior'].iloc[i])
+                bb_mid_prev = (bb_sup_prev + bb_inf_prev) / 2
+                bb_mid_curr = (bb_sup_curr + bb_inf_curr) / 2
+                bb_wid_prev = bb_sup_prev - bb_inf_prev
+                bb_wid_curr = bb_sup_curr - bb_inf_curr
+
+                if bb_mid_prev <= 0 or bb_mid_curr <= 0:
+                    continue
+
+                prev_ratio = bb_wid_prev / bb_mid_prev
+                curr_ratio = bb_wid_curr / bb_mid_curr
+
+                # Filtro 1: BB anterior estava em squeeze
+                if prev_ratio >= squeeze_ratio:
+                    continue
+
+                # Filtro 2: BB está expandindo agora (>= 5% de aumento)
+                if curr_ratio <= prev_ratio * expansao_min:
+                    continue
+
+                # S/R = max/min dos sr_lookback candles anteriores (sem lookahead via shift(1))
+                rh = rolling_high.iloc[i]
+                rl = rolling_low.iloc[i]
+                if pd.isna(rh) or pd.isna(rl):
+                    continue
+
+                candle_low_atual  = float(self.df_m5['low'].iloc[i])
+                candle_high_atual = float(self.df_m5['high'].iloc[i])
+
+                # Filtro 3 + 4: Rompimento de S/R + cor do candle
+                if close_atual > rh + min_breakout and close_atual >= open_atual:
+                    # BUY: rompe resistência + candle verde
+                    direcao     = 'compra'
+                    entrada     = round(rh, 5)                    # entry = nível da resistência
+                    nivel_stop  = round(candle_low_atual - stop_offset, 5)  # SL = mínima − 1.5 pip
+                elif close_atual < rl - min_breakout and close_atual < open_atual:
+                    # SELL: rompe suporte + candle vermelho
+                    direcao     = 'venda'
+                    entrada     = round(rl, 5)                    # entry = nível do suporte
+                    nivel_stop  = round(candle_high_atual + stop_offset, 5)  # SL = máxima + 1.5 pip
+                else:
+                    continue
+
+                # Calcular risco e TP
+                risco = abs(entrada - nivel_stop)
+                if risco <= 0:
+                    continue
+
+                risco_pips = round(risco / 0.0001, 1)
+                tp = round(entrada + risco * ratio_rr, 5) if direcao == 'compra' \
+                     else round(entrada - risco * ratio_rr, 5)
+
+                # Sizing de lote pelo Kelly % (mesmo mecanismo do bot)
+                lote = self.gestor.calcular_lote(self.capital, risco_pips, incluir_spread=True)
+                if lote <= 0:
+                    continue
+
+                risco_usd = round(risco_pips * lote * 10.0, 2)
+                self.gestor.abrir_trade()
+                last_autoscan_candle = i  # registra índice deste trade para enforçar gap
+
+                posicao = {
+                    'sinal'            : direcao,
+                    'preco_entrada'    : entrada,   # sem spread — autoscan entra no nível S/R
+                    'stop_loss'        : nivel_stop,
+                    'take_profit'      : tp,
+                    'risco_pips'       : risco_pips,
+                    'lote'             : lote,
+                    'timestamp_entrada': ts_dt,
+                    'capital_entrada'  : self.capital,
+                    'forca_entrada'    : forca_atual,
+                    'forca_anterior'   : 0.0,
+                    'indice_entrada'   : i,
+                    'nivel_sr'         : entrada,
+                    'bb_width'         : bb_wid_curr,
+                    'bb_abrindo'       : True,
+                    'ma_diff'          : None,
+                }
+                posicoes_abertas.append(posicao)
+                logger.info(
+                    f"[{ts_dt.strftime('%Y-%m-%d %H:%M')}] AUTOSCAN {direcao.upper()} "
+                    f"| Lote: {lote} | Entry: {entrada:.5f} "
+                    f"| SL: {nivel_stop:.5f} | TP: {tp:.5f} "
+                    f"| Risco: {risco_pips}p (${risco_usd:.2f}) | Capital: ${self.capital:.2f}"
+                )
+
             else:
                 # ── RAFI Filtro 1: Tendência M5 (MA20 vs MA50) ────
                 t5 = int(trend_m5.iloc[i])
@@ -717,7 +824,11 @@ class Backtest:
 
         self.equity_curve.append((self.df_m5.index[-1], round(self.capital, 2)))
 
-        if modo == 'epm':
+        if modo == 'autoscan':
+            logger.info(
+                f"[DIAGNÓSTICO AUTOSCAN] Candles M5: {n} → trades: {len(self.trades)}"
+            )
+        elif modo == 'epm':
             logger.info(
                 f"[DIAGNÓSTICO EPM] Candles sem posição: {_d_total} "
                 f"→ sessão: {_d_sessao} → risco ok: {_d_risco} "
