@@ -1696,6 +1696,124 @@ export default function MonitorPage() {
               )}
             </div>
 
+            {/* ── Histórico de Trades ─────────────────────────────────────── */}
+            <div style={{ ...card }}>
+              <div style={{ padding: '10px 18px', borderBottom: `1px solid ${C.bd}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
+                  fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.t2 }} />
+                  Histórico — Entrada / Stop / Alvo
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  {(['history', 'open'] as const).map(tab => (
+                    <button key={tab} onClick={() => setActiveTab(tab)} style={{
+                      padding: '3px 10px', fontSize: 9, fontWeight: 700, cursor: 'pointer',
+                      border: `1px solid ${activeTab === tab ? C.bd : 'transparent'}`,
+                      background: activeTab === tab ? C.s2 : 'transparent',
+                      color: activeTab === tab ? C.tx : C.t2,
+                    }}>
+                      {tab === 'history' ? `Fechados (${closed.length})` : `Abertos (${pending.length})`}
+                    </button>
+                  ))}
+                  <span style={{ ...mono, fontSize: 9, color: C.gr }}>{wins}W</span>
+                  <span style={{ ...mono, fontSize: 9, color: C.re }}>{losses}L</span>
+                  {wr !== null && <span style={{ ...mono, fontSize: 9, fontWeight: 700, color: C.tx }}>{wr}% WR</span>}
+                </div>
+              </div>
+
+              {(activeTab === 'history' ? closed : pending).length === 0 ? (
+                <div style={{ padding: '40px 0', textAlign: 'center', color: C.t3, fontSize: 11 }}>
+                  {activeTab === 'history' ? 'Nenhum trade fechado ainda.' : 'Nenhuma posição aberta.'}
+                </div>
+              ) : (
+                (activeTab === 'history' ? closed : pending).slice(0, 20).map(t => {
+                  const isBuy  = t.direction === 'buy'
+                  const isWin  = t.result === 'win'
+                  const isLoss = t.result === 'loss'
+                  const dirColor = isBuy ? C.cy : C.am
+                  const resColor = isWin ? C.gr : isLoss ? C.re : C.am
+                  const rr = t.entry > 0 && t.stop_loss > 0 && t.take_profit > 0
+                    ? (Math.abs(t.take_profit - t.entry) / Math.abs(t.entry - t.stop_loss)).toFixed(1)
+                    : '—'
+                  return (
+                    <div key={t.id} style={{ borderBottom: `1px solid ${C.bd}`,
+                      padding: '12px 18px', display: 'flex', alignItems: 'flex-start', gap: 14,
+                      transition: 'background .1s' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = C.s2)}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                      <MiniTradeChart trade={t} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                          <span style={{ fontSize: 9, color: C.t2, ...mono }}>{fmtTime(t.time)}</span>
+                          <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 5px',
+                            color: dirColor, background: `${dirColor}12` }}>
+                            {isBuy ? '▲ BUY' : '▼ SELL'}
+                          </span>
+                          <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 6px',
+                            color: resColor, background: `${resColor}10`,
+                            animation: t.result === 'pending' ? 'pulse 2s ease-in-out infinite' : 'none' }}>
+                            {isWin ? 'WIN' : isLoss ? 'LOSS' : 'ABERTO'}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: 18, ...mono, fontSize: 10 }}>
+                          <div>
+                            <div style={{ fontSize: 8, color: C.t2 }}>ENTRADA</div>
+                            {t.entry.toFixed(5)}
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 8, color: C.re }}>STOP</div>
+                            <span style={{ color: C.re }}>{t.stop_loss.toFixed(5)}</span>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 8, color: C.gr }}>ALVO</div>
+                            <span style={{ color: C.gr }}>{t.take_profit.toFixed(5)}</span>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 8, color: C.t2 }}>R:R</div>
+                            <span style={{ color: C.cy }}>{rr}×</span>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 8, color: C.t2 }}>LOTE</div>
+                            {t.lot.toFixed(2)}
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 8, color: C.t2 }}>P&L</div>
+                            <span style={{ color: t.pnl === null ? C.t2 : t.pnl >= 0 ? C.gr : C.re, fontWeight: 700 }}>
+                              {t.pnl !== null ? fmtUSD(t.pnl, true) : '—'}
+                            </span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}>
+                          {t.rafi !== null && (
+                            <span style={{ fontSize: 7, fontWeight: 600, padding: '2px 6px',
+                              border: `1px solid ${t.rafi >= 2.5 ? C.gr + '40' : C.bd}`,
+                              color: t.rafi >= 2.5 ? C.gr : C.t2, ...mono }}>
+                              RAFI {t.rafi.toFixed(1)}{t.rafi >= 2.5 ? ' ✓' : ''}
+                            </span>
+                          )}
+                          <span style={{ fontSize: 7, fontWeight: 600, padding: '2px 6px',
+                            border: `1px solid ${C.bd}`, color: C.t2 }}>R:R {rr}×</span>
+                          <span style={{ fontSize: 7, fontWeight: 600, padding: '2px 6px',
+                            border: `1px solid ${C.bd}`, color: C.t2 }}>M5/M15/H1</span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+
+              {(activeTab === 'history' ? closed : pending).length > 20 && (
+                <div style={{ padding: '10px 18px', fontSize: 8, color: C.t3,
+                  borderTop: `1px solid ${C.bd}`, display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Mini gráfico: preço da entrada até SL (vermelho) ou TP (verde)</span>
+                  <span style={{ color: C.cy, cursor: 'pointer' }}>
+                    Ver todos {(activeTab === 'history' ? closed : pending).length} →
+                  </span>
+                </div>
+              )}
+            </div>
+
           </div>{/* end left column */}
 
           {/* Right sidebar */}
@@ -2192,124 +2310,6 @@ export default function MonitorPage() {
               ))}
             </div>
           </div>
-        </div>
-
-        {/* ── Trade history with mini charts ────────────────────────────────── */}
-        <div style={{ ...card }}>
-          <div style={{ padding: '10px 18px', borderBottom: `1px solid ${C.bd}`,
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
-              fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.t2 }} />
-              Histórico — Entrada / Stop / Alvo
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-              {(['history', 'open'] as const).map(tab => (
-                <button key={tab} onClick={() => setActiveTab(tab)} style={{
-                  padding: '3px 10px', fontSize: 9, fontWeight: 700, cursor: 'pointer',
-                  border: `1px solid ${activeTab === tab ? C.bd2 : 'transparent'}`,
-                  background: activeTab === tab ? C.s2 : 'transparent',
-                  color: activeTab === tab ? C.tx : C.t2,
-                }}>
-                  {tab === 'history' ? `Fechados (${closed.length})` : `Abertos (${pending.length})`}
-                </button>
-              ))}
-              <span style={{ ...mono, fontSize: 9, color: C.gr }}>{wins}W</span>
-              <span style={{ ...mono, fontSize: 9, color: C.re }}>{losses}L</span>
-              {wr !== null && <span style={{ ...mono, fontSize: 9, fontWeight: 700, color: C.tx }}>{wr}% WR</span>}
-            </div>
-          </div>
-
-          {(activeTab === 'history' ? closed : pending).length === 0 ? (
-            <div style={{ padding: '40px 0', textAlign: 'center', color: C.t3, fontSize: 11 }}>
-              {activeTab === 'history' ? 'Nenhum trade fechado ainda.' : 'Nenhuma posição aberta.'}
-            </div>
-          ) : (
-            (activeTab === 'history' ? closed : pending).slice(0, 20).map(t => {
-              const isBuy  = t.direction === 'buy'
-              const isWin  = t.result === 'win'
-              const isLoss = t.result === 'loss'
-              const dirColor = isBuy ? C.cy : C.am
-              const resColor = isWin ? C.gr : isLoss ? C.re : C.am
-              const rr = t.entry > 0 && t.stop_loss > 0 && t.take_profit > 0
-                ? (Math.abs(t.take_profit - t.entry) / Math.abs(t.entry - t.stop_loss)).toFixed(1)
-                : '—'
-              return (
-                <div key={t.id} style={{ borderBottom: `1px solid ${C.bd}`,
-                  padding: '12px 18px', display: 'flex', alignItems: 'flex-start', gap: 14,
-                  transition: 'background .1s' }}
-                  onMouseEnter={e => (e.currentTarget.style.background = C.s2)}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                  <MiniTradeChart trade={t} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                      <span style={{ fontSize: 9, color: C.t2, ...mono }}>{fmtTime(t.time)}</span>
-                      <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 5px',
-                        color: dirColor, background: `${dirColor}12` }}>
-                        {isBuy ? '▲ BUY' : '▼ SELL'}
-                      </span>
-                      <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 6px',
-                        color: resColor, background: `${resColor}10`,
-                        animation: t.result === 'pending' ? 'pulse 2s ease-in-out infinite' : 'none' }}>
-                        {isWin ? 'WIN' : isLoss ? 'LOSS' : 'ABERTO'}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', gap: 18, ...mono, fontSize: 10 }}>
-                      <div>
-                        <div style={{ fontSize: 8, color: C.t2 }}>ENTRADA</div>
-                        {t.entry.toFixed(5)}
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 8, color: C.re }}>STOP</div>
-                        <span style={{ color: C.re }}>{t.stop_loss.toFixed(5)}</span>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 8, color: C.gr }}>ALVO</div>
-                        <span style={{ color: C.gr }}>{t.take_profit.toFixed(5)}</span>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 8, color: C.t2 }}>R:R</div>
-                        <span style={{ color: C.cy }}>{rr}×</span>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 8, color: C.t2 }}>LOTE</div>
-                        {t.lot.toFixed(2)}
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 8, color: C.t2 }}>P&L</div>
-                        <span style={{ color: t.pnl === null ? C.t2 : t.pnl >= 0 ? C.gr : C.re, fontWeight: 700 }}>
-                          {t.pnl !== null ? fmtUSD(t.pnl, true) : '—'}
-                        </span>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}>
-                      {t.rafi !== null && (
-                        <span style={{ fontSize: 7, fontWeight: 600, padding: '2px 6px',
-                          border: `1px solid ${t.rafi >= 2.5 ? C.gr + '40' : C.bd}`,
-                          color: t.rafi >= 2.5 ? C.gr : C.t2, ...mono }}>
-                          RAFI {t.rafi.toFixed(1)}{t.rafi >= 2.5 ? ' ✓' : ''}
-                        </span>
-                      )}
-                      <span style={{ fontSize: 7, fontWeight: 600, padding: '2px 6px',
-                        border: `1px solid ${C.bd}`, color: C.t2 }}>R:R {rr}×</span>
-                      <span style={{ fontSize: 7, fontWeight: 600, padding: '2px 6px',
-                        border: `1px solid ${C.bd}`, color: C.t2 }}>M5/M15/H1</span>
-                    </div>
-                  </div>
-                </div>
-              )
-            })
-          )}
-
-          {(activeTab === 'history' ? closed : pending).length > 20 && (
-            <div style={{ padding: '10px 18px', fontSize: 8, color: C.t3,
-              borderTop: `1px solid ${C.bd}`, display: 'flex', justifyContent: 'space-between' }}>
-              <span>Mini gráfico: preço da entrada até SL (vermelho) ou TP (verde)</span>
-              <span style={{ color: C.cy, cursor: 'pointer' }}>
-                Ver todos {(activeTab === 'history' ? closed : pending).length} →
-              </span>
-            </div>
-          )}
         </div>
 
         {/* ── Kill switch ──────────────────────────────────────────────────────── */}
