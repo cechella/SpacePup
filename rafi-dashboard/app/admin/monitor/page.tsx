@@ -1712,57 +1712,56 @@ export default function MonitorPage() {
             <span style={{ fontSize: 8, color: C.t3, ...mono }}>WIN RATE ALVO ML: 90–95%</span>
           </div>
 
-          {brokers.length === 0 ? (
-            <div style={{ ...card, padding: '18px 20px', marginBottom: 8, fontSize: 10, color: C.t3 }}>
-              Carregando corretoras...
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, marginBottom: 8 }}>
-              {brokers.map(b => {
-                const active = b.enabled
-                const sc = active ? C.gr : C.t3
-                const initials = b.nome.substring(0, 2).toUpperCase()
-                const statusLabel = active ? 'ATIVO' : 'INATIVA'
-                const saldoStr = b.saldo !== null ? fmtUSD(b.saldo) : null
-                const secsSinceUpdate = b.updated_at
-                  ? Math.floor((Date.now() - new Date(b.updated_at).getTime()) / 1000)
-                  : null
-                const health = active && secsSinceUpdate !== null
-                  ? Math.max(10, Math.min(100, Math.round(100 - (secsSinceUpdate / 420) * 40)))
-                  : null
-                const r = 20; const circ = 2 * Math.PI * r
-                const dash = health !== null ? circ * (health / 100) : 0
-                const posicoes = b.posicoes ?? 0
-                const pnlHoje = b.pnl_hoje ?? 0
-                const statusText = b.status_text ?? (active ? 'AGUARDANDO SINAL' : '—')
+          {/* ── Brokers: dinâmicos (Supabase) + futuros (hardcoded) ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, marginBottom: 8 }}>
+            {/* Cards dinâmicos de rafi_brokers */}
+            {brokers.map(b => {
+              const active = b.enabled
+              const sc = active ? C.gr : C.t3
+              const initials = b.nome.substring(0, 2).toUpperCase()
+              const statusLabel = active ? 'ATIVO' : 'INATIVA'
+              const saldoStr = b.saldo !== null ? fmtUSD(b.saldo) : null
+              const secsSinceUpdate = b.updated_at
+                ? Math.floor((Date.now() - new Date(b.updated_at).getTime()) / 1000)
+                : null
+              const health = active && secsSinceUpdate !== null
+                ? Math.max(10, Math.min(100, Math.round(100 - (secsSinceUpdate / 420) * 40)))
+                : null
+              const r = 20; const circ = 2 * Math.PI * r
+              const dash = health !== null ? circ * (health / 100) : 0
+              const posicoes = b.posicoes ?? 0
+              const pnlHoje = b.pnl_hoje ?? 0
+              const statusText = b.status_text ?? (active ? 'AGUARDANDO SINAL' : '—')
 
-                return (
-                  <div key={b.id} className={`bcard ${active ? 'bc-gr' : 'bc-t3'}`} style={{
-                    ...card, padding: 18, position: 'relative',
-                    opacity: active ? 1 : 0.55,
-                  }}>
-                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: sc }} />
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 12 }}>
-                      <div className="bhex" style={{ width: 44, height: 44, background: `${sc}18`,
-                        border: `1.5px solid ${sc}30`, display: 'flex', alignItems: 'center',
-                        justifyContent: 'center', flexShrink: 0 }}>
-                        <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 800, color: sc }}>
-                          {initials}
+              return (
+                <div key={b.id} className={`bcard ${active ? 'bc-gr' : 'bc-t3'}`} style={{
+                  ...card, padding: 18, position: 'relative',
+                  opacity: active ? 1 : 0.65,
+                }}>
+                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: sc }} />
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 12 }}>
+                    <div className="bhex" style={{ width: 44, height: 44, background: `${sc}18`,
+                      border: `1.5px solid ${sc}30`, display: 'flex', alignItems: 'center',
+                      justifyContent: 'center', flexShrink: 0 }}>
+                      <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 800, color: sc }}>
+                        {initials}
+                      </span>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: active ? C.tx : C.t2 }}>{b.nome}</div>
+                        <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 7px',
+                          border: `1px solid ${sc}40`, color: sc, background: `${sc}08` }}>
+                          {statusLabel}
                         </span>
                       </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: active ? C.tx : C.t2 }}>{b.nome}</div>
-                          <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 7px',
-                            border: `1px solid ${sc}40`, color: sc, background: `${sc}08` }}>
-                            {statusLabel}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: 8, color: C.t2 }}>{b.simbolo} · MT5</div>
-                      </div>
+                      <div style={{ fontSize: 8, color: C.t2 }}>{b.simbolo} · MT5</div>
                     </div>
-                    {active ? (
-                      <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+                  </div>
+
+                  {active ? (
+                    <>
+                      <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 10 }}>
                         {health !== null && (
                           <svg width="52" height="52" viewBox="0 0 52 52" style={{ flexShrink: 0 }}>
                             <circle cx="26" cy="26" r={r} fill="none" stroke={C.s3} strokeWidth="4" />
@@ -1774,52 +1773,112 @@ export default function MonitorPage() {
                           </svg>
                         )}
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 8, color: C.t2, marginBottom: 6 }}>{statusText}</div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <div style={{ fontSize: 8, color: sc, fontWeight: 700, marginBottom: 6 }}>{statusText}</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <span style={{ fontSize: 8, color: C.t2 }}>Saldo</span>
-                              <span style={{ fontFamily: 'monospace', fontSize: 9, color: C.tx, fontWeight: 700 }}>
+                              <span style={{ fontFamily: 'monospace', fontSize: 10, color: C.tx, fontWeight: 700 }}>
                                 {saldoStr ?? '—'}
                               </span>
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <span style={{ fontSize: 8, color: C.t2 }}>Posições</span>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: 8, color: C.t2 }}>Posições abertas</span>
                               <span style={{ fontFamily: 'monospace', fontSize: 9, color: posicoes > 0 ? C.cy : C.t2 }}>
                                 {posicoes}
                               </span>
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <span style={{ fontSize: 8, color: C.t2 }}>P&L hoje</span>
                               <span style={{ fontFamily: 'monospace', fontSize: 9,
                                 color: pnlHoje > 0 ? C.gr : pnlHoje < 0 ? C.re : C.t2, fontWeight: 700 }}>
                                 {fmtUSD(pnlHoje, true)}
                               </span>
                             </div>
-                            {b.updated_at && (
-                              <div style={{ fontSize: 7, color: C.t3, marginTop: 2 }}>
-                                sync {secondsAgo(b.updated_at)}
-                              </div>
-                            )}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: 8, color: C.t2 }}>Lote atual</span>
+                              <span style={{ fontFamily: 'monospace', fontSize: 9, color: C.am }}>
+                                {b.saldo !== null ? loteAtual(b.saldo) : '—'}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    ) : (
-                      <div style={{ fontSize: 9, color: C.t3, padding: '4px 0' }}>
-                        Toggle no painel Corretoras para ativar
+                      {b.updated_at && (
+                        <div style={{ fontSize: 7, color: C.t3, marginBottom: 6 }}>
+                          último sync: {secondsAgo(b.updated_at)}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div style={{ padding: '8px 0 10px' }}>
+                      <div style={{ fontSize: 9, color: C.t3, marginBottom: 8 }}>
+                        Corretora cadastrada · Conta inativa
                       </div>
-                    )}
-                    <a href="/admin/brokers" className="bcta" style={{ display: 'block', marginTop: 10,
-                      width: '100%', padding: '6px 0', textAlign: 'center',
-                      border: `1px solid ${sc}30`, background: `${sc}08`, color: sc,
-                      fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', cursor: 'pointer',
-                      textDecoration: 'none' }}>
-                      VER CONFIG →
-                    </a>
+                      {b.saldo !== null && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <span style={{ fontSize: 8, color: C.t2 }}>Último saldo</span>
+                          <span style={{ fontFamily: 'monospace', fontSize: 9, color: C.t2 }}>{fmtUSD(b.saldo)}</span>
+                        </div>
+                      )}
+                      <div style={{ fontSize: 8, color: C.t3 }}>
+                        Ative no painel Corretoras para operar
+                      </div>
+                    </div>
+                  )}
+
+                  <a href="/admin/brokers" className="bcta" style={{ display: 'block',
+                    width: '100%', padding: '6px 0', textAlign: 'center',
+                    border: `1px solid ${sc}30`, background: `${sc}08`, color: sc,
+                    fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', cursor: 'pointer',
+                    textDecoration: 'none' }}>
+                    {active ? 'GERENCIAR →' : 'ATIVAR →'}
+                  </a>
+                </div>
+              )
+            })}
+
+            {/* Cards estáticos — corretoras futuras (não cadastradas no Supabase) */}
+            {([
+              { name: 'IC Markets', initials: 'IC', sub: 'ECN/STP · 0.0 pip · Razor', etapa: 'E6', desc: 'Abertura após 300 sinais ML rotulados. ECN puro, sem conflito de interesse.' },
+              { name: 'Tickmill',   initials: 'TK', sub: 'ECN/STP · 0.0 pip · Pro',   etapa: 'E7', desc: 'Expansão geográfica após validação IC Markets. Spread médio 0.0 pip.' },
+            ]).map(f => (
+              <div key={f.name} className="bcard bc-t3" style={{
+                ...card, padding: 18, position: 'relative', opacity: 0.45,
+              }}>
+                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: C.t3 }} />
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 12 }}>
+                  <div className="bhex" style={{ width: 44, height: 44, background: `${C.t3}10`,
+                    border: `1.5px solid ${C.t3}20`, display: 'flex', alignItems: 'center',
+                    justifyContent: 'center', flexShrink: 0 }}>
+                    <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 800, color: C.t3 }}>
+                      {f.initials}
+                    </span>
                   </div>
-                )
-              })}
-            </div>
-          )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: C.t3 }}>{f.name}</div>
+                      <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 7px',
+                        border: `1px solid ${C.t3}30`, color: C.t3, background: `${C.t3}08` }}>
+                        {f.etapa}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 8, color: C.t3 }}>{f.sub}</div>
+                  </div>
+                </div>
+                <div style={{ fontSize: 8, color: C.t3, lineHeight: 1.6, padding: '4px 0 12px' }}>
+                  {f.desc}
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {['Conta não aberta', 'Aguarda ML ativo', 'Etapa futura'].map(tag => (
+                    <span key={tag} style={{ fontSize: 7, padding: '2px 6px',
+                      border: `1px solid ${C.t3}20`, color: C.t3 }}>
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
 
           {/* Roadmap strip */}
           <div style={{ ...card, padding: '14px 18px' }}>
