@@ -17,16 +17,16 @@ const supa = SUPA_URL && SUPA_KEY ? createClient(SUPA_URL, SUPA_KEY) : null
 
 declare global { interface Window { LightweightCharts: any } }
 
-// ── Design tokens ─────────────────────────────────────────────────────────────
+// ── Design tokens — Vault Black & Burnished Gold ──────────────────────────────
 const C = {
-  bg:  '#070c14', s1: '#0d1927', s2: '#111e2e', s3: '#172538',
-  bd:  '#1e3348', bd2: '#274358',
-  cy:  '#00d9ff', cya: 'rgba(0,217,255,.07)',
-  gr:  '#00e676', gra: 'rgba(0,230,118,.06)',
-  re:  '#ff4757', rea: 'rgba(255,71,87,.06)',
-  am:  '#ffb300', ama: 'rgba(255,179,0,.06)',
-  bl:  '#4b8ef5', bla: 'rgba(75,142,245,.07)',
-  tx:  '#b8d4e8', t2: '#5a7d96', t3: '#2d4a60',
+  bg:  '#07060a', s1: '#0d0b10', s2: '#131018', s3: '#1a1720',
+  bd:  'rgba(196,154,60,.13)', bd2: 'rgba(196,154,60,.30)',
+  cy:  '#c49a3c', cya: 'rgba(196,154,60,.08)',
+  gr:  '#3da868', gra: 'rgba(61,168,104,.10)',
+  re:  '#c05252', rea: 'rgba(192,82,82,.10)',
+  am:  '#d4820a', ama: 'rgba(212,130,10,.08)',
+  bl:  '#4a90b8', bla: 'rgba(74,144,184,.08)',
+  tx:  '#e2d5be', t2: '#7a7060', t3: '#3a3428',
 }
 
 // ── Lot table ─────────────────────────────────────────────────────────────────
@@ -701,7 +701,8 @@ export default function MonitorPage() {
     fontSize: 9, fontWeight: 600, textTransform: 'uppercase' as const,
     letterSpacing: '0.13em', color: C.t2, marginBottom: 10,
   }
-  const mono = { fontFamily: 'monospace' }
+  const mono  = { fontFamily: "'JetBrains Mono', monospace" } as React.CSSProperties
+  const serif = { fontFamily: "'Playfair Display', Georgia, serif" } as React.CSSProperties
 
   const m5mm = String(Math.floor(m5Secs / 60)).padStart(2, '0')
   const m5ss = String(m5Secs % 60).padStart(2, '0')
@@ -751,64 +752,83 @@ export default function MonitorPage() {
 
       {/* ── Sticky command bar ───────────────────────────────────────────────── */}
       <nav className="sticky top-0 z-20" style={{
-        background: '#050a11', borderBottom: `1px solid ${C.bd}`,
-        display: 'flex', alignItems: 'center', gap: 16, padding: '0 24px', height: 52,
+        background: C.s1, borderBottom: `1px solid ${C.bd}`,
+        display: 'flex', alignItems: 'center', gap: 0, padding: 0, height: 54,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+        {/* Logo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 22px',
+          borderRight: `1px solid ${C.bd}`, height: '100%', flexShrink: 0 }}>
           <div style={{
-            width: 32, height: 32, border: `1.5px solid ${C.cy}`,
+            width: 34, height: 34, background: C.cy, flexShrink: 0,
+            clipPath: 'polygon(50% 0%,100% 50%,50% 100%,0% 50%)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            ...mono, fontSize: 10, fontWeight: 700, color: C.cy,
-          }}>RF</div>
+          }}>
+            <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, fontWeight: 800, color: '#07060a' }}>RF</span>
+          </div>
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.tx }}>
+            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase', color: C.tx }}>
               RAFI Command
             </div>
-            <div style={{ fontSize: 8, color: C.t3, letterSpacing: '0.06em' }}>
-              {status ? `${status.par} · M5 · ${status.server} · #${status.account}` : 'EURUSD# · M5 · XMGlobal-MT5 4'}
+            <div style={{ fontSize: 9, color: C.t2, letterSpacing: '0.05em', ...mono }}>
+              {status ? `${status.par} · M5 · ${status.server}` : 'EURUSD# · M5 · MetaTrader 5'}
             </div>
           </div>
         </div>
 
-        <div style={{ flex: 1, textAlign: 'center', ...mono, fontSize: 10, color: C.t2 }}>
-          {londonTime}
+        {/* Ticker info */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '0 22px',
+          borderRight: `1px solid ${C.bd}`, height: '100%', flex: 1 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.tx, letterSpacing: '.05em' }}>
+            EURUSD<span style={{ color: C.cy }}>{'#'}</span>
+          </span>
+          <span style={{ fontSize: 9, padding: '2px 7px', border: `1px solid ${C.bd2}`, color: C.cy, ...mono }}>M5</span>
+          <span style={{ fontSize: 10, color: C.t2, ...mono }}>{status?.server ?? '—'} · #{status?.account ?? '—'}</span>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5,
+            fontSize: 9, color: C.cy, textTransform: 'uppercase', letterSpacing: '0.12em' }}>
+            <span style={{ width: 5, height: 5, borderRadius: '50%', background: C.cy,
+              animation: isOnline ? 'pulse 1.8s ease-in-out infinite' : 'none' }} />
+            Ao Vivo
+          </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {/* Clock */}
+        <div style={{ padding: '0 22px', borderRight: `1px solid ${C.bd}`, height: '100%',
+          display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 1, flexShrink: 0 }}>
+          <div style={{ ...mono, fontSize: 18, fontWeight: 500, color: C.tx, letterSpacing: '0.08em' }}>{londonTime.split(' ').slice(-2).join(' ')}</div>
+          <div style={{ fontSize: 9, color: C.t2, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{londonTime.split(' ').slice(0, -2).join(' ')}</div>
+        </div>
+
+        {/* Actions */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 16px', height: '100%', flexShrink: 0 }}>
           <div style={{
-            display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px',
-            fontSize: 9, fontWeight: 700, letterSpacing: '0.06em',
-            border: `1px solid ${statusColor}30`, background: `${statusColor}08`,
-            color: statusColor, ...mono,
+            display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px',
+            fontSize: 9, fontWeight: 700, letterSpacing: '0.10em',
+            border: `1px solid ${statusColor}35`, background: `${statusColor}0a`,
+            color: statusColor,
           }}>
-            <span style={{
-              width: 5, height: 5, borderRadius: '50%', background: statusColor,
-              animation: isOnline ? 'pulse 2s ease-in-out infinite' : 'none',
-            }} />
+            <span style={{ width: 5, height: 5, borderRadius: '50%', background: statusColor,
+              animation: isOnline ? 'pulse 2s ease-in-out infinite' : 'none' }} />
             {statusLabel}
             {status && isOnline && (
-              <span style={{ opacity: 0.5, fontSize: 8, fontWeight: 400, marginLeft: 4 }}>
+              <span style={{ opacity: 0.5, fontSize: 8, fontWeight: 400, marginLeft: 2 }}>
                 · {secondsAgo(status.updated_at)}
               </span>
             )}
           </div>
-          <button onClick={refresh} style={{
-            padding: '5px 8px', border: `1px solid ${C.bd}`, background: 'transparent',
-            color: C.t2, cursor: 'pointer',
-          }}>
+          <button onClick={refresh} style={{ padding: '6px 8px', border: `1px solid ${C.bd}`, background: 'transparent', color: C.t2, cursor: 'pointer' }}>
             <RefreshCw size={11} className={loading ? 'animate-spin' : ''} style={{ color: C.t2 }} />
           </button>
           <button onClick={() => enviarComando('buy_manual')} disabled={cmdSent} style={{
-            padding: '5px 14px', border: `1px solid ${C.cy}30`, background: C.cya,
-            color: C.cy, fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', cursor: 'pointer',
+            padding: '6px 14px', border: `1px solid ${C.gr}35`, background: C.gra,
+            color: C.gr, fontSize: 9, fontWeight: 700, letterSpacing: '0.10em', cursor: 'pointer',
           }}>▲ COMPRA</button>
           <button onClick={() => enviarComando('sell_manual')} disabled={cmdSent} style={{
-            padding: '5px 14px', border: `1px solid ${C.am}30`, background: C.ama,
-            color: C.am, fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', cursor: 'pointer',
+            padding: '6px 14px', border: `1px solid ${C.re}35`, background: C.rea,
+            color: C.re, fontSize: 9, fontWeight: 700, letterSpacing: '0.10em', cursor: 'pointer',
           }}>▼ VENDA</button>
           <button onClick={() => enviarComando('stop')} disabled={cmdSent} style={{
-            padding: '5px 14px', border: `1px solid ${C.re}30`, background: C.rea,
-            color: C.re, fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', cursor: 'pointer',
+            padding: '6px 14px', border: `1px solid ${C.bd}`, background: 'transparent',
+            color: C.t2, fontSize: 9, fontWeight: 700, letterSpacing: '0.10em', cursor: 'pointer',
           }}>■ PARAR</button>
         </div>
       </nav>
@@ -969,35 +989,42 @@ export default function MonitorPage() {
       })()}
 
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,800;1,400&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@300;400;500;700&display=swap');
+        body{font-family:'DM Sans',system-ui,sans-serif!important}
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
         @keyframes rafiPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.7;transform:scale(.98)}}
+        @keyframes gold-glow{0%,100%{text-shadow:0 0 14px rgba(196,154,60,.4)}50%{text-shadow:0 0 36px rgba(196,154,60,.85),0 0 70px rgba(196,154,60,.25)}}
+        @keyframes float-glow{0%,100%{text-shadow:0 0 12px rgba(61,168,104,.45)}50%{text-shadow:0 0 34px rgba(61,168,104,.9),0 0 68px rgba(61,168,104,.3)}}
+        @keyframes float-glow-re{0%,100%{text-shadow:0 0 12px rgba(192,82,82,.45)}50%{text-shadow:0 0 34px rgba(192,82,82,.9)}}
+        @keyframes shimmer{0%{left:-120%}100%{left:120%}}
         .kcard{position:relative;transition:transform .15s,box-shadow .15s}
-        .kcard:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(0,0,0,.4)}
+        .kcard:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,.5)}
         .kcard::before{content:'';position:absolute;inset:0;opacity:0;transition:opacity .25s;pointer-events:none;z-index:0}
         .kcard:hover::before{opacity:1}
         .kcard>*{position:relative;z-index:1}
-        .kc-gr::before{background:radial-gradient(ellipse at 50% 110%,rgba(0,230,118,.12),transparent 65%)}
-        .kc-cy::before{background:radial-gradient(ellipse at 50% 110%,rgba(0,217,255,.12),transparent 65%)}
-        .kc-am::before{background:radial-gradient(ellipse at 50% 110%,rgba(255,179,0,.12),transparent 65%)}
-        .kc-re::before{background:radial-gradient(ellipse at 50% 110%,rgba(255,71,87,.12),transparent 65%)}
-        .kc-bl::before{background:radial-gradient(ellipse at 50% 110%,rgba(75,142,245,.12),transparent 65%)}
+        .kc-gr::before{background:radial-gradient(ellipse at 50% 110%,rgba(61,168,104,.10),transparent 65%)}
+        .kc-cy::before{background:radial-gradient(ellipse at 50% 110%,rgba(196,154,60,.10),transparent 65%)}
+        .kc-am::before{background:radial-gradient(ellipse at 50% 110%,rgba(212,130,10,.10),transparent 65%)}
+        .kc-re::before{background:radial-gradient(ellipse at 50% 110%,rgba(192,82,82,.10),transparent 65%)}
+        .kc-bl::before{background:radial-gradient(ellipse at 50% 110%,rgba(74,144,184,.10),transparent 65%)}
         .bcard{position:relative;transition:transform .15s,box-shadow .15s,border-color .2s}
         .bcard:hover{transform:translateY(-3px)}
-        .bc-gr:hover{border-color:rgba(0,230,118,.4)!important;box-shadow:0 6px 24px rgba(0,230,118,.10)}
-        .bc-am:hover{border-color:rgba(255,179,0,.4)!important;box-shadow:0 6px 24px rgba(255,179,0,.10)}
-        .bc-t3:hover{border-color:rgba(45,74,96,.7)!important}
+        .bc-gr:hover{border-color:rgba(61,168,104,.4)!important;box-shadow:0 6px 24px rgba(61,168,104,.10)}
+        .bc-am:hover{border-color:rgba(212,130,10,.4)!important;box-shadow:0 6px 24px rgba(212,130,10,.10)}
+        .bc-t3:hover{border-color:rgba(58,52,40,.9)!important}
         .bhex{clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)}
         .bcta{opacity:0;transition:opacity .15s}
         .bcard:hover .bcta{opacity:1}
-        .logrow:nth-child(even){background:rgba(4,11,20,.6)}
+        .logrow:nth-child(even){background:rgba(10,6,4,.5)}
         .forming-card{animation:rafiPulse 2.8s ease-in-out infinite}
         @keyframes slideDown{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
         .qr-panel{animation:slideDown .18s ease-out both}
         .log-terminal::-webkit-scrollbar{width:3px}
         .log-terminal::-webkit-scrollbar-track{background:transparent}
-        .log-terminal::-webkit-scrollbar-thumb{background:#2d4a60;border-radius:2px}
-        @keyframes missionPulse{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 16px 2px rgba(255,71,87,.25)}}
-        .mission-close:hover{background:rgba(255,71,87,.25)!important;border-color:rgba(255,71,87,.8)!important}
+        .log-terminal::-webkit-scrollbar-thumb{background:rgba(196,154,60,.25);border-radius:0}
+        @keyframes missionPulse{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 16px 2px rgba(192,82,82,.20)}}
+        .mission-close:hover{background:rgba(192,82,82,.22)!important;border-color:rgba(192,82,82,.7)!important}
+        button{border-radius:0!important}
       `}</style>
 
       {/* ── MISSÃO ATIVA — banner sticky quando há posição aberta ─────────── */}
@@ -1032,7 +1059,7 @@ export default function MonitorPage() {
         return (
           <div style={{
             position: 'sticky', top: 52, zIndex: 18,
-            background: `linear-gradient(90deg, ${tColor}0c 0%, #050a11 30%, #050a11 70%, ${tColor}0c 100%)`,
+            background: `linear-gradient(90deg, ${tColor}0c 0%, ${C.bg} 30%, ${C.bg} 70%, ${tColor}0c 100%)`,
             borderBottom: `2px solid ${tColor}50`,
             display: 'flex', alignItems: 'stretch',
             animation: 'slideDown .2s ease-out both',
@@ -1056,7 +1083,7 @@ export default function MonitorPage() {
             <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center',
               padding: '10px 18px', borderRight: `1px solid ${C.bd}`, flexShrink: 0, gap: 3 }}>
               <div style={{ fontSize: 7, color: C.t3, letterSpacing: '0.08em' }}>ENTRADA</div>
-              <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: C.tx }}>
+              <div style={{ ...serif, fontSize: 16, fontWeight: 700, color: C.tx }}>
                 {t.entry.toFixed(5)}
               </div>
             </div>
@@ -1065,7 +1092,7 @@ export default function MonitorPage() {
             <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center',
               padding: '10px 24px', borderRight: `1px solid ${C.bd}`, flexShrink: 0, gap: 3 }}>
               <div style={{ fontSize: 7, color: C.t3, letterSpacing: '0.08em' }}>FLOAT P&L</div>
-              <div style={{ fontFamily: 'monospace', fontSize: 20, fontWeight: 900, lineHeight: 1,
+              <div style={{ ...serif, fontSize: 22, fontWeight: 700, lineHeight: 1,
                 color: progColor, transition: 'color 0.5s',
                 textShadow: `0 0 20px ${progColor}60` }}>
                 {fmtUSD(tFloat, true)}
@@ -1112,7 +1139,7 @@ export default function MonitorPage() {
                   left: `calc(${slFrac * 100}% + ${progressPct > 0 ? progressPct * (1 - slFrac) : progressPct * slFrac}%)`,
                   top: '50%', transform: 'translate(-50%, -50%)',
                   width: 10, height: 10, borderRadius: '50%',
-                  background: progColor, border: `2px solid #050a11`,
+                  background: progColor, border: `2px solid ${C.bg}`,
                   boxShadow: `0 0 6px ${progColor}`,
                   transition: 'left 1s ease',
                 }} />
@@ -1212,7 +1239,7 @@ export default function MonitorPage() {
           <div className="kcard kc-gr" style={{ ...card, padding: '20px 22px', position: 'relative' }}>
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: C.gr }} />
             <div style={lbl}>Acumulado Total</div>
-            <div style={{ ...mono, fontSize: '2.2rem', fontWeight: 700, lineHeight: 1,
+            <div style={{ ...serif, fontSize: '2.4rem', fontWeight: 700, lineHeight: 1,
               color: totalPnL >= 0 ? C.gr : C.re, marginBottom: 4 }}>
               {realPnLTrades.length > 0 ? fmtUSD(totalPnL, true) : '—'}
             </div>
@@ -1237,7 +1264,7 @@ export default function MonitorPage() {
                   strokeDasharray="163.4" strokeDashoffset={arcOff}
                   strokeLinecap="round" transform="rotate(-90 34 34)" />
                 <text x="34" y="39" textAnchor="middle" fill={C.gr}
-                  fontFamily="monospace" fontSize="13" fontWeight="700">
+                  fontFamily="'Playfair Display', Georgia, serif" fontSize="13" fontWeight="700">
                   {wr !== null ? `${wr}%` : '—'}
                 </text>
               </svg>
@@ -1258,7 +1285,7 @@ export default function MonitorPage() {
           <div className="kcard kc-am" style={{ ...card, padding: '20px 22px', position: 'relative' }}>
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: statusColor }} />
             <div style={lbl}>Bot Status</div>
-            <div style={{ ...mono, fontSize: '1.5rem', fontWeight: 700, color: statusColor, lineHeight: 1 }}>
+            <div style={{ ...serif, fontSize: '1.6rem', fontWeight: 700, color: statusColor, lineHeight: 1 }}>
               {statusLabel}
             </div>
             <div style={{ fontSize: 10, color: C.t2, marginTop: 8 }}>
@@ -1277,7 +1304,7 @@ export default function MonitorPage() {
             <div style={{ position: 'absolute', top: 16, right: 16, fontSize: 7, fontWeight: 700,
               padding: '2px 7px', border: `1px solid ${C.bd}`, color: C.t2 }}>HOJE</div>
             <div style={lbl}>P&L Hoje</div>
-            <div style={{ ...mono, fontSize: '1.8rem', fontWeight: 700, lineHeight: 1,
+            <div style={{ ...serif, fontSize: '2rem', fontWeight: 700, lineHeight: 1,
               color: pnlToday > 0 ? C.gr : pnlToday < 0 ? C.re : C.t2 }}>
               {fmtUSD(pnlToday, true)}
             </div>
@@ -1335,7 +1362,7 @@ export default function MonitorPage() {
                     #{status?.account ?? '—'}
                   </div>
                 </div>
-                <div style={{ ...mono, fontSize: '2rem', fontWeight: 700, lineHeight: 1,
+                <div style={{ ...serif, fontSize: '2.2rem', fontWeight: 700, lineHeight: 1,
                   color: C.tx, marginBottom: 2 }}>
                   {bal > 0 ? fmtUSD(bal) : '—'}
                 </div>
@@ -1461,7 +1488,7 @@ export default function MonitorPage() {
                         letterSpacing: '0.10em', marginBottom: 3 }}>
                         {tDir === 'buy' ? '▲ COMPRA' : '▼ VENDA'} · EURUSD
                       </div>
-                      <div style={{ fontFamily: 'monospace', fontSize: 26, fontWeight: 900,
+                      <div style={{ ...serif, fontSize: 32, fontWeight: 700,
                         color: tColor, lineHeight: 1, letterSpacing: '0.02em' }}>
                         {t.entry.toFixed(5)}
                       </div>
@@ -1474,7 +1501,7 @@ export default function MonitorPage() {
                     <div style={{ padding: '12px 14px', borderBottom: `1px solid ${C.bd}`, textAlign: 'center' }}>
                       <div style={{ fontSize: 8, color: C.t2, textTransform: 'uppercase',
                         letterSpacing: '0.10em', marginBottom: 5 }}>Float P&L em tempo real</div>
-                      <div style={{ fontFamily: 'monospace', fontSize: 24, fontWeight: 900,
+                      <div style={{ ...serif, fontSize: 30, fontWeight: 700,
                         color: pColor, lineHeight: 1,
                         textShadow: `0 0 20px ${pColor}60, 0 0 40px ${pColor}30`,
                         transition: 'color 0.5s' }}>
@@ -1803,7 +1830,7 @@ export default function MonitorPage() {
                 <span style={{ fontFamily: 'monospace', fontSize: 7, color: C.t3 }}>{botLogs.length} linhas</span>
               </div>
               <div className="log-terminal" style={{
-                maxHeight: 380, overflowY: 'auto', background: '#040b14',
+                maxHeight: 380, overflowY: 'auto', background: C.s2,
                 fontFamily: 'monospace', fontSize: 8,
               }}>
                 {botLogs.length === 0 ? (
