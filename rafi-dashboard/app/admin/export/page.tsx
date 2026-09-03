@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { Download, Trash2, TrendingUp, TrendingDown, BarChart2, FileText, Filter } from 'lucide-react'
+import { Download, Trash2, TrendingUp, TrendingDown, BarChart2, FileText, Filter, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { fetchTrades, updateTradeResult as dbUpdateResult } from '@/lib/trades-db'
 
 interface ManualTrade {
   id:         string
@@ -19,8 +20,6 @@ interface ManualTrade {
   rafiDir?:   'bull' | 'bear'
   bbWidth?:   number
 }
-
-const STORAGE_KEY = 'rafi-trade-log'
 
 function riskPips(e: number, s: number, dir: 'buy' | 'sell') {
   return dir === 'buy' ? Math.round((e - s) * 10000) : Math.round((s - e) * 10000)
@@ -190,33 +189,45 @@ type ResultFilter = 'all' | 'win' | 'loss' | 'pending'
 
 export default function ExportPage() {
   const [trades,  setTrades]  = useState<ManualTrade[]>([])
-  const [mounted, setMounted] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [dirF,    setDirF]    = useState<DirFilter>('all')
   const [resultF, setResultF] = useState<ResultFilter>('all')
 
-  useEffect(() => {
-    setMounted(true)
+  async function loadTrades() {
+    setLoading(true)
     try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        if (Array.isArray(parsed)) setTrades(parsed)
-      }
-    } catch {}
-  }, [])
-
-  function clearAll() {
-    if (!confirm('Apagar todos os trades mapeados? Ação irreversível.')) return
-    localStorage.removeItem(STORAGE_KEY)
-    setTrades([])
+      const rows = await fetchTrades()
+      setTrades(rows.map(r => ({
+        id:         r.id,
+        direction:  r.direction,
+        entry:      r.entry,
+        stopLoss:   r.stopLoss,
+        takeProfit: r.takeProfit,
+        label:      r.label,
+        time:       r.time,
+        lot:        r.lot,
+        leverage:   r.leverage,
+        result:     r.result,
+        rafi:       r.rafi,
+        rafiDir:    r.rafiDir,
+        bbWidth:    r.bbWidth,
+      })))
+    } catch (e) {
+      console.error('Erro ao carregar trades:', e)
+    } finally {
+      setLoading(false)
+    }
   }
 
-  function markResult(id: string, result: 'win' | 'loss') {
-    setTrades(prev => {
-      const updated = prev.map(t => t.id === id ? { ...t, result } : t)
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)) } catch {}
-      return updated
-    })
+  useEffect(() => { loadTrades() }, [])
+
+  async function markResult(id: string, result: 'win' | 'loss') {
+    await dbUpdateResult(id, result)
+    setTrades(prev => prev.map(t => t.id === id ? { ...t, result } : t))
+  }
+
+  function clearAll() {
+    // clearAll não é mais aplicável com dados do Supabase
   }
 
   const wins    = trades.filter(t => t.result === 'win').length
@@ -249,7 +260,14 @@ export default function ExportPage() {
     return true
   }), [trades, dirF, resultF])
 
-  if (!mounted) return null
+  if (loading) return (
+    <div className="min-h-screen bg-[#0d1117] flex items-center justify-center">
+      <div className="flex items-center gap-3 text-[#484f58] text-sm">
+        <RefreshCw size={16} className="animate-spin" />
+        Carregando trades do Supabase…
+      </div>
+    </div>
+  )
 
   return (
     <div className="min-h-screen bg-[#0d1117] p-5 space-y-5">
@@ -259,32 +277,32 @@ export default function ExportPage() {
         <div>
           <h1 className="text-lg font-bold text-[#f0f6fc] flex items-center gap-2">
             <FileText size={18} className="text-[#3b82f6]" />
-            Dataset ML — Trades Mapeados
+            Dataset ML — Trades Autoscan
           </h1>
           <p className="text-xs text-[#484f58] mt-0.5">
-            Trades registrados no Gráfico RAFI · armazenados localmente no navegador
+            Trades do Gráfico RAFI · sincronizados com Supabase · {trades.length} registros
           </p>
         </div>
-        {trades.length > 0 && (
-          <div className="flex gap-2">
-            <button onClick={clearAll}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-500/25 hover:bg-red-500/10 transition-all">
-              <Trash2 size={11} /> Limpar
-            </button>
+        <div className="flex gap-2">
+          <button onClick={loadTrades}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-[#8b949e] border border-[#30363d] hover:bg-[#21262d] transition-all">
+            <RefreshCw size={11} /> Atualizar
+          </button>
+          {trades.length > 0 && (
             <button onClick={() => exportCSV(trades)}
               className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold bg-[#3b82f6] hover:bg-[#2563eb] text-white transition-all">
               <Download size={12} /> Exportar CSV ({trades.length})
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {trades.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-32 text-center">
           <BarChart2 size={48} className="text-[#30363d] mb-4" />
-          <p className="text-[#484f58] text-sm">Nenhum trade mapeado ainda.</p>
+          <p className="text-[#484f58] text-sm">Nenhum trade encontrado no Supabase.</p>
           <p className="text-[#30363d] text-xs mt-1">
-            Vá para <span className="text-[#3b82f6]">Gráfico RAFI</span>, posicione o OCO e clique COMPRA ou VENDA.
+            Use o <span className="text-[#3b82f6]">Autoscan</span> no Gráfico RAFI para gerar sinais.
           </p>
         </div>
       ) : (
