@@ -17,6 +17,7 @@ const C = {
 }
 
 const DEFAULTS = {
+  estrategia_modo:        'rafi',   // 'rafi' | 'autoscan'
   forca_limiar:           2.50,
   rafi_periodo:           14,
   sr_lookback:            50,
@@ -79,11 +80,13 @@ const GRUPOS: {
 
 const CHAVES_NUMERICAS = Object.keys(DEFAULTS).filter(k => typeof DEFAULTS[k as keyof Config] === 'number') as (keyof Config)[]
 const CHAVES_BOOL      = Object.keys(DEFAULTS).filter(k => typeof DEFAULTS[k as keyof Config] === 'boolean') as (keyof Config)[]
+const CHAVES_STR       = Object.keys(DEFAULTS).filter(k => typeof DEFAULTS[k as keyof Config] === 'string') as (keyof Config)[]
 
 function camposDivergindo(sim: Config, live: Config): Set<keyof Config> {
   const diverge = new Set<keyof Config>()
   CHAVES_NUMERICAS.forEach(k => { if (Math.abs((sim[k] as number) - (live[k] as number)) > 1e-9) diverge.add(k) })
   CHAVES_BOOL.forEach(k => { if (sim[k] !== live[k]) diverge.add(k) })
+  CHAVES_STR.forEach(k => { if (sim[k] !== live[k]) diverge.add(k) })
   return diverge
 }
 
@@ -364,6 +367,42 @@ export default function ConfigPage() {
               display: 'flex', flexDirection: 'column', gap: 18,
               opacity: locked ? 0.55 : 1, pointerEvents: locked ? 'none' : 'auto',
               transition: 'opacity 0.2s' }}>
+
+              {/* ── Seletor de modo da estratégia ── */}
+              <div>
+                <div style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase',
+                  letterSpacing: '0.12em', color: C.cy,
+                  borderBottom: `1px solid ${C.cy}20`, paddingBottom: 5, marginBottom: 10 }}>
+                  Modo da Estratégia
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                  {(['rafi', 'autoscan'] as const).map(modo => {
+                    const ativo = cfg.estrategia_modo === modo
+                    const modoColor = modo === 'rafi' ? C.bl : C.am
+                    return (
+                      <button key={modo}
+                        onClick={() => setCfg(prev => ({ ...prev, estrategia_modo: modo }))}
+                        style={{ flex: 1, padding: '7px 10px', borderRadius: 5,
+                          background: ativo ? `${modoColor}18` : C.s2,
+                          border: `1px solid ${ativo ? modoColor + '60' : C.bd}`,
+                          color: ativo ? modoColor : C.t2,
+                          fontSize: 9, fontWeight: 700, cursor: 'pointer',
+                          transition: 'all 0.2s', letterSpacing: '0.05em' }}>
+                        {modo === 'rafi' ? '⚙️ RAFI (filtros completos)' : '⚡ Autoscan (browser)'}
+                      </button>
+                    )
+                  })}
+                </div>
+                {cfg.estrategia_modo === 'autoscan' && (
+                  <div style={{ padding: '5px 10px', borderRadius: 4,
+                    background: `${C.am}08`, border: `1px solid ${C.am}20`,
+                    fontSize: 8, color: C.am, lineHeight: 1.7 }}>
+                    ⚡ Sem RAFI · sem MA trend · sem sessão · stop 1.5 pip fixo<br/>
+                    Recomendado: S/R Lookback = 20 · Swing Stop irrelevante
+                  </div>
+                )}
+              </div>
+
               {GRUPOS.map(grupo => (
                 <div key={grupo.label}>
                   <div style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase',

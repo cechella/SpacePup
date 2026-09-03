@@ -21,6 +21,13 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta, timezone
 
+# Carrega variáveis de ambiente do .env (SUPABASE_URL, SUPABASE_KEY)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv opcional — usa variáveis de ambiente do sistema se existirem
+
 # Adiciona o diretório raiz ao path para importações relativas
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -110,12 +117,45 @@ def main() -> None:
                         help='Nível de log: DEBUG, INFO, WARNING')
     parser.add_argument('--csv',     default=None,
                         help='Salvar lista de trades em CSV (ex: logs/trades.csv)')
+    parser.add_argument('--supabase', action='store_true',
+                        help='Busca parâmetros do Simulador no Supabase (override do config.yaml)')
     args = parser.parse_args()
 
     # ── Carregar configurações ─────────────────────────────────
     with open(args.config, 'rb') as f:
         _raw = f.read()
     config = yaml.safe_load(_raw.decode('utf-8'))
+
+    # ── Override via Supabase (perfil 'simulator') ─────────────
+    # Usa os parâmetros salvos no admin dashboard como fallback/override.
+    # Campos mapeados: todos os keys de rafi_bot_config que existem no config.yaml.
+    if args.supabase:
+        url = os.environ.get('SUPABASE_URL', '')
+        key = os.environ.get('SUPABASE_KEY', '')
+        if not url or not key:
+            print("⚠  SUPABASE_URL / SUPABASE_KEY não encontrados no .env — usando config.yaml")
+        else:
+            try:
+                from supabase import create_client
+                sb = create_client(url, key)
+                resp = sb.table('rafi_bot_config').select('*').eq('profile', 'simulator').single().execute()
+                row = resp.data or {}
+                # Campos que o bot Python reconhece diretamente pelo mesmo nome
+                CAMPOS_MAPEADOS = [
+                    'estrategia_modo', 'forca_limiar', 'rafi_periodo',
+                    'sr_lookback', 'swing_stop_lookback',
+                    'ma_rapida', 'ma_lenta', 'ma_threshold',
+                    'bb_filtro_ativo', 'bb_limiar_estreita', 'bb_periodo', 'bb_desvios',
+                    'ratio_risco_retorno', 'max_trades_simultaneos',
+                ]
+                sobrescritos = []
+                for k in CAMPOS_MAPEADOS:
+                    if k in row and row[k] is not None:
+                        config[k] = row[k]
+                        sobrescritos.append(f"{k}={row[k]}")
+                print(f"✔  Config do Supabase (Simulador): {', '.join(sobrescritos) if sobrescritos else 'nenhum campo novo'}")
+            except Exception as e:
+                print(f"⚠  Falha ao buscar Supabase: {e} — usando config.yaml")
 
     # Hash MD5 (8 chars) do config.yaml — identifica a versão de parâmetros
     # usada neste backtest, permitindo comparar resultados entre runs
