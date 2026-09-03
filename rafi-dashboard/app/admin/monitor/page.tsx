@@ -17,16 +17,16 @@ const supa = SUPA_URL && SUPA_KEY ? createClient(SUPA_URL, SUPA_KEY) : null
 
 declare global { interface Window { LightweightCharts: any } }
 
-// ── Design tokens — Vault Black & Burnished Gold ──────────────────────────────
+// ── Design tokens — GitHub Dark (alinhado com o dashboard) ───────────────────
 const C = {
-  bg:  '#07060a', s1: '#0d0b10', s2: '#131018', s3: '#1a1720',
-  bd:  'rgba(196,154,60,.13)', bd2: 'rgba(196,154,60,.30)',
-  cy:  '#c49a3c', cya: 'rgba(196,154,60,.08)',
-  gr:  '#3da868', gra: 'rgba(61,168,104,.10)',
-  re:  '#c05252', rea: 'rgba(192,82,82,.10)',
-  am:  '#d4820a', ama: 'rgba(212,130,10,.08)',
-  bl:  '#4a90b8', bla: 'rgba(74,144,184,.08)',
-  tx:  '#e2d5be', t2: '#7a7060', t3: '#3a3428',
+  bg:  '#0d1117', s1: '#161b22', s2: '#21262d', s3: '#30363d',
+  bd:  '#30363d', bd2: 'rgba(48,54,61,.5)',
+  cy:  '#3b82f6', cya: 'rgba(59,130,246,.08)',
+  gr:  '#10b981', gra: 'rgba(16,185,129,.10)',
+  re:  '#ef4444', rea: 'rgba(239,68,68,.10)',
+  am:  '#f59e0b', ama: 'rgba(245,158,11,.08)',
+  bl:  '#6366f1', bla: 'rgba(99,102,241,.08)',
+  tx:  '#f0f6fc', t2: '#8b949e', t3: '#484f58',
 }
 
 // ── Lot table ─────────────────────────────────────────────────────────────────
@@ -695,14 +695,14 @@ export default function MonitorPage() {
 
   // ── Shared inline style helpers ───────────────────────────────────────────────
   const card = {
-    background: C.s1, border: `1px solid ${C.bd}`,
+    background: C.s1, border: `1px solid ${C.bd}`, borderRadius: 12,
   } as React.CSSProperties
   const lbl = {
     fontSize: 9, fontWeight: 600, textTransform: 'uppercase' as const,
     letterSpacing: '0.13em', color: C.t2, marginBottom: 10,
   }
   const mono  = { fontFamily: "'JetBrains Mono', monospace" } as React.CSSProperties
-  const serif = { fontFamily: "'Playfair Display', Georgia, serif" } as React.CSSProperties
+  const serif = mono  // herda mono — Playfair removido
 
   const m5mm = String(Math.floor(m5Secs / 60)).padStart(2, '0')
   const m5ss = String(m5Secs % 60).padStart(2, '0')
@@ -735,12 +735,12 @@ export default function MonitorPage() {
   const formingPrice    = status?.forming_price ?? lastCandle?.high ?? 0
 
   return (
-    <div style={{ minHeight: '100vh', background: C.bg, color: C.tx, fontSize: 13, lineHeight: 1.5 }}>
+    <div style={{ minHeight: '100vh', background: C.bg, color: C.tx, fontSize: 13, lineHeight: 1.5, fontFamily: "'Inter', system-ui, sans-serif" }}>
 
       {/* ── Alert toast ──────────────────────────────────────────────────────── */}
       {alert && (
         <div className="fixed top-4 right-4 z-50 flex items-start gap-3 px-4 py-3 max-w-sm"
-          style={{ background: C.gra, border: `1px solid ${C.gr}40`, boxShadow: '0 8px 32px rgba(0,0,0,.4)' }}>
+          style={{ background: C.s1, border: `1px solid ${C.gr}40`, borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,.6)' }}>
           <Bell size={14} style={{ color: C.gr, marginTop: 2, flexShrink: 0 }} />
           <div className="flex-1 min-w-0">
             <div style={{ fontSize: 11, fontWeight: 700, color: C.gr }}>Novo Trade Disparado!</div>
@@ -753,83 +753,60 @@ export default function MonitorPage() {
       {/* ── Sticky command bar ───────────────────────────────────────────────── */}
       <nav className="sticky top-0 z-20" style={{
         background: C.s1, borderBottom: `1px solid ${C.bd}`,
-        display: 'flex', alignItems: 'center', gap: 0, padding: 0, height: 54,
+        display: 'flex', alignItems: 'center', gap: 0, padding: '0 20px', height: 52,
       }}>
-        {/* Logo */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 22px',
-          borderRight: `1px solid ${C.bd}`, height: '100%', flexShrink: 0 }}>
+        {/* Logo + ticker */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
           <div style={{
-            width: 34, height: 34, background: C.cy, flexShrink: 0,
-            clipPath: 'polygon(50% 0%,100% 50%,50% 100%,0% 50%)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 30, height: 30, borderRadius: 8,
+            background: 'rgba(59,130,246,.13)', border: '1px solid rgba(59,130,246,.22)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}>
-            <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, fontWeight: 800, color: '#07060a' }}>RF</span>
+            <TrendingUp size={14} style={{ color: C.cy }} />
           </div>
           <div>
-            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase', color: C.tx }}>
-              RAFI Command
-            </div>
-            <div style={{ fontSize: 9, color: C.t2, letterSpacing: '0.05em', ...mono }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.tx }}>Monitor Bot</div>
+            <div style={{ fontSize: 10, color: C.t2, ...mono }}>
               {status ? `${status.par} · M5 · ${status.server}` : 'EURUSD# · M5 · MetaTrader 5'}
             </div>
           </div>
-        </div>
-
-        {/* Ticker info */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '0 22px',
-          borderRight: `1px solid ${C.bd}`, height: '100%', flex: 1 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: C.tx, letterSpacing: '.05em' }}>
-            EURUSD<span style={{ color: C.cy }}>{'#'}</span>
+          <div style={{ width: 1, height: 28, background: C.bd, margin: '0 12px', flexShrink: 0 }} />
+          <span style={{ fontSize: 13, fontWeight: 700, color: C.tx, ...mono }}>EURUSD</span>
+          <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 6,
+            border: `1px solid ${C.cy}30`, color: C.cy, background: C.cya, ...mono }}>M5</span>
+          <span style={{ fontSize: 10, color: C.t2, ...mono, display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: isOnline ? C.gr : C.re,
+              animation: isOnline ? 'pulse 1.8s ease-in-out infinite' : 'none', display: 'inline-block' }} />
+            {statusLabel}
+            {status && isOnline && (
+              <span style={{ color: C.t3, fontSize: 9 }}>· {secondsAgo(status.updated_at)}</span>
+            )}
           </span>
-          <span style={{ fontSize: 9, padding: '2px 7px', border: `1px solid ${C.bd2}`, color: C.cy, ...mono }}>M5</span>
-          <span style={{ fontSize: 10, color: C.t2, ...mono }}>{status?.server ?? '—'} · #{status?.account ?? '—'}</span>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5,
-            fontSize: 9, color: C.cy, textTransform: 'uppercase', letterSpacing: '0.12em' }}>
-            <span style={{ width: 5, height: 5, borderRadius: '50%', background: C.cy,
-              animation: isOnline ? 'pulse 1.8s ease-in-out infinite' : 'none' }} />
-            Ao Vivo
-          </div>
         </div>
 
         {/* Clock */}
-        <div style={{ padding: '0 22px', borderRight: `1px solid ${C.bd}`, height: '100%',
-          display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 1, flexShrink: 0 }}>
-          <div style={{ ...mono, fontSize: 18, fontWeight: 500, color: C.tx, letterSpacing: '0.08em' }}>{londonTime.split(' ').slice(-2).join(' ')}</div>
-          <div style={{ fontSize: 9, color: C.t2, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{londonTime.split(' ').slice(0, -2).join(' ')}</div>
+        <div style={{ ...mono, fontSize: 13, fontWeight: 500, color: C.t2, flexShrink: 0, marginRight: 16 }}>
+          {londonTime}
         </div>
 
         {/* Actions */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 16px', height: '100%', flexShrink: 0 }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px',
-            fontSize: 9, fontWeight: 700, letterSpacing: '0.10em',
-            border: `1px solid ${statusColor}35`, background: `${statusColor}0a`,
-            color: statusColor,
-          }}>
-            <span style={{ width: 5, height: 5, borderRadius: '50%', background: statusColor,
-              animation: isOnline ? 'pulse 2s ease-in-out infinite' : 'none' }} />
-            {statusLabel}
-            {status && isOnline && (
-              <span style={{ opacity: 0.5, fontSize: 8, fontWeight: 400, marginLeft: 2 }}>
-                · {secondsAgo(status.updated_at)}
-              </span>
-            )}
-          </div>
-          <button onClick={refresh} style={{ padding: '6px 8px', border: `1px solid ${C.bd}`, background: 'transparent', color: C.t2, cursor: 'pointer' }}>
-            <RefreshCw size={11} className={loading ? 'animate-spin' : ''} style={{ color: C.t2 }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <button onClick={refresh} style={{ padding: '6px 10px', border: `1px solid ${C.bd}`,
+            background: 'transparent', color: C.t2, cursor: 'pointer', borderRadius: 8 }}>
+            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} style={{ color: C.t2 }} />
           </button>
           <button onClick={() => enviarComando('buy_manual')} disabled={cmdSent} style={{
-            padding: '6px 14px', border: `1px solid ${C.gr}35`, background: C.gra,
-            color: C.gr, fontSize: 9, fontWeight: 700, letterSpacing: '0.10em', cursor: 'pointer',
-          }}>▲ COMPRA</button>
+            padding: '6px 14px', border: `1px solid ${C.gr}40`, background: C.gra,
+            color: C.gr, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+          }}>▲ Compra</button>
           <button onClick={() => enviarComando('sell_manual')} disabled={cmdSent} style={{
-            padding: '6px 14px', border: `1px solid ${C.re}35`, background: C.rea,
-            color: C.re, fontSize: 9, fontWeight: 700, letterSpacing: '0.10em', cursor: 'pointer',
-          }}>▼ VENDA</button>
+            padding: '6px 14px', border: `1px solid ${C.re}40`, background: C.rea,
+            color: C.re, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+          }}>▼ Venda</button>
           <button onClick={() => enviarComando('stop')} disabled={cmdSent} style={{
             padding: '6px 14px', border: `1px solid ${C.bd}`, background: 'transparent',
-            color: C.t2, fontSize: 9, fontWeight: 700, letterSpacing: '0.10em', cursor: 'pointer',
-          }}>■ PARAR</button>
+            color: C.t2, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+          }}>■ Parar</button>
         </div>
       </nav>
 
@@ -848,8 +825,8 @@ export default function MonitorPage() {
             {/* Banner strip */}
             <button onClick={() => setShowQR(v => !v)} style={{
               width: '100%', cursor: 'pointer', border: 'none', textAlign: 'left',
-              background: `linear-gradient(90deg, ${fColor}14, ${fColor}06, transparent)`,
-              borderBottom: `1px solid ${fColor}35`,
+              background: C.s1,
+              borderBottom: `1px solid ${C.bd}`,
               padding: '7px 24px', display: 'flex', alignItems: 'center', gap: 16,
             }}>
               {/* Pulsing dot */}
@@ -901,7 +878,7 @@ export default function MonitorPage() {
             {/* Expandable chart panel */}
             {showQR && (
               <div className="qr-panel" style={{
-                background: C.s1, borderBottom: `1px solid ${fColor}20`,
+                background: C.s1, borderBottom: `1px solid ${C.bd}`,
                 padding: '12px 24px 16px',
               }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 220px', gap: 16 }}>
@@ -915,7 +892,7 @@ export default function MonitorPage() {
                         Nível alvo: {fPrice > 0 ? fPrice.toFixed(5) : '—'}
                       </span>
                     </div>
-                    <div style={{ background: C.bg, border: `1px solid ${C.bd}`, padding: '6px 0' }}>
+                    <div style={{ background: C.s2, border: `1px solid ${C.bd}`, borderRadius: 8, padding: '6px 0' }}>
                       <QRMiniChart candles={candles} srLevel={fPrice} direction={fDir} />
                     </div>
                     <div style={{ marginTop: 6, display: 'flex', gap: 16, fontSize: 8, color: C.t3, fontFamily: 'monospace' }}>
@@ -929,7 +906,7 @@ export default function MonitorPage() {
                   {/* Right metrics panel */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {/* RAFI gauge */}
-                    <div style={{ background: C.bg, border: `1px solid ${C.bd}`, padding: '12px 14px' }}>
+                    <div style={{ background: C.s2, border: `1px solid ${C.bd}`, borderRadius: 8, padding: '12px 14px' }}>
                       <div style={{ fontSize: 8, color: C.t2, textTransform: 'uppercase',
                         letterSpacing: '0.10em', marginBottom: 8 }}>Força do Movimento</div>
                       {/* Arc gauge */}
@@ -958,7 +935,7 @@ export default function MonitorPage() {
                     </div>
 
                     {/* Checklist */}
-                    <div style={{ background: C.bg, border: `1px solid ${C.bd}`, padding: '12px 14px' }}>
+                    <div style={{ background: C.s2, border: `1px solid ${C.bd}`, borderRadius: 8, padding: '12px 14px' }}>
                       <div style={{ fontSize: 8, color: C.t2, textTransform: 'uppercase',
                         letterSpacing: '0.10em', marginBottom: 8 }}>Condições para Entrada</div>
                       {[
@@ -989,42 +966,30 @@ export default function MonitorPage() {
       })()}
 
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,800;1,400&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@300;400;500;700&display=swap');
-        body{font-family:'DM Sans',system-ui,sans-serif!important}
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+        body{font-family:'Inter',system-ui,sans-serif!important}
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-        @keyframes rafiPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.7;transform:scale(.98)}}
-        @keyframes gold-glow{0%,100%{text-shadow:0 0 14px rgba(196,154,60,.4)}50%{text-shadow:0 0 36px rgba(196,154,60,.85),0 0 70px rgba(196,154,60,.25)}}
-        @keyframes float-glow{0%,100%{text-shadow:0 0 12px rgba(61,168,104,.45)}50%{text-shadow:0 0 34px rgba(61,168,104,.9),0 0 68px rgba(61,168,104,.3)}}
-        @keyframes float-glow-re{0%,100%{text-shadow:0 0 12px rgba(192,82,82,.45)}50%{text-shadow:0 0 34px rgba(192,82,82,.9)}}
-        @keyframes shimmer{0%{left:-120%}100%{left:120%}}
-        .kcard{position:relative;transition:transform .15s,box-shadow .15s}
-        .kcard:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,.5)}
-        .kcard::before{content:'';position:absolute;inset:0;opacity:0;transition:opacity .25s;pointer-events:none;z-index:0}
-        .kcard:hover::before{opacity:1}
-        .kcard>*{position:relative;z-index:1}
-        .kc-gr::before{background:radial-gradient(ellipse at 50% 110%,rgba(61,168,104,.10),transparent 65%)}
-        .kc-cy::before{background:radial-gradient(ellipse at 50% 110%,rgba(196,154,60,.10),transparent 65%)}
-        .kc-am::before{background:radial-gradient(ellipse at 50% 110%,rgba(212,130,10,.10),transparent 65%)}
-        .kc-re::before{background:radial-gradient(ellipse at 50% 110%,rgba(192,82,82,.10),transparent 65%)}
-        .kc-bl::before{background:radial-gradient(ellipse at 50% 110%,rgba(74,144,184,.10),transparent 65%)}
-        .bcard{position:relative;transition:transform .15s,box-shadow .15s,border-color .2s}
-        .bcard:hover{transform:translateY(-3px)}
-        .bc-gr:hover{border-color:rgba(61,168,104,.4)!important;box-shadow:0 6px 24px rgba(61,168,104,.10)}
-        .bc-am:hover{border-color:rgba(212,130,10,.4)!important;box-shadow:0 6px 24px rgba(212,130,10,.10)}
-        .bc-t3:hover{border-color:rgba(58,52,40,.9)!important}
+        @keyframes rafiPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.85;transform:scale(.99)}}
+        @keyframes slideDown{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+        .kcard{position:relative;transition:box-shadow .15s,border-color .2s}
+        .kcard:hover{box-shadow:0 4px 20px rgba(0,0,0,.4);border-color:rgba(48,54,61,.9)!important}
+        .bcard{position:relative;transition:transform .15s,box-shadow .15s,border-color .2s;border-radius:12px}
+        .bcard:hover{transform:translateY(-2px)}
+        .bc-gr:hover{border-color:rgba(16,185,129,.35)!important;box-shadow:0 4px 20px rgba(16,185,129,.08)}
+        .bc-am:hover{border-color:rgba(245,158,11,.35)!important;box-shadow:0 4px 20px rgba(245,158,11,.08)}
+        .bc-t3:hover{border-color:rgba(72,79,88,.7)!important}
         .bhex{clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)}
         .bcta{opacity:0;transition:opacity .15s}
         .bcard:hover .bcta{opacity:1}
-        .logrow:nth-child(even){background:rgba(10,6,4,.5)}
+        .logrow:nth-child(even){background:rgba(13,17,23,.6)}
         .forming-card{animation:rafiPulse 2.8s ease-in-out infinite}
-        @keyframes slideDown{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
         .qr-panel{animation:slideDown .18s ease-out both}
-        .log-terminal::-webkit-scrollbar{width:3px}
+        .log-terminal::-webkit-scrollbar{width:4px}
         .log-terminal::-webkit-scrollbar-track{background:transparent}
-        .log-terminal::-webkit-scrollbar-thumb{background:rgba(196,154,60,.25);border-radius:0}
-        @keyframes missionPulse{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 16px 2px rgba(192,82,82,.20)}}
-        .mission-close:hover{background:rgba(192,82,82,.22)!important;border-color:rgba(192,82,82,.7)!important}
-        button{border-radius:0!important}
+        .log-terminal::-webkit-scrollbar-thumb{background:#30363d;border-radius:2px}
+        @keyframes missionPulse{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 12px 2px rgba(239,68,68,.15)}}
+        .mission-close:hover{background:rgba(239,68,68,.18)!important;border-color:rgba(239,68,68,.6)!important}
+        button{border-radius:8px!important}
       `}</style>
 
       {/* ── MISSÃO ATIVA — banner sticky quando há posição aberta ─────────── */}
@@ -1059,14 +1024,14 @@ export default function MonitorPage() {
         return (
           <div style={{
             position: 'sticky', top: 52, zIndex: 18,
-            background: `linear-gradient(90deg, ${tColor}0c 0%, ${C.bg} 30%, ${C.bg} 70%, ${tColor}0c 100%)`,
-            borderBottom: `2px solid ${tColor}50`,
+            background: C.s1,
+            borderBottom: `1px solid ${C.bd}`,
+            borderTop: `2px solid ${tColor}`,
             display: 'flex', alignItems: 'stretch',
             animation: 'slideDown .2s ease-out both',
           }}>
-            {/* Pulsing left accent */}
-            <div style={{ width: 4, background: tColor, flexShrink: 0,
-              animation: 'missionPulse 2s ease-in-out infinite' }} />
+            {/* Left accent */}
+            <div style={{ width: 3, background: tColor, flexShrink: 0 }} />
 
             {/* Direction + label */}
             <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center',
@@ -1192,7 +1157,7 @@ export default function MonitorPage() {
         const stripLabel = liveRafi === null ? 'AGUARDANDO' : absRafi >= 2.5 ? 'SINAL ATIVO' : absRafi >= 1.75 ? 'FORMANDO' : 'MONITORANDO'
         const stripPct   = Math.min(100, (absRafi / 2.5) * 100)
         return (
-          <div style={{ background: C.s1, borderBottom: `1px solid ${stripColor}22`,
+          <div style={{ background: C.s1, borderBottom: `1px solid ${C.bd}`,
             padding: '5px 24px', display: 'flex', alignItems: 'center', gap: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
               <span style={{ width: 5, height: 5, borderRadius: '50%', background: stripColor,
@@ -1236,8 +1201,7 @@ export default function MonitorPage() {
         <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1fr 1fr 1fr 1fr', gap: 10 }}>
 
           {/* Acumulado Total */}
-          <div className="kcard kc-gr" style={{ ...card, padding: '20px 22px', position: 'relative' }}>
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: C.gr }} />
+          <div className="kcard" style={{ ...card, padding: '20px 22px', position: 'relative', borderTop: `2px solid ${C.gr}` }}>
             <div style={lbl}>Acumulado Total</div>
             <div style={{ ...serif, fontSize: '2.4rem', fontWeight: 700, lineHeight: 1,
               color: totalPnL >= 0 ? C.gr : C.re, marginBottom: 4 }}>
@@ -1254,8 +1218,7 @@ export default function MonitorPage() {
           </div>
 
           {/* Win Rate */}
-          <div className="kcard kc-cy" style={{ ...card, padding: '20px 22px', position: 'relative' }}>
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: C.cy }} />
+          <div className="kcard" style={{ ...card, padding: '20px 22px', position: 'relative', borderTop: `2px solid ${C.cy}` }}>
             <div style={lbl}>Win Rate</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '6px 0' }}>
               <svg width="68" height="68" viewBox="0 0 68 68">
@@ -1264,7 +1227,7 @@ export default function MonitorPage() {
                   strokeDasharray="163.4" strokeDashoffset={arcOff}
                   strokeLinecap="round" transform="rotate(-90 34 34)" />
                 <text x="34" y="39" textAnchor="middle" fill={C.gr}
-                  fontFamily="'Playfair Display', Georgia, serif" fontSize="13" fontWeight="700">
+                  fontFamily="'JetBrains Mono', monospace" fontSize="13" fontWeight="700">
                   {wr !== null ? `${wr}%` : '—'}
                 </text>
               </svg>
@@ -1282,8 +1245,7 @@ export default function MonitorPage() {
           </div>
 
           {/* Bot Status */}
-          <div className="kcard kc-am" style={{ ...card, padding: '20px 22px', position: 'relative' }}>
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: statusColor }} />
+          <div className="kcard" style={{ ...card, padding: '20px 22px', position: 'relative', borderTop: `2px solid ${statusColor}` }}>
             <div style={lbl}>Bot Status</div>
             <div style={{ ...serif, fontSize: '1.6rem', fontWeight: 700, color: statusColor, lineHeight: 1 }}>
               {statusLabel}
@@ -1299,8 +1261,7 @@ export default function MonitorPage() {
           </div>
 
           {/* P&L Hoje */}
-          <div className="kcard kc-re" style={{ ...card, padding: '20px 22px', position: 'relative' }}>
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: C.re }} />
+          <div className="kcard" style={{ ...card, padding: '20px 22px', position: 'relative', borderTop: `2px solid ${C.re}` }}>
             <div style={{ position: 'absolute', top: 16, right: 16, fontSize: 7, fontWeight: 700,
               padding: '2px 7px', border: `1px solid ${C.bd}`, color: C.t2 }}>HOJE</div>
             <div style={lbl}>P&L Hoje</div>
@@ -1318,9 +1279,8 @@ export default function MonitorPage() {
           </div>
 
           {/* Conta XM / Posição Aberta — dual-state */}
-          <div className="kcard kc-bl" style={{ ...card, padding: '20px 22px', position: 'relative' }}>
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2,
-              background: pending.length > 0 ? (pending[0].direction === 'buy' ? C.cy : C.am) : C.bl }} />
+          <div className="kcard" style={{ ...card, padding: '20px 22px', position: 'relative',
+            borderTop: `2px solid ${pending.length > 0 ? (pending[0].direction === 'buy' ? C.cy : C.re) : C.bl}` }}>
             {pending.length > 0 ? (
               /* ── Com posição aberta ── */
               <>
@@ -1460,8 +1420,8 @@ export default function MonitorPage() {
                 const durStr = dHh > 0 ? `${dHh}h${dMm}m` : `${dMm}:${dSs}`
                 return (
                   <div style={{
-                    background: `linear-gradient(135deg, ${C.s1}, ${tColor}06)`,
-                    border: `1px solid ${tColor}35`,
+                    ...card,
+                    borderTop: `2px solid ${tColor}`,
                     display: 'flex', flexDirection: 'column',
                     animation: 'slideDown .25s ease-out both',
                   }}>
@@ -1585,8 +1545,7 @@ export default function MonitorPage() {
                 return (
                   <div className={forming ? 'forming-card' : ''} style={{
                     ...card,
-                    borderColor: forming ? `${fColor}40` : C.bd,
-                    background: forming ? `linear-gradient(135deg, ${C.s1}, ${fColor}06)` : C.s1,
+                    borderTop: forming ? `2px solid ${fColor}` : `1px solid ${C.bd}`,
                     display: 'flex', flexDirection: 'column',
                   }}>
                     <div style={{ padding: '10px 14px', borderBottom: `1px solid ${forming ? fColor + '25' : C.bd}`,
@@ -1644,7 +1603,7 @@ export default function MonitorPage() {
                           { label: 'Direção',    val: fDir === 'buy' ? '▲ COMPRA' : '▼ VENDA', ok: forming },
                           { label: 'Nível',      val: fPrice ? fPrice.toFixed(5) : '—', ok: !!fPrice },
                         ].map(item => (
-                          <div key={item.label} style={{ background: C.bg, border: `1px solid ${C.bd}`, padding: '7px 9px' }}>
+                          <div key={item.label} style={{ background: C.s2, border: `1px solid ${C.bd}`, padding: '7px 9px', borderRadius: 8 }}>
                             <div style={{ fontSize: 7, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>{item.label}</div>
                             <div style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700,
                               color: item.ok ? fColor : C.t2 }}>{item.val}</div>
@@ -1814,8 +1773,7 @@ export default function MonitorPage() {
             {/* Log do Bot — terminal premium */}
             <div style={{ ...card, overflow: 'hidden' }}>
               <div style={{ padding: '9px 14px', borderBottom: `1px solid ${C.bd}`,
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                background: `linear-gradient(90deg, ${C.s1}, ${C.bg})` }}>
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <div style={{ display: 'flex', gap: 4 }}>
                     <span style={{ width: 7, height: 7, borderRadius: '50%', background: C.re }} />
@@ -2041,7 +1999,7 @@ export default function MonitorPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 8 }}>
             <span style={{ fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.12em',
               color: C.t3, fontWeight: 700 }}>Ecossistema · Plataforma</span>
-            <div style={{ flex: 1, height: 1, background: C.bd }} />
+            <div style={{ flex: 1, height: 1, background: C.s3 }} />
             <span style={{ fontSize: 8, color: C.t3, ...mono }}>WIN RATE ALVO ML: 90–95%</span>
           </div>
 
@@ -2069,9 +2027,9 @@ export default function MonitorPage() {
               return (
                 <div key={b.id} className={`bcard ${active ? 'bc-gr' : 'bc-t3'}`} style={{
                   ...card, padding: 18, position: 'relative',
-                  opacity: active ? 1 : 0.65,
+                  opacity: active ? 1 : 0.65, borderTop: `2px solid ${sc}`,
                 }}>
-                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: sc }} />
+
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 12 }}>
                     <div className="bhex" style={{ width: 44, height: 44, background: `${sc}18`,
                       border: `1.5px solid ${sc}30`, display: 'flex', alignItems: 'center',
@@ -2177,8 +2135,8 @@ export default function MonitorPage() {
             ]).map(f => (
               <div key={f.name} className="bcard bc-t3" style={{
                 ...card, padding: 18, position: 'relative', opacity: 0.45,
+                borderTop: `2px solid ${C.t3}`,
               }}>
-                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: C.t3 }} />
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 12 }}>
                   <div className="bhex" style={{ width: 44, height: 44, background: `${C.t3}10`,
                     border: `1.5px solid ${C.t3}20`, display: 'flex', alignItems: 'center',
