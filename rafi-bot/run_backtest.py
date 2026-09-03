@@ -107,6 +107,8 @@ def main() -> None:
                         help='Caminho para salvar gráfico PNG de equity')
     parser.add_argument('--log',     default='INFO',
                         help='Nível de log: DEBUG, INFO, WARNING')
+    parser.add_argument('--csv',     default=None,
+                        help='Salvar lista de trades em CSV (ex: logs/trades.csv)')
     args = parser.parse_args()
 
     # ── Carregar configurações ─────────────────────────────────
@@ -152,6 +154,17 @@ def main() -> None:
         equity_curve=bt.equity_curve,
         salvar_grafico=args.grafico,
     )
+
+    # Exportar trades para CSV
+    if args.csv and trades:
+        os.makedirs(os.path.dirname(args.csv) if os.path.dirname(args.csv) else '.', exist_ok=True)
+        df_trades = pd.DataFrame(trades)
+        cols_ordem = ['timestamp_entrada', 'timestamp_saida', 'direcao', 'entry', 'stop_loss',
+                      'take_profit', 'lote', 'pnl_usd', 'variacao_pips', 'resultado',
+                      'duracao_candles', 'rafi', 'capital_antes', 'capital_apos']
+        cols_existentes = [c for c in cols_ordem if c in df_trades.columns]
+        df_trades[cols_existentes].to_csv(args.csv, index=False, encoding='utf-8')
+        logger.info(f"Trades exportados: {args.csv} ({len(trades)} trades)")
 
     # Verificar metas mínimas (Fase 1A)
     if relatorio.get('win_rate_pct', 0) >= 55 and relatorio.get('profit_factor', 0) >= 1.5:
