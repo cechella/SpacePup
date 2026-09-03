@@ -377,7 +377,9 @@ class Backtest:
                 max_pos_agora = max_trades_simultaneos
 
             # Não busca novo sinal se já no máximo de posições simultâneas
-            if len(posicoes_abertas) >= max_pos_agora:
+            # Autoscan não tem limite de posições simultâneas (igual ao browser que
+            # apenas conta sinais sem simular o ciclo de vida das posições)
+            if modo != 'autoscan' and len(posicoes_abertas) >= max_pos_agora:
                 continue
 
             _d_total += 1

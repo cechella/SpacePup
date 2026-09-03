@@ -121,7 +121,7 @@ def calcular_bollinger(df: pd.DataFrame,
     """
     close = df['close']
     media    = close.rolling(periodo).mean()
-    std      = close.rolling(periodo).std()
+    std      = close.rolling(periodo).std(ddof=0)  # população (÷N), igual ao browser
     superior = media + desvios * std
     inferior = media - desvios * std
     largura  = superior - inferior  # largura absoluta das bandas
