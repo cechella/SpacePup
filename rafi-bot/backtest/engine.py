@@ -1026,11 +1026,15 @@ class BacktestCSV(Backtest):
     @staticmethod
     def _carregar_csv(caminho: str) -> pd.DataFrame:
         """
-        Carrega e normaliza um CSV exportado do MT5.
-        Suporta o formato com colunas separadas Date/Time
-        e o formato com coluna única '<DATE> <TIME>'.
+        Carrega e normaliza um CSV exportado do MT5 ou gerado via MetaTrader5 API.
+        Suporta: (1) TAB com <DATE>/<TIME>; (2) vírgula com coluna datetime/time como índice.
         """
-        df = pd.read_csv(caminho, sep='\t', header=0)
+        # Detecta separador automaticamente
+        with open(caminho, 'r', encoding='utf-8') as _f:
+            _primeira = _f.readline()
+        sep = '\t' if '\t' in _primeira else ','
+
+        df = pd.read_csv(caminho, sep=sep, header=0)
         df.columns = [c.strip().replace('<', '').replace('>', '').lower()
                       for c in df.columns]
 
@@ -1038,6 +1042,9 @@ class BacktestCSV(Backtest):
             df['datetime'] = pd.to_datetime(df['date'] + ' ' + df['time'], utc=True)
         elif 'datetime' in df.columns:
             df['datetime'] = pd.to_datetime(df['datetime'], utc=True)
+        elif 'time' in df.columns:
+            # Formato da API MT5: índice salvo como coluna 'time' com timezone UTC
+            df['datetime'] = pd.to_datetime(df['time'], utc=True)
         else:
             raise ValueError(f"Colunas de data/hora não encontradas em {caminho}")
 
