@@ -52,6 +52,8 @@ from .supabase_sync import (
     verificar_comando_avancado,
     publicar_log,
     carregar_config_supabase,
+    carregar_broker_ativo,
+    publicar_status_broker,
 )
 
 # ── Configuração de logging ───────────────────────────────────────────────────
@@ -135,6 +137,30 @@ class RafiBot:
                     self.cfg[chave_cfg] = cfg_supa[chave_supa]
             logger.info("Config carregada do Supabase (dashboard /admin/config)")
 
+        # Broker ativo: lê do Supabase qual corretora está habilitada
+        # --broker xm | --broker pepperstone seleciona qual usar quando múltiplas estão ativas
+        broker_id_arg = config.get('_broker_arg')  # injetado por main() via --broker
+        broker_supa   = carregar_broker_ativo(broker_id=broker_id_arg)
+        if broker_supa:
+            bid    = broker_supa['id']
+            creds  = config.get('corretoras', {}).get(bid, {})
+            self._broker_id       = bid
+            self._broker_login    = creds.get('login')
+            self._broker_senha    = creds.get('senha')
+            self._broker_servidor = broker_supa.get('servidor') or creds.get('servidor')
+            # Símbolo correto por corretora (EURUSD# vs EURUSD)
+            self.par            = broker_supa.get('simbolo') or creds.get('simbolo') or self.par
+            self.cfg['par']     = self.par
+            self.mt5.par        = self.par
+            logger.info(f"Broker ativo (Supabase): {bid} | Símbolo: {self.par}")
+        else:
+            # Fallback: usa o par do config.yaml sem autenticação separada
+            self._broker_id       = config.get('corretora', 'xm').lower()
+            self._broker_login    = None
+            self._broker_senha    = None
+            self._broker_servidor = None
+            logger.warning("rafi_brokers indisponível — usando par do config.yaml (fallback)")
+
         logger.info(f"RafiBot iniciado | Par: {self.par} | Capital: ${self.capital:.2f}")
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -152,8 +178,12 @@ class RafiBot:
         logger.info(f"Kill switch: crie o arquivo '{ARQUIVO_STOP}' na pasta raiz")
         logger.info("=" * 60)
 
-        publicar_log("Bot RAFI iniciado — conectando ao MT5", level='info')
-        if not self.mt5.conectar():
+        publicar_log(f"Bot RAFI iniciado — conectando ao MT5 ({self._broker_id})", level='info')
+        if not self.mt5.conectar(
+            login    = self._broker_login,
+            senha    = self._broker_senha,
+            servidor = self._broker_servidor,
+        ):
             logger.error("Não foi possível conectar ao MT5. Verifique o terminal.")
             publicar_log("ERRO: Não foi possível conectar ao MT5", level='error')
             return
@@ -275,6 +305,16 @@ class RafiBot:
             par            = self.par,
             server         = self._conta_server,
             account        = self._conta_account,
+        )
+        # Atualiza card da corretora no /admin/brokers
+        publicar_status_broker(
+            broker_id   = self._broker_id,
+            saldo       = self.capital,
+            posicoes    = len(posicoes_abertas_hb),
+            pnl_hoje    = self._pnl_hoje,
+            status_text = ('OPERANDO' if posicoes_abertas_hb
+                           else 'PARADO' if self._limite_diario_atingido()
+                           else 'AGUARDANDO SINAL'),
         )
 
         # 4. Verifica limite diário de perda
@@ -705,8 +745,10 @@ class RafiBot:
 # ── Ponto de entrada ──────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description='Bot RAFI — EURUSD M5 · XM')
+    parser = argparse.ArgumentParser(description='Bot RAFI — EURUSD M5')
     parser.add_argument('--config', default='config.yaml', help='Arquivo de configuração YAML')
+    parser.add_argument('--broker', default=None,
+                        help='ID da corretora a usar: xm | pepperstone (padrão: primeira ativa no Supabase)')
     args = parser.parse_args()
 
     # Carrega variáveis de ambiente do .env — busca na pasta atual e na raiz do repo
@@ -722,6 +764,8 @@ def main() -> None:
             break
 
     cfg = carregar_config(args.config)
+    if args.broker:
+        cfg['_broker_arg'] = args.broker.lower()
     bot = RafiBot(cfg)
     bot.rodar()
 

@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, LineChart, Users, Settings,
-  TrendingUp, LogOut, ChevronRight, BarChart2, Download, Brain, Activity,
+  TrendingUp, LogOut, ChevronRight, BarChart2, Download, Brain, Activity, Globe,
 } from 'lucide-react'
 
 interface NavItem { label: string; href: string; icon: React.ElementType; badge?: string }
@@ -18,6 +18,7 @@ const adminNav: NavItem[] = [
   { label: 'Exportar ML',  href: '/admin/export',    icon: Download                     },
   { label: 'Estratégia',   href: '/admin/strategy',  icon: TrendingUp                   },
   { label: 'Clientes',     href: '/admin/clients',   icon: Users                        },
+  { label: 'Corretoras',   href: '/admin/brokers',   icon: Globe                        },
   { label: 'Config',       href: '/admin/config',    icon: Settings                     },
 ]
 

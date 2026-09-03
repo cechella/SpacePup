@@ -8,10 +8,26 @@
 #         risco=2% evita blowup prematuro → estatísticas reais do período todo
 # ============================================================
 
-# --- Par e corretora ---
+# --- Par e corretora (fallback — bot usa rafi_brokers do Supabase se disponível) ---
 par: "EURUSD#"                 # XM usa EURUSD# com hashtag
 corretora: "XM"
 tipo_conta: "Ultra Low Standard"
+
+# --- Credenciais por corretora (FICAM LOCAIS — nunca vão pro Supabase) ---
+# O bot lê do Supabase qual corretora está ativa e busca as credenciais aqui.
+# Para rodar duas simultâneas: py -m src.executor --broker xm
+#                               py -m src.executor --broker pepperstone
+corretoras:
+  xm:
+    login: 86082468
+    servidor: "XMGlobal-MT5 4"
+    simbolo: "EURUSD#"
+    senha: "Med2026$$$"
+  pepperstone:
+    login: 51552485
+    servidor: "PepperstoneBS-MT5-Live01"
+    simbolo: "EURUSD"
+    senha: "Med2026$$"
 
 # --- Capital e alavancagem ---
 capital_inicial: 100.0         # USD — capital mínimo viável com Kelly

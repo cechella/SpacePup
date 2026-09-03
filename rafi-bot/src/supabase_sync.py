@@ -380,6 +380,82 @@ def publicar_log(
         return False
 
 
+def carregar_broker_ativo(broker_id: Optional[str] = None) -> Optional[dict]:
+    """
+    Retorna os dados da corretora ativa no Supabase.
+
+    broker_id : se fornecido via --broker, filtra por esse ID específico.
+                Se None, retorna o primeiro enabled=true encontrado.
+
+    Tabela rafi_brokers — SQL para criar (executar uma vez no Supabase):
+      create table rafi_brokers (
+        id text primary key,          -- 'xm', 'pepperstone'
+        nome text not null,
+        servidor text not null,
+        login integer not null,
+        simbolo text not null,        -- 'EURUSD#' (XM) ou 'EURUSD' (Pepperstone)
+        enabled boolean default false,
+        saldo float8 default 0,
+        posicoes integer default 0,
+        pnl_hoje float8 default 0,
+        status_text text default 'DESLIGADA',
+        updated_at timestamptz default now()
+      );
+      alter table rafi_brokers enable row level security;
+      create policy "anon_r" on rafi_brokers for select to anon using (true);
+      create policy "anon_u" on rafi_brokers for update to anon using (true);
+      -- Inserir corretoras iniciais:
+      insert into rafi_brokers (id, nome, servidor, login, simbolo, enabled) values
+        ('xm',          'XM Global',   'XMGlobal-MT5 4',           86082468, 'EURUSD#', true),
+        ('pepperstone', 'Pepperstone', 'PepperstoneBS-MT5-Live01', 51552485, 'EURUSD',  false);
+    """
+    cliente = _get_cliente()
+    if not cliente:
+        return None
+    try:
+        q = cliente.table('rafi_brokers').select('*').eq('enabled', True)
+        if broker_id:
+            q = q.eq('id', broker_id)
+        resp = q.limit(1).execute()
+        if resp.data:
+            logger.info(f"[Supabase] Broker ativo: {resp.data[0]['id']}")
+            return resp.data[0]
+        return None
+    except Exception as e:
+        logger.warning(f"rafi_brokers não disponível ({e}) — usando config.yaml")
+        return None
+
+
+def publicar_status_broker(
+    broker_id:   str,
+    saldo:       float,
+    posicoes:    int,
+    pnl_hoje:    float,
+    status_text: str,
+) -> bool:
+    """
+    Atualiza o card da corretora ativa no Supabase (saldo, posições, P&L).
+
+    Chamado a cada heartbeat para que o dashboard mostre dados ao vivo
+    no painel /admin/brokers.
+    """
+    cliente = _get_cliente()
+    if cliente is None:
+        return False
+    try:
+        cliente.table('rafi_brokers').update({
+            'saldo':       round(saldo, 2),
+            'posicoes':    posicoes,
+            'pnl_hoje':    round(pnl_hoje, 2),
+            'status_text': status_text,
+            'updated_at':  datetime.utcnow().isoformat(),
+        }).eq('id', broker_id).execute()
+        return True
+    except Exception as e:
+        logger.debug(f"[Supabase] publicar_status_broker erro: {e}")
+        return False
+
+
 def carregar_config_supabase(profile: str = 'live') -> Optional[dict]:
     """
     Carrega configurações do perfil indicado na tabela rafi_bot_config.
