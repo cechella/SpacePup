@@ -1028,14 +1028,55 @@ class BacktestCSV(Backtest):
     @staticmethod
     def _carregar_csv(caminho: str) -> pd.DataFrame:
         """
-        Carrega e normaliza um CSV exportado do MT5 ou gerado via MetaTrader5 API.
-        Suporta: (1) TAB com <DATE>/<TIME>; (2) vírgula com coluna datetime/time como índice.
+        Carrega e normaliza CSV de dados históricos EURUSD M5.
+        Suporta:
+          (1) Dukascopy  — header 'GMT time', formato DD.MM.YYYY HH:MM:SS.mmm
+          (2) MT5 export — TAB com <DATE>/<TIME>
+          (3) MT5 API    — vírgula com coluna 'datetime' ou 'time'
         """
-        # Detecta separador automaticamente
         with open(caminho, 'r', encoding='utf-8') as _f:
             _primeira = _f.readline()
-        sep = '\t' if '\t' in _primeira else ','
 
+        # ── Formato Dukascopy (GMT time,Open,High,Low,Close,Volume) ──────────
+        # Timestamp: DD.MM.YYYY HH:MM:SS.mmm  — separador vírgula
+        _primeira_low = _primeira.lower()
+        if 'gmt time' in _primeira_low or (
+            '.' in _primeira.split(',')[0] and
+            len(_primeira.split(',')[0].strip()) > 10 and
+            _primeira.split(',')[0].strip()[2] == '.'
+        ):
+            sep = '\t' if '\t' in _primeira else ','
+            df = pd.read_csv(caminho, sep=sep, header=0)
+            # Normaliza nome da primeira coluna para 'gmt_time'
+            col0 = df.columns[0]
+            df = df.rename(columns={col0: 'gmt_time'})
+            df.columns = [c.strip().lower().replace(' ', '_') for c in df.columns]
+
+            def _parse_duka(s: str) -> pd.Timestamp:
+                # "23.06.2026 00:00:00.000"
+                s = s.strip()
+                date_part, time_part = s.split(' ')
+                dd, mm, yyyy = date_part.split('.')
+                hh, mi, sec  = time_part.split(':')
+                sec_int = int(float(sec))
+                return pd.Timestamp(
+                    f"{yyyy}-{mm}-{dd}T{hh}:{mi}:{sec_int:02d}Z"
+                )
+
+            df['datetime'] = df['gmt_time'].apply(_parse_duka)
+            df = df.set_index('datetime').sort_index()
+            rename = {'open': 'open', 'high': 'high', 'low': 'low',
+                      'close': 'close', 'volume': 'volume'}
+            df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+            for col in ['open', 'high', 'low', 'close']:
+                if col not in df.columns:
+                    raise ValueError(f"Coluna '{col}' ausente em {caminho}")
+            if 'volume' not in df.columns:
+                df['volume'] = 0
+            return df[['open', 'high', 'low', 'close', 'volume']].astype(float)
+
+        # ── Formatos MT5 / genérico ──────────────────────────────────────────
+        sep = '\t' if '\t' in _primeira else ','
         df = pd.read_csv(caminho, sep=sep, header=0)
         df.columns = [c.strip().replace('<', '').replace('>', '').lower()
                       for c in df.columns]
