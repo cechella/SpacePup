@@ -984,7 +984,167 @@ export default function MonitorPage() {
         .log-terminal::-webkit-scrollbar{width:3px}
         .log-terminal::-webkit-scrollbar-track{background:transparent}
         .log-terminal::-webkit-scrollbar-thumb{background:#2d4a60;border-radius:2px}
+        @keyframes missionPulse{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 16px 2px rgba(255,71,87,.25)}}
+        .mission-close:hover{background:rgba(255,71,87,.25)!important;border-color:rgba(255,71,87,.8)!important}
       `}</style>
+
+      {/* ── MISSÃO ATIVA — banner sticky quando há posição aberta ─────────── */}
+      {pending.length > 0 && (() => {
+        const t      = pending[0]
+        const tDir   = t.direction
+        const tColor = tDir === 'buy' ? C.cy : C.am
+        const tSL    = t.stop_loss
+        const tTP    = t.take_profit
+        const tLot   = t.lot ?? 0.1
+        const tFloat = floatPnL
+
+        // Pips do entry: EURUSD, 1 pip = lot × $10
+        const slPips   = Math.round(Math.abs(t.entry - tSL) * 100000)
+        const tpPips   = Math.round(Math.abs(tTP - t.entry) * 100000)
+        const floatPips = tLot > 0 ? tFloat / (tLot * 10) : 0
+        const progressPct = tpPips > 0 ? Math.max(-100, Math.min(100, (floatPips / tpPips) * 100)) : 0
+        const progColor = tFloat > 0 ? C.gr : tFloat < 0 ? C.re : C.am
+
+        // Duração em trade
+        const secsSince = t.time ? Math.floor(Date.now() / 1000 - t.time) : 0
+        const durHh = Math.floor(secsSince / 3600)
+        const durMm = String(Math.floor((secsSince % 3600) / 60)).padStart(2, '0')
+        const durSs = String(secsSince % 60).padStart(2, '0')
+        const durStr = durHh > 0 ? `${durHh}h${durMm}m` : `${durMm}:${durSs}`
+
+        // Posição do marcador na barra (SL ocupa distSL/(slPips+tpPips) do total)
+        const totalPips = slPips + tpPips
+        const slFrac = totalPips > 0 ? slPips / totalPips : 0.33
+        const fillWidth = Math.abs(progressPct) * (1 - slFrac)
+
+        return (
+          <div style={{
+            position: 'sticky', top: 52, zIndex: 18,
+            background: `linear-gradient(90deg, ${tColor}0c 0%, #050a11 30%, #050a11 70%, ${tColor}0c 100%)`,
+            borderBottom: `2px solid ${tColor}50`,
+            display: 'flex', alignItems: 'stretch',
+            animation: 'slideDown .2s ease-out both',
+          }}>
+            {/* Pulsing left accent */}
+            <div style={{ width: 4, background: tColor, flexShrink: 0,
+              animation: 'missionPulse 2s ease-in-out infinite' }} />
+
+            {/* Direction + label */}
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center',
+              padding: '10px 20px', borderRight: `1px solid ${tColor}20`, flexShrink: 0, gap: 2 }}>
+              <div style={{ fontSize: 7, fontWeight: 800, letterSpacing: '0.15em',
+                textTransform: 'uppercase', color: tColor }}>● MISSÃO ATIVA</div>
+              <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 800, color: tColor, lineHeight: 1 }}>
+                {tDir === 'buy' ? '▲ COMPRA' : '▼ VENDA'}
+              </div>
+              <div style={{ fontFamily: 'monospace', fontSize: 8, color: C.t2 }}>{tLot.toFixed(2)} lots</div>
+            </div>
+
+            {/* Entry */}
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center',
+              padding: '10px 18px', borderRight: `1px solid ${C.bd}`, flexShrink: 0, gap: 3 }}>
+              <div style={{ fontSize: 7, color: C.t3, letterSpacing: '0.08em' }}>ENTRADA</div>
+              <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: C.tx }}>
+                {t.entry.toFixed(5)}
+              </div>
+            </div>
+
+            {/* Float P&L — destaque máximo */}
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center',
+              padding: '10px 24px', borderRight: `1px solid ${C.bd}`, flexShrink: 0, gap: 3 }}>
+              <div style={{ fontSize: 7, color: C.t3, letterSpacing: '0.08em' }}>FLOAT P&L</div>
+              <div style={{ fontFamily: 'monospace', fontSize: 20, fontWeight: 900, lineHeight: 1,
+                color: progColor, transition: 'color 0.5s',
+                textShadow: `0 0 20px ${progColor}60` }}>
+                {fmtUSD(tFloat, true)}
+              </div>
+              <div style={{ fontSize: 7, fontFamily: 'monospace', color: progColor, opacity: 0.8 }}>
+                {floatPips > 0 ? '+' : ''}{floatPips.toFixed(1)} pips
+              </div>
+            </div>
+
+            {/* Progress bar SL → Entry → TP */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center',
+              padding: '8px 20px', borderRight: `1px solid ${C.bd}`, gap: 4, minWidth: 180 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 7, fontFamily: 'monospace' }}>
+                <span style={{ color: C.re }}>SL −{slPips}p</span>
+                <span style={{ color: C.t3 }}>entry</span>
+                <span style={{ color: C.gr }}>TP +{tpPips}p</span>
+              </div>
+              {/* Track */}
+              <div style={{ height: 8, background: C.s3, position: 'relative', overflow: 'hidden', borderRadius: 2 }}>
+                {/* Entry divider */}
+                <div style={{ position: 'absolute', left: `${slFrac * 100}%`, top: 0, bottom: 0,
+                  width: 1, background: C.t2, opacity: 0.7 }} />
+                {/* SL zone fill */}
+                <div style={{ position: 'absolute', left: 0, width: `${slFrac * 100}%`,
+                  top: 0, bottom: 0, background: `${C.re}15` }} />
+                {/* TP zone fill */}
+                <div style={{ position: 'absolute', left: `${slFrac * 100}%`,
+                  width: `${(1 - slFrac) * 100}%`, top: 0, bottom: 0, background: `${C.gr}10` }} />
+                {/* Progress fill from entry */}
+                {progressPct !== 0 && (
+                  <div style={{
+                    position: 'absolute',
+                    left: progressPct > 0 ? `${slFrac * 100}%` : `${(slFrac - Math.abs(progressPct) / 100 * (1 - slFrac)) * 100}%`,
+                    width: `${Math.abs(progressPct) * (1 - slFrac) * (progressPct > 0 ? 1 : slFrac)}%`,
+                    top: 0, bottom: 0,
+                    background: progColor,
+                    opacity: 0.85,
+                    transition: 'width 1s ease, left 1s ease',
+                  }} />
+                )}
+                {/* Current position dot */}
+                <div style={{
+                  position: 'absolute',
+                  left: `calc(${slFrac * 100}% + ${progressPct > 0 ? progressPct * (1 - slFrac) : progressPct * slFrac}%)`,
+                  top: '50%', transform: 'translate(-50%, -50%)',
+                  width: 10, height: 10, borderRadius: '50%',
+                  background: progColor, border: `2px solid #050a11`,
+                  boxShadow: `0 0 6px ${progColor}`,
+                  transition: 'left 1s ease',
+                }} />
+              </div>
+              <div style={{ fontSize: 7, fontFamily: 'monospace', color: progColor, textAlign: 'center' }}>
+                {progressPct > 0 ? `+${progressPct.toFixed(0)}%` : progressPct.toFixed(0) + '%'} do alvo ·{' '}
+                {progressPct > 0
+                  ? `${(tpPips - floatPips).toFixed(0)}p para TP`
+                  : `${(slPips + floatPips).toFixed(0)}p para SL`}
+              </div>
+            </div>
+
+            {/* SL / TP / Tempo */}
+            <div style={{ display: 'flex', gap: 16, padding: '8px 20px',
+              borderRight: `1px solid ${C.bd}`, flexShrink: 0, alignItems: 'center' }}>
+              {[
+                { k: 'SL', v: tSL.toFixed(5), c: C.re },
+                { k: 'TP', v: tTP.toFixed(5), c: C.gr },
+                { k: 'TEMPO', v: durStr, c: C.cy },
+              ].map(({ k, v, c }) => (
+                <div key={k} style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 7, color: C.t3, marginBottom: 3, letterSpacing: '0.06em' }}>{k}</div>
+                  <div style={{ fontFamily: 'monospace', fontSize: 9, color: c, fontWeight: 700 }}>{v}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* FECHAR AGORA */}
+            <div style={{ display: 'flex', alignItems: 'center', padding: '0 20px', flexShrink: 0 }}>
+              <button className="mission-close" onClick={() => enviarComando('close_all')} style={{
+                padding: '10px 20px',
+                background: `rgba(255,71,87,.10)`,
+                border: `1px solid ${C.re}50`,
+                color: C.re,
+                fontFamily: 'monospace', fontSize: 9, fontWeight: 800,
+                letterSpacing: '0.10em', cursor: 'pointer',
+                transition: 'background .2s, border-color .2s',
+              }}>
+                ■ FECHAR<br />AGORA
+              </button>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── RAFI Strip — sempre visível ────────────────────────────────────── */}
       {(() => {
