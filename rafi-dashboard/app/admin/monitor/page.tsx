@@ -707,6 +707,18 @@ export default function MonitorPage() {
   const m5ss = String(m5Secs % 60).padStart(2, '0')
   const m5pct = ((300 - m5Secs) / 300 * 100).toFixed(1)
 
+  // Nome da corretora ativa — extraído de status.server
+  const contaNome = (() => {
+    const s = status?.server ?? ''
+    if (!s) return 'XM'
+    const sl = s.toLowerCase()
+    if (sl.includes('pepperstone')) return 'Pepperstone'
+    if (sl.includes('icmarkets') || sl.includes('ic markets')) return 'IC Markets'
+    if (sl.includes('tickmill')) return 'Tickmill'
+    if (sl.includes('xm')) return 'XM'
+    return s.split(/[-_ ]/)[0] || s
+  })()
+
   // ── Computed forming state from latest candle (no bot required) ───────────────
   const lastCandle      = candles.length > 0 ? candles[candles.length - 1] : null
   const liveRafi        = lastCandle?.rafi ?? null
@@ -1317,7 +1329,7 @@ export default function MonitorPage() {
               /* ── Sem posição: mostra conta XM ── */
               <>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={lbl}>Conta XM</div>
+                  <div style={lbl}>Conta {contaNome}</div>
                   <div style={{ fontSize: 7, fontWeight: 700, padding: '2px 7px',
                     border: `1px solid ${C.bd}`, color: C.t3, ...mono }}>
                     #{status?.account ?? '—'}
@@ -1398,8 +1410,144 @@ export default function MonitorPage() {
                 <LiveChart candles={candles} trades={trades} pending={pending} />
               </div>
 
-              {/* Sinal em Formação — gauge RAFI */}
-              {(() => {
+              {/* Sinal em Formação / Missão em Curso — painel direito condicional */}
+              {pending.length > 0 ? (() => {
+                // ── Missão em Curso: painel ativo durante trade aberto ──
+                const t       = pending[0]
+                const tDir    = t.direction
+                const tColor  = tDir === 'buy' ? C.cy : C.am
+                const tSL     = t.stop_loss
+                const tTP     = t.take_profit
+                const tLot    = t.lot ?? 0.1
+                const slPips  = Math.round(Math.abs(t.entry - tSL) * 100000)
+                const tpPips  = Math.round(Math.abs(tTP - t.entry) * 100000)
+                const fPips   = tLot > 0 ? floatPnL / (tLot * 10) : 0
+                const progPct = tpPips > 0 ? Math.max(-100, Math.min(100, (fPips / tpPips) * 100)) : 0
+                const pColor  = floatPnL > 0 ? C.gr : floatPnL < 0 ? C.re : C.am
+                const totalPip = slPips + tpPips
+                const slFrac2  = totalPip > 0 ? slPips / totalPip : 0.33
+                const secsSince = t.time ? Math.floor(Date.now() / 1000 - t.time) : 0
+                const dHh = Math.floor(secsSince / 3600)
+                const dMm = String(Math.floor((secsSince % 3600) / 60)).padStart(2, '0')
+                const dSs = String(secsSince % 60).padStart(2, '0')
+                const durStr = dHh > 0 ? `${dHh}h${dMm}m` : `${dMm}:${dSs}`
+                return (
+                  <div style={{
+                    background: `linear-gradient(135deg, ${C.s1}, ${tColor}06)`,
+                    border: `1px solid ${tColor}35`,
+                    display: 'flex', flexDirection: 'column',
+                    animation: 'slideDown .25s ease-out both',
+                  }}>
+                    {/* Header */}
+                    <div style={{ padding: '10px 14px', borderBottom: `1px solid ${tColor}22`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 8,
+                        fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
+                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: tColor,
+                          boxShadow: `0 0 6px ${tColor}`,
+                          animation: 'pulse 1.5s ease-in-out infinite' }} />
+                        Missão em Curso
+                      </div>
+                      <div style={{ fontSize: 7, fontWeight: 700, padding: '2px 8px',
+                        border: `1px solid ${tColor}30`, color: tColor,
+                        background: `${tColor}08`, fontFamily: 'monospace' }}>
+                        {tDir === 'buy' ? '▲ COMPRA' : '▼ VENDA'}
+                      </div>
+                    </div>
+
+                    {/* Entry price */}
+                    <div style={{ padding: '16px 14px', borderBottom: `1px solid ${C.bd}`, textAlign: 'center' }}>
+                      <div style={{ fontSize: 9, fontWeight: 800, color: tColor,
+                        letterSpacing: '0.10em', marginBottom: 3 }}>
+                        {tDir === 'buy' ? '▲ COMPRA' : '▼ VENDA'} · EURUSD
+                      </div>
+                      <div style={{ fontFamily: 'monospace', fontSize: 26, fontWeight: 900,
+                        color: tColor, lineHeight: 1, letterSpacing: '0.02em' }}>
+                        {t.entry.toFixed(5)}
+                      </div>
+                      <div style={{ fontSize: 8, color: C.t2, marginTop: 3 }}>
+                        Preço de entrada · {tLot.toFixed(2)} lots
+                      </div>
+                    </div>
+
+                    {/* Float P&L */}
+                    <div style={{ padding: '12px 14px', borderBottom: `1px solid ${C.bd}`, textAlign: 'center' }}>
+                      <div style={{ fontSize: 8, color: C.t2, textTransform: 'uppercase',
+                        letterSpacing: '0.10em', marginBottom: 5 }}>Float P&L em tempo real</div>
+                      <div style={{ fontFamily: 'monospace', fontSize: 24, fontWeight: 900,
+                        color: pColor, lineHeight: 1,
+                        textShadow: `0 0 20px ${pColor}60, 0 0 40px ${pColor}30`,
+                        transition: 'color 0.5s' }}>
+                        {fmtUSD(floatPnL, true)}
+                      </div>
+                      <div style={{ fontSize: 9, fontFamily: 'monospace', color: pColor,
+                        opacity: 0.8, marginTop: 3 }}>
+                        {fPips > 0 ? '+' : ''}{fPips.toFixed(1)} pips desde entrada
+                      </div>
+                    </div>
+
+                    {/* Mini progress SL → TP */}
+                    <div style={{ padding: '10px 14px', borderBottom: `1px solid ${C.bd}` }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between',
+                        fontSize: 7, fontFamily: 'monospace', marginBottom: 5 }}>
+                        <span style={{ color: C.re }}>SL</span>
+                        <span style={{ color: C.am }}>{progPct > 0 ? `+${progPct.toFixed(0)}%` : progPct.toFixed(0) + '%'} do alvo</span>
+                        <span style={{ color: C.gr }}>TP</span>
+                      </div>
+                      <div style={{ height: 6, background: C.s3, position: 'relative',
+                        overflow: 'hidden', borderRadius: 2 }}>
+                        <div style={{ position: 'absolute', left: 0, width: `${slFrac2 * 100}%`,
+                          top: 0, bottom: 0, background: `${C.re}15` }} />
+                        <div style={{ position: 'absolute', left: `${slFrac2 * 100}%`,
+                          right: 0, top: 0, bottom: 0, background: `${C.gr}10` }} />
+                        <div style={{ position: 'absolute', left: `${slFrac2 * 100}%`,
+                          width: `${Math.abs(progPct) * (1 - slFrac2)}%`,
+                          top: 0, bottom: 0, background: pColor, opacity: 0.9 }} />
+                        <div style={{ position: 'absolute',
+                          left: `calc(${slFrac2 * 100}% + ${Math.abs(progPct) * (1 - slFrac2)}%)`,
+                          top: '50%', transform: 'translate(-50%, -50%)',
+                          width: 9, height: 9, borderRadius: '50%',
+                          background: pColor, border: `1.5px solid ${C.s1}`,
+                          boxShadow: `0 0 6px ${pColor}` }} />
+                      </div>
+                    </div>
+
+                    {/* Metrics */}
+                    <div style={{ padding: '6px 14px', flex: 1 }}>
+                      {[
+                        { label: 'Stop Loss',       val: tSL.toFixed(5),                  color: C.re },
+                        { label: 'Take Profit',     val: tTP.toFixed(5),                  color: C.gr },
+                        { label: 'Dist. ao TP',     val: `${(tpPips - Math.max(0, fPips)).toFixed(0)} pips`, color: C.gr },
+                        { label: 'Tempo em trade',  val: durStr,                           color: C.cy },
+                        { label: 'RAFI entrada',    val: t.rafi != null ? t.rafi.toFixed(1) : '—', color: C.am },
+                      ].map(row => (
+                        <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between',
+                          alignItems: 'center', padding: '6px 0', fontSize: 10,
+                          borderBottom: `1px solid ${C.bd}` }}>
+                          <span style={{ color: C.t2 }}>{row.label}</span>
+                          <span style={{ fontFamily: 'monospace', fontWeight: 700, color: row.color }}>{row.val}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Close button */}
+                    <div style={{ padding: '10px 14px' }}>
+                      <button className="mission-close" onClick={() => enviarComando('close_all')}
+                        disabled={cmdSent} style={{
+                          width: '100%', padding: 12,
+                          background: `rgba(255,71,87,.12)`,
+                          border: `1px solid ${C.re}50`,
+                          color: C.re, fontFamily: 'monospace', fontSize: 10,
+                          fontWeight: 800, letterSpacing: '0.10em', cursor: 'pointer',
+                          transition: 'all .2s',
+                        }}>
+                        ■ FECHAR POSIÇÃO AGORA
+                      </button>
+                    </div>
+                  </div>
+                )
+              })() : (() => {
+                // ── Sinal em Formação: gauge RAFI quando sem posição aberta ──
                 const forming = showForming
                 const fDir    = formingDir
                 const fRafi   = formingRafi
@@ -1446,7 +1594,6 @@ export default function MonitorPage() {
                               fill="none" stroke={fColor} strokeWidth="10" strokeLinecap="round" />
                           )
                         })()}
-                        {/* Threshold 1.75 marker */}
                         {(() => {
                           const a175 = (1.75 / 2.5) * Math.PI
                           const mx = 70 - 56 * Math.cos(a175)
@@ -1463,7 +1610,6 @@ export default function MonitorPage() {
                         <text x="14" y="79" fill={C.t3} fontSize="6" textAnchor="middle">0</text>
                         <text x="126" y="79" fill={forming ? fColor : C.t3} fontSize="6" textAnchor="middle">2.5</text>
                       </svg>
-                      {/* Status grid */}
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, width: '100%' }}>
                         {[
                           { label: 'Timeframes', val: `${fTf}/3`, ok: fTf >= 2 },
