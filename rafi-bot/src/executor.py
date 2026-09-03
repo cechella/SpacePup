@@ -20,6 +20,8 @@ Variáveis de ambiente (obrigatórias para sincronização com dashboard):
 Kill switch: pressione Ctrl+C ou crie o arquivo STOP na pasta raiz.
 """
 
+import hashlib
+import json
 import os
 import sys
 import time
@@ -77,6 +79,25 @@ def carregar_config(caminho: str = 'config.yaml') -> dict:
     """Carrega e retorna o arquivo de configuração YAML."""
     with open(caminho, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
+
+
+def calcular_hash_config(cfg: dict) -> str:
+    """
+    Retorna hash MD5 de 8 chars do config efetivo (pós-overrides do Supabase).
+
+    Permite verificar no dashboard se o bot ao vivo usa os mesmos parâmetros
+    do backtest que gerou os resultados históricos.
+    """
+    # Serializa apenas as chaves que afetam as regras da estratégia
+    CHAVES = [
+        'par', 'forca_limiar', 'rafi_periodo', 'sr_lookback', 'swing_stop_lookback',
+        'ma_rapida', 'ma_lenta', 'ma_threshold', 'bb_filtro_ativo', 'bb_limiar_estreita',
+        'bb_periodo', 'bb_desvios', 'risco_por_trade', 'ratio_risco_retorno',
+        'max_trades_simultaneos', 'risco_maximo_diario', 'capital_inicial',
+    ]
+    snapshot = {k: cfg.get(k) for k in CHAVES}
+    serializado = json.dumps(snapshot, sort_keys=True, ensure_ascii=False)
+    return hashlib.md5(serializado.encode()).hexdigest()[:8]
 
 
 def aguardar_fechamento_candle(tf_segundos: int = 300) -> None:
@@ -161,7 +182,9 @@ class RafiBot:
             self._broker_servidor = None
             logger.warning("rafi_brokers indisponível — usando par do config.yaml (fallback)")
 
-        logger.info(f"RafiBot iniciado | Par: {self.par} | Capital: ${self.capital:.2f}")
+        # Hash do config efetivo (pós-overrides) — exibido no dashboard para rastreabilidade
+        self._config_hash = calcular_hash_config(self.cfg)
+        logger.info(f"RafiBot iniciado | Par: {self.par} | Capital: ${self.capital:.2f} | Config: {self._config_hash}")
 
     # ─────────────────────────────────────────────────────────────────────────
     # LOOP PRINCIPAL
@@ -221,7 +244,8 @@ class RafiBot:
                     publicar_heartbeat('stopped', self.capital, self.capital, 0,
                                        pnl_hoje=self._pnl_hoje,
                                        par=self.par, server=self._conta_server,
-                                       account=self._conta_account)
+                                       account=self._conta_account,
+                                       config_hash=self._config_hash)
                     break
 
                 # Comandos avançados do dashboard (fechar posição, ordem manual)
@@ -253,6 +277,7 @@ class RafiBot:
                             par            = self.par,
                             server         = self._conta_server,
                             account        = self._conta_account,
+                            config_hash    = self._config_hash,
                         )
                         # Candle em formação: atualiza o gráfico entre fechamentos M5
                         candle_formando = self.mt5.obter_candle_formando()
@@ -305,6 +330,7 @@ class RafiBot:
             par            = self.par,
             server         = self._conta_server,
             account        = self._conta_account,
+            config_hash    = self._config_hash,
         )
         # Atualiza card da corretora no /admin/brokers
         publicar_status_broker(
@@ -378,6 +404,7 @@ class RafiBot:
                 pnl_hoje=self._pnl_hoje, par=self.par,
                 server=self._conta_server, account=self._conta_account,
                 forming_signal=False, forming_rafi=rafi_v,
+                config_hash=self._config_hash,
             )
             return
 
@@ -456,6 +483,7 @@ class RafiBot:
                     forming_rafi=rafi_atual, forming_tf_count=2,
                     forming_bb_open=bool(bb_curr_width2 > bb_prev_width2 * 1.05),
                     forming_price=f_price,
+                    config_hash=self._config_hash,
                 )
                 publicar_log(
                     f"Sinal em formação: {f_dir.upper()} | RAFI={rafi_atual:.2f} "

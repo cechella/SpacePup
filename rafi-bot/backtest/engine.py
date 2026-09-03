@@ -687,12 +687,19 @@ class Backtest:
                 nivel_stop = (float(swing_stop_low.iloc[i])  if direcao == 'compra'
                               else float(swing_stop_high.iloc[i]))
 
+                # Largura das Bollinger no candle de entrada (alimenta CSV detalhado)
+                _bb_w = (float(bb['bb_superior'].iloc[i] - bb['bb_inferior'].iloc[i])
+                         if bb is not None else None)
+
                 sinal_info = {
                     'sinal'         : direcao,
                     'nivel_sr'      : nivel_sr,
                     'nivel_stop'    : nivel_stop,
                     'forca'         : forca_atual,
                     'indice_entrada': i,
+                    'bb_width'      : _bb_w,
+                    'bb_abrindo'    : (bool(bb_abrindo.iloc[i]) if bb_abrindo is not None else False),
+                    'ma_diff'       : float(diff_m5.iloc[i]),
                 }
                 nova_posicao = self._abrir_posicao(sinal_info, close_atual, ts_dt, ratio_rr, max_stop_pips)
                 if nova_posicao is not None:
@@ -806,6 +813,11 @@ class Backtest:
             'forca_entrada'    : sinal_info.get('forca'),
             'forca_anterior'   : 0.0,
             'indice_entrada'   : sinal_info.get('indice_entrada', 0),
+            # Campos extras para o CSV detalhado
+            'nivel_sr'         : sinal_info.get('nivel_sr'),
+            'bb_width'         : sinal_info.get('bb_width'),
+            'bb_abrindo'       : sinal_info.get('bb_abrindo', False),
+            'ma_diff'          : sinal_info.get('ma_diff'),
         }
 
         logger.info(
@@ -857,10 +869,16 @@ class Backtest:
             'risco_pips'       : posicao['risco_pips'],
             'variacao_pips'    : round(variacao_pips, 1),
             'pnl_usd'          : pnl_usd,
+            'capital_antes'    : posicao.get('capital_entrada'),
             'capital_apos'     : self.capital,
             'duracao_candles'  : duracao_candles,
             'motivo_saida'     : motivo,
             'forca_entrada'    : posicao.get('forca_entrada'),
+            # Campos extras para análise / Fase 2
+            'nivel_sr'         : posicao.get('nivel_sr'),
+            'bb_width'         : posicao.get('bb_width'),
+            'bb_abrindo'       : posicao.get('bb_abrindo'),
+            'ma_diff'          : posicao.get('ma_diff'),
         })
 
         simbolo = "+" if pnl_usd >= 0 else ""

@@ -57,6 +57,7 @@ interface BotStatus {
   forming_signal?: boolean; forming_direction?: 'buy' | 'sell'
   forming_rafi?: number; forming_tf_count?: number
   forming_bb_open?: boolean; forming_price?: number
+  config_hash?: string | null
 }
 interface Trade {
   id: string; direction: 'buy' | 'sell'; entry: number
@@ -782,6 +783,15 @@ export default function MonitorPage() {
               <span style={{ color: C.t3, fontSize: 9 }}>· {secondsAgo(status.updated_at)}</span>
             )}
           </span>
+          {/* Badge do hash do config — rastreabilidade bot ↔ backtest */}
+          {status?.config_hash && (
+            <span title="Hash MD5 do config efetivo — compare com o hash do backtest para confirmar parâmetros idênticos"
+              style={{ fontSize: 8, ...mono, padding: '2px 6px', borderRadius: 4,
+                border: `1px solid ${C.bd}`, color: C.t3, background: C.s2,
+                letterSpacing: '0.05em', cursor: 'help' }}>
+              cfg:{status.config_hash}
+            </span>
+          )}
         </div>
 
         {/* Clock */}

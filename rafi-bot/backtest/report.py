@@ -7,11 +7,15 @@ Calcula e exibe as métricas principais:
   - Sharpe ratio
   - Retorno total e por mês
   - Curva de equity (gráfico opcional)
+  - CSV detalhado trade-a-trade (exportar_csv_detalhado)
 """
 
+import csv
 import logging
 import math
+import os
 import statistics
+from datetime import timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -116,6 +120,127 @@ def gerar_relatorio(trades: list,
         _plotar_equity(equity_curve, trades, capital_inicial, salvar_grafico)
 
     return metricas
+
+
+# ─────────────────────────────────────────────────────────────
+# EXPORTAÇÃO DETALHADA
+# ─────────────────────────────────────────────────────────────
+
+def exportar_csv_detalhado(trades: list,
+                            caminho: str,
+                            config_hash: str = '') -> None:
+    """
+    Exporta CSV trade-a-trade com todos os campos de análise e condições de entrada.
+
+    Colunas exportadas:
+      data_entrada, hora_entrada, dia_semana, sessao
+      direcao, entrada, stop, alvo, lote
+      rafi, bb_width, bb_abrindo, ma_diff, nivel_sr
+      resultado, pnl_usd, pips, r_r_realizado, duracao_min
+      capital_antes, capital_apos, motivo_saida, config_hash
+
+    Uso:
+      from backtest.report import exportar_csv_detalhado
+      exportar_csv_detalhado(trades, 'logs/trades_detalhados.csv', config_hash='a3f9b12c')
+    """
+    if not trades:
+        logger.warning("Nenhum trade para exportar.")
+        return
+
+    os.makedirs(os.path.dirname(caminho) if os.path.dirname(caminho) else '.', exist_ok=True)
+
+    SESSOES = [
+        # (nome, inicio_h_utc, fim_h_utc) — sessões forex principais
+        ('Asia',    0,  8),
+        ('Londres', 7, 17),
+        ('NY',     12, 22),
+    ]
+
+    def _detectar_sessao(hora: int) -> str:
+        """Retorna a sessão principal ativa para a hora UTC dada."""
+        ativas = [nome for nome, ini, fim in SESSOES if ini <= hora < fim]
+        if not ativas:
+            return 'Fora'
+        # Overlap Londres/NY é o momento de maior liquidez — nomeia explicitamente
+        if 'Londres' in ativas and 'NY' in ativas:
+            return 'Londres/NY'
+        return ativas[-1]
+
+    def _r_r(trade: dict) -> str:
+        """R:R realizado = pips variados / risco inicial em pips."""
+        risco = trade.get('risco_pips')
+        var   = trade.get('variacao_pips')
+        if risco and risco > 0 and var is not None:
+            return f"{var / risco:.2f}"
+        return ''
+
+    fieldnames = [
+        'data_entrada', 'hora_entrada', 'dia_semana', 'sessao',
+        'direcao', 'entrada', 'stop', 'alvo', 'lote',
+        'rafi', 'bb_width', 'bb_abrindo', 'ma_diff', 'nivel_sr',
+        'resultado', 'pnl_usd', 'pips', 'r_r_realizado', 'duracao_min',
+        'capital_antes', 'capital_apos', 'motivo_saida', 'config_hash',
+    ]
+
+    DIAS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom']
+
+    with open(caminho, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for t in trades:
+            ts_ent = t.get('timestamp_entrada')
+            try:
+                # Normaliza para datetime UTC se necessário
+                if hasattr(ts_ent, 'tz_localize'):
+                    ts_ent = ts_ent.to_pydatetime()
+                if ts_ent and ts_ent.tzinfo is None:
+                    ts_ent = ts_ent.replace(tzinfo=timezone.utc)
+                hora_utc  = ts_ent.hour if ts_ent else 0
+                dia_idx   = ts_ent.weekday() if ts_ent else 0
+                data_str  = ts_ent.strftime('%Y-%m-%d') if ts_ent else ''
+                hora_str  = ts_ent.strftime('%H:%M') if ts_ent else ''
+            except Exception:
+                hora_utc  = 0
+                dia_idx   = 0
+                data_str  = ''
+                hora_str  = ''
+
+            pnl      = t.get('pnl_usd', 0)
+            resultado = 'WIN' if pnl > 0 else ('LOSS' if pnl < 0 else 'EMPATE')
+
+            writer.writerow({
+                'data_entrada'  : data_str,
+                'hora_entrada'  : hora_str,
+                'dia_semana'    : DIAS[dia_idx],
+                'sessao'        : _detectar_sessao(hora_utc),
+                'direcao'       : 'BUY' if t.get('sinal') == 'compra' else 'SELL',
+                'entrada'       : round(t.get('preco_entrada', 0), 5),
+                'stop'          : round(t.get('stop_loss',    0), 5),
+                'alvo'          : round(t.get('take_profit',  0), 5),
+                'lote'          : t.get('lote', ''),
+                'rafi'          : round(t['forca_entrada'], 3) if t.get('forca_entrada') is not None else '',
+                'bb_width'      : round(t['bb_width'], 5) if t.get('bb_width') is not None else '',
+                'bb_abrindo'    : 'Sim' if t.get('bb_abrindo') else 'Não',
+                'ma_diff'       : round(t['ma_diff'], 5) if t.get('ma_diff') is not None else '',
+                'nivel_sr'      : round(t['nivel_sr'], 5) if t.get('nivel_sr') is not None else '',
+                'resultado'     : resultado,
+                'pnl_usd'       : pnl,
+                'pips'          : t.get('variacao_pips', ''),
+                'r_r_realizado' : _r_r(t),
+                'duracao_min'   : (t.get('duracao_candles', 0) or 0) * 5,
+                'capital_antes' : t.get('capital_antes', ''),
+                'capital_apos'  : t.get('capital_apos', ''),
+                'motivo_saida'  : t.get('motivo_saida', ''),
+                'config_hash'   : config_hash,
+            })
+
+    total  = len(trades)
+    wins   = sum(1 for t in trades if t.get('pnl_usd', 0) > 0)
+    logger.info(
+        f"CSV detalhado exportado: {caminho} | {total} trades | "
+        f"WR={wins/total*100:.1f}% | Config: {config_hash or 'n/a'}"
+    )
 
 
 # ─────────────────────────────────────────────────────────────

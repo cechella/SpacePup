@@ -12,6 +12,7 @@ Se os arquivos CSV não existirem, gera dados sintéticos para teste.
 """
 
 import argparse
+import hashlib
 import logging
 import os
 import sys
@@ -24,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from backtest.engine import Backtest, BacktestCSV
-from backtest.report import gerar_relatorio
+from backtest.report import gerar_relatorio, exportar_csv_detalhado
 
 
 def configurar_logging(nivel: str = 'INFO', arquivo: str = 'logs/backtest.log') -> None:
@@ -112,8 +113,14 @@ def main() -> None:
     args = parser.parse_args()
 
     # ── Carregar configurações ─────────────────────────────────
-    with open(args.config, 'r', encoding='utf-8') as f:
-        config = yaml.safe_load(f)
+    with open(args.config, 'rb') as f:
+        _raw = f.read()
+    config = yaml.safe_load(_raw.decode('utf-8'))
+
+    # Hash MD5 (8 chars) do config.yaml — identifica a versão de parâmetros
+    # usada neste backtest, permitindo comparar resultados entre runs
+    config_hash = hashlib.md5(_raw).hexdigest()[:8]
+    logger_tmp = logging.getLogger(__name__)
 
     # Capital: CLI > config.yaml > default 100
     capital = args.capital if args.capital is not None else float(config.get('capital_inicial', 100.0))
@@ -122,6 +129,7 @@ def main() -> None:
     configurar_logging(args.log, log_arquivo)
     logger = logging.getLogger(__name__)
     logger.info("=== Bot RAFI — Iniciando backtest ===")
+    logger.info(f"Config hash: {config_hash} (arquivo: {args.config})")
 
     # ── Carregar ou gerar dados ────────────────────────────────
     if args.m5:
@@ -155,16 +163,10 @@ def main() -> None:
         salvar_grafico=args.grafico,
     )
 
-    # Exportar trades para CSV
+    # Exportar trades para CSV detalhado (inclui RAFI, BB, S/R, sessão, hash do config)
     if args.csv and trades:
-        os.makedirs(os.path.dirname(args.csv) if os.path.dirname(args.csv) else '.', exist_ok=True)
-        df_trades = pd.DataFrame(trades)
-        cols_ordem = ['timestamp_entrada', 'timestamp_saida', 'direcao', 'entry', 'stop_loss',
-                      'take_profit', 'lote', 'pnl_usd', 'variacao_pips', 'resultado',
-                      'duracao_candles', 'rafi', 'capital_antes', 'capital_apos']
-        cols_existentes = [c for c in cols_ordem if c in df_trades.columns]
-        df_trades[cols_existentes].to_csv(args.csv, index=False, encoding='utf-8')
-        logger.info(f"Trades exportados: {args.csv} ({len(trades)} trades)")
+        exportar_csv_detalhado(trades, args.csv, config_hash=config_hash)
+        logger.info(f"CSV detalhado: {args.csv} | Config hash: {config_hash}")
 
     # Verificar metas mínimas (Fase 1A)
     if relatorio.get('win_rate_pct', 0) >= 55 and relatorio.get('profit_factor', 0) >= 1.5:

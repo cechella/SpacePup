@@ -154,6 +154,7 @@ def publicar_heartbeat(
     forming_tf_count:  Optional[int]   = None,
     forming_bb_open:   bool             = False,
     forming_price:     Optional[float] = None,
+    config_hash:       Optional[str]   = None,
 ) -> bool:
     """
     Publica o status atual do bot na tabela rafi_bot_status (heartbeat).
@@ -183,6 +184,7 @@ def publicar_heartbeat(
         'forming_tf_count':  forming_tf_count,
         'forming_bb_open':   forming_bb_open,
         'forming_price':     round(forming_price, 5) if forming_price is not None else None,
+        'config_hash':       config_hash,
         'updated_at':        datetime.utcnow().isoformat(),
     }
 
