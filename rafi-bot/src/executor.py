@@ -144,11 +144,20 @@ class RafiBot:
         cfg_supa = carregar_config_supabase(profile='live')
         if cfg_supa:
             MAPA = {
+                # Modo da estratégia — OBRIGATÓRIO para trocar entre rafi/autoscan pelo dashboard
+                'estrategia_modo': 'estrategia_modo',
+                # Parâmetros do modo RAFI
                 'forca_limiar': 'forca_limiar', 'rafi_periodo': 'rafi_periodo',
                 'sr_lookback': 'sr_lookback', 'swing_stop_lookback': 'swing_stop_lookback',
                 'ma_rapida': 'ma_rapida', 'ma_lenta': 'ma_lenta', 'ma_threshold': 'ma_threshold',
                 'bb_filtro_ativo': 'bb_filtro_ativo', 'bb_limiar_estreita': 'bb_limiar_estreita',
                 'bb_periodo': 'bb_periodo', 'bb_desvios': 'bb_desvios',
+                # Parâmetros exclusivos do modo Autoscan (réplica do browser)
+                'autoscan_min_breakout':    'autoscan_min_breakout',    # pip mínimo além do S/R
+                'autoscan_min_gap_candles': 'autoscan_min_gap_candles', # gap entre sinais
+                'autoscan_stop_offset':     'autoscan_stop_offset',     # buffer do stop (pip)
+                'bb_squeeze_expansao_min':  'bb_squeeze_expansao_min',  # expansão mín. da BB
+                # Gestão de risco — comuns a todos os modos
                 'risco_por_trade': 'risco_por_trade', 'ratio_risco_retorno': 'ratio_risco_retorno',
                 'max_trades_simultaneos': 'max_trades_simultaneos',
                 'risco_maximo_diario': 'risco_maximo_diario',

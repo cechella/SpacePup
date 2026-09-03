@@ -17,20 +17,25 @@ const C = {
 }
 
 const DEFAULTS = {
-  estrategia_modo:        'rafi',   // 'rafi' | 'autoscan'
-  forca_limiar:           2.50,
-  rafi_periodo:           14,
-  sr_lookback:            50,
-  swing_stop_lookback:    150,
-  ma_rapida:              20,
-  ma_lenta:               50,
-  ma_threshold:           0.0003,
-  bb_filtro_ativo:        true,
-  bb_limiar_estreita:     0.0012,
-  bb_periodo:             8,
-  bb_desvios:             2.0,
-  ratio_risco_retorno:    1.5,
-  max_trades_simultaneos: 1,
+  estrategia_modo:           'rafi',    // 'rafi' | 'autoscan'
+  forca_limiar:              2.50,
+  rafi_periodo:              14,
+  sr_lookback:               50,
+  swing_stop_lookback:       150,
+  ma_rapida:                 20,
+  ma_lenta:                  50,
+  ma_threshold:              0.0003,
+  bb_filtro_ativo:           true,
+  bb_limiar_estreita:        0.0012,
+  bb_periodo:                8,
+  bb_desvios:                2.0,
+  ratio_risco_retorno:       1.5,
+  max_trades_simultaneos:    1,
+  // Parâmetros exclusivos do modo Autoscan (réplica do browser)
+  autoscan_min_breakout:     0.00003,  // 0.3 pip mínimo de rompimento além do S/R
+  autoscan_min_gap_candles:  8,        // 8 candles = 40 min mínimo entre sinais
+  autoscan_stop_offset:      0.00015,  // 1.5 pip de buffer no stop (candle_low − 1.5p)
+  bb_squeeze_expansao_min:   1.05,     // BB deve expandir ≥ 5% vs candle anterior
 }
 type Config = typeof DEFAULTS
 
@@ -51,26 +56,39 @@ const FAIXAS_LOTE = [
 
 const GRUPOS: {
   label: string; cor: string
+  visible?: (cfg: Config) => boolean
   campos: { key: keyof Config; label: string; desc: string; tipo: 'float'|'int'|'bool'; min?: number; max?: number; step?: number }[]
 }[] = [
-  { label: 'Índice de Força RAFI', cor: C.cy, campos: [
+  { label: 'Índice de Força RAFI', cor: C.cy,
+    visible: (cfg) => cfg.estrategia_modo === 'rafi',
+    campos: [
     { key: 'forca_limiar',       label: 'RAFI Limiar',    desc: 'Mínimo para entrada (2.50 = backtest)',    tipo: 'float', min: 0.5,  max: 5,    step: 0.05   },
     { key: 'rafi_periodo',       label: 'RAFI Período',   desc: 'Janela de cálculo do índice de força',     tipo: 'int',   min: 3,    max: 50              },
   ]},
-  { label: 'Tendência M5', cor: C.bl, campos: [
+  { label: 'Tendência M5', cor: C.bl,
+    visible: (cfg) => cfg.estrategia_modo === 'rafi',
+    campos: [
     { key: 'ma_rapida',          label: 'MA Rápida',      desc: 'Período da média móvel rápida',            tipo: 'int',   min: 5,    max: 50              },
     { key: 'ma_lenta',           label: 'MA Lenta',       desc: 'Período da média móvel lenta',             tipo: 'int',   min: 10,   max: 200             },
     { key: 'ma_threshold',       label: 'MA Threshold',   desc: 'Diferença mínima MA rápida−lenta (pip)',   tipo: 'float', min: 0,    max: 0.01, step: 0.0001 },
   ]},
   { label: 'Suporte & Resistência', cor: C.am, campos: [
-    { key: 'sr_lookback',        label: 'S/R Lookback',   desc: 'Candles para detectar máximos/mínimos',   tipo: 'int',   min: 10,   max: 200             },
-    { key: 'swing_stop_lookback',label: 'Swing Stop',     desc: 'Candles para posicionar stop-loss',       tipo: 'int',   min: 20,   max: 500             },
+    { key: 'sr_lookback',        label: 'S/R Lookback',   desc: 'Candles para detectar máximos/mínimos (autoscan: use 20)', tipo: 'int', min: 10, max: 200 },
+    { key: 'swing_stop_lookback',label: 'Swing Stop',     desc: 'Candles para posicionar stop-loss (apenas modo rafi)',     tipo: 'int', min: 20, max: 500 },
   ]},
   { label: 'Bandas de Bollinger', cor: C.gr, campos: [
     { key: 'bb_filtro_ativo',    label: 'Filtro Ativo',   desc: 'Exige squeeze → abertura antes de entrar',tipo: 'bool'                                   },
-    { key: 'bb_limiar_estreita', label: 'Limiar Squeeze', desc: 'Largura máxima para considerar squeeze',  tipo: 'float', min: 0,    max: 0.01, step: 0.0001 },
-    { key: 'bb_periodo',         label: 'Período',        desc: 'Janela das Bandas de Bollinger',          tipo: 'int',   min: 5,    max: 50              },
-    { key: 'bb_desvios',         label: 'Desvios',        desc: 'Número de desvios padrão',                tipo: 'float', min: 1,    max: 4,    step: 0.1  },
+    { key: 'bb_limiar_estreita', label: 'Limiar Squeeze', desc: 'Largura máx. para squeeze (÷ mid)',        tipo: 'float', min: 0,    max: 0.01, step: 0.0001 },
+    { key: 'bb_periodo',         label: 'Período',        desc: 'Janela das Bandas de Bollinger',           tipo: 'int',   min: 5,    max: 50              },
+    { key: 'bb_desvios',         label: 'Desvios',        desc: 'Número de desvios padrão',                 tipo: 'float', min: 1,    max: 4,    step: 0.1  },
+  ]},
+  { label: 'Autoscan — Rompimento', cor: C.am,
+    visible: (cfg) => cfg.estrategia_modo === 'autoscan',
+    campos: [
+    { key: 'autoscan_min_breakout',    label: 'Min. Rompimento', desc: 'Fechamento mínimo além do S/R (ex: 0.00003 = 0.3 pip)', tipo: 'float', min: 0, max: 0.001, step: 0.00001 },
+    { key: 'autoscan_min_gap_candles', label: 'Gap Mín. (candles)', desc: 'Candles mínimos entre sinais (8 = 40 min)',           tipo: 'int',   min: 1, max: 50              },
+    { key: 'autoscan_stop_offset',     label: 'Buffer Stop (pip)', desc: 'Buffer abaixo do candle_low para stop (0.00015=1.5p)', tipo: 'float', min: 0, max: 0.001, step: 0.00005 },
+    { key: 'bb_squeeze_expansao_min',  label: 'Expansão BB mín.', desc: 'BB deve crescer este % vs candle anterior (1.05=5%)',  tipo: 'float', min: 1, max: 2,    step: 0.01   },
   ]},
   { label: 'Execução', cor: C.re, campos: [
     { key: 'ratio_risco_retorno',    label: 'R:R',           desc: 'Razão risco:retorno (1.5 = backtest)', tipo: 'float', min: 1, max: 5, step: 0.1 },
@@ -403,7 +421,7 @@ export default function ConfigPage() {
                 )}
               </div>
 
-              {GRUPOS.map(grupo => (
+              {GRUPOS.filter(grupo => !grupo.visible || grupo.visible(cfg)).map(grupo => (
                 <div key={grupo.label}>
                   <div style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase',
                     letterSpacing: '0.12em', color: grupo.cor,
