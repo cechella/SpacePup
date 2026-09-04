@@ -66,10 +66,12 @@ class Backtest:
         self.gestor = GestorRisco(config)
 
         # Parâmetros de custo
-        self.spread_pips   = float(config.get('spread_pips', 0.8))
-        self.slippage_pips = float(config.get('slippage_pips', 0.5))
-        self.custo_total   = (self.spread_pips + self.slippage_pips) * 0.0001
-        self.par           = config.get('par', 'EURUSD')
+        self.spread_pips      = float(config.get('spread_pips', 0.8))
+        self.slippage_pips    = float(config.get('slippage_pips', 0.5))
+        self.custo_total      = (self.spread_pips + self.slippage_pips) * 0.0001
+        # Comissão Razor: $6/lote round trip cobrada na abertura ($3/lado)
+        self.comissao_lote    = float(config.get('comissao_por_lote', 0.0))
+        self.par              = config.get('par', 'EURUSD')
 
         # Registros
         self.trades: list[dict] = []
@@ -960,7 +962,9 @@ class Backtest:
             variacao_pips = (preco_entrada - preco_saida) / 0.0001
 
         # EURUSD: $10/pip por lote padrão (100.000 unidades)
-        pnl_usd = round(variacao_pips * lote * 10.0, 2)
+        # Desconta comissão Razor ($6/lote round trip, cobrada na abertura)
+        comissao_usd = self.comissao_lote * lote
+        pnl_usd = round(variacao_pips * lote * 10.0 - comissao_usd, 2)
 
         self.capital = round(self.capital + pnl_usd, 2)
         self.gestor.fechar_trade(pnl_usd, self.capital)
