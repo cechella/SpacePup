@@ -119,6 +119,10 @@ def main() -> None:
                         help='Salvar lista de trades em CSV (ex: logs/trades.csv)')
     parser.add_argument('--supabase', action='store_true',
                         help='Busca parâmetros do Simulador no Supabase (override do config.yaml)')
+    parser.add_argument('--inicio', default=None,
+                        help='Data inicial do backtest (YYYY-MM-DD). Ex: 2026-08-01')
+    parser.add_argument('--fim',    default=None,
+                        help='Data final do backtest (YYYY-MM-DD). Ex: 2026-08-31')
     args = parser.parse_args()
 
     # ── Carregar configurações ─────────────────────────────────
@@ -191,6 +195,17 @@ def main() -> None:
         df_m5  = gerar_dados_sinteticos(n_candles=8640, tf_minutos=5)   # ~30 dias
         df_m15 = reamostrar(df_m5, 15)
         bt = Backtest(config, df_m5, df_m15, capital=capital)
+
+    # ── Filtro de período (--inicio / --fim) ──────────────────
+    if args.inicio or args.fim:
+        dt_inicio = pd.Timestamp(args.inicio, tz='UTC') if args.inicio else bt.df_m5.index.min()
+        dt_fim    = pd.Timestamp(args.fim,    tz='UTC') if args.fim    else bt.df_m5.index.max()
+        # Estende fim até o final do dia
+        dt_fim    = dt_fim + pd.Timedelta(hours=23, minutes=59)
+        bt.df_m5  = bt.df_m5.loc[dt_inicio:dt_fim]
+        bt.df_m15 = bt.df_m15.loc[dt_inicio:dt_fim]
+        logger.info(f"Período filtrado: {dt_inicio.date()} → {dt_fim.date()} "
+                    f"({len(bt.df_m5):,} candles M5)")
 
     # ── Executar ───────────────────────────────────────────────
     trades = bt.executar()
