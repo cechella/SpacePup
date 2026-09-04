@@ -544,3 +544,54 @@ def carregar_config_supabase(profile: str = 'live') -> Optional[dict]:
     except Exception as e:
         logger.warning(f"rafi_bot_config não disponível ({e}) — usando config.yaml")
         return None
+
+
+def salvar_config_supabase(
+    params: dict,
+    perfil: str  = 'live',
+    fonte: str   = 'otimizador_adaptativo',
+) -> bool:
+    """
+    Salva novos parâmetros de estratégia no Supabase (rafi_bot_config).
+
+    Chamado pelo otimizador_adaptativo quando encontra parâmetros melhores.
+    O bot lê automaticamente na próxima iteração via carregar_config_supabase().
+
+    IMPORTANTE: nunca sobrescreve parâmetros de risco (risco_por_trade, etc.).
+    Só atualiza os campos presentes em `params`.
+    """
+    cliente = _get_cliente()
+    if not cliente:
+        logger.warning("[Supabase] salvar_config_supabase: cliente indisponível")
+        return False
+
+    # Campos de risco que a IA NUNCA pode alterar
+    CAMPOS_PROTEGIDOS = {
+        'risco_por_trade', 'max_trades_simultaneos', 'risco_maximo_diario',
+        'capital_inicial', 'estrategia_modo', 'par',
+    }
+    patch = {k: v for k, v in params.items() if k not in CAMPOS_PROTEGIDOS}
+    patch['_otimizado_em']  = datetime.utcnow().isoformat()
+    patch['_otimizado_por'] = fonte
+
+    try:
+        # Verifica se o perfil já existe
+        resp = cliente.table('rafi_bot_config').select('profile').eq('profile', perfil).limit(1).execute()
+
+        if resp.data:
+            # Atualiza apenas os campos otimizados — preserva tudo o mais
+            cliente.table('rafi_bot_config').update(patch).eq('profile', perfil).execute()
+        else:
+            # Cria registro do perfil com os parâmetros
+            patch['profile'] = perfil
+            cliente.table('rafi_bot_config').insert(patch).execute()
+
+        logger.info(
+            f"[Supabase] Config '{perfil}' atualizada pela IA ({fonte}) — "
+            f"{len(patch)} campos alterados"
+        )
+        return True
+
+    except Exception as e:
+        logger.error(f"[Supabase] Erro ao salvar config: {e}")
+        return False

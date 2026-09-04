@@ -306,33 +306,56 @@ class MonitorPerformance:
             )
 
     def _retreinar_modelo(self):
-        """Dispara retreino do XGBoost em thread separada (não bloqueia o bot)."""
+        """
+        Dispara ADAPTAÇÃO em thread separada (não bloqueia o bot):
+          1. Retreina XGBoost — melhora o filtro de sinal
+          2. Re-otimiza parâmetros — busca nova configuração no Supabase
+        Ambos rodam em paralelo.
+        """
         import subprocess
         import threading
 
         def _executar_treino():
+            """Thread 1: retreina XGBoost com dados acumulados."""
             try:
-                script = str(BASE_DIR / 'src' / 'ml' / 'train.py')
-                trades = str(self._caminho)
+                trades   = str(self._caminho)
                 resultado = subprocess.run(
                     ['python', '-m', 'src.ml.train', '--trades', trades],
-                    capture_output=True,
-                    text=True,
-                    cwd=str(BASE_DIR),
-                    timeout=300,  # 5 minutos máximo
+                    capture_output=True, text=True,
+                    cwd=str(BASE_DIR), timeout=300,
                 )
                 if resultado.returncode == 0:
-                    print("[MonitorPerformance] ✓ Retreino concluído — recarregando modelo...")
+                    print("[MonitorPerformance] ✓ XGBoost retreinado — recarregando modelo...")
                     recarregar_modelo()
                 else:
-                    print(f"[MonitorPerformance] ✗ Retreino falhou:\n{resultado.stderr}")
+                    print(f"[MonitorPerformance] ✗ Retreino XGBoost falhou:\n{resultado.stderr}")
             except Exception as e:
-                print(f"[MonitorPerformance] ERRO no retreino: {e}")
+                print(f"[MonitorPerformance] ERRO no retreino XGBoost: {e}")
+
+        def _executar_otimizacao():
+            """Thread 2: re-otimiza parâmetros e salva no Supabase."""
+            try:
+                from src.ml.otimizador_adaptativo import otimizar
+                novos = otimizar(perfil='live', verbose=True)
+                if novos:
+                    print(
+                        f"[MonitorPerformance] ✓ Parâmetros re-otimizados e salvos no Supabase:\n"
+                        f"  sr_lookback={novos.get('sr_lookback')} | "
+                        f"bb_periodo={novos.get('bb_periodo')} | "
+                        f"rr={novos.get('ratio_risco_retorno')} | "
+                        f"breakout={novos.get('autoscan_min_breakout'):.5f}"
+                    )
+                else:
+                    print("[MonitorPerformance] ~ Otimização: parâmetros atuais mantidos")
+            except Exception as e:
+                print(f"[MonitorPerformance] ERRO na re-otimização: {e}")
             finally:
                 self._em_adaptacao = False
 
-        t = threading.Thread(target=_executar_treino, daemon=True, name='retreino-ml')
-        t.start()
+        t1 = threading.Thread(target=_executar_treino,    daemon=True, name='retreino-xgb')
+        t2 = threading.Thread(target=_executar_otimizacao, daemon=True, name='otimizacao-adaptativa')
+        t1.start()
+        t2.start()
 
     def status(self) -> dict:
         """Retorna status atual do monitor."""
