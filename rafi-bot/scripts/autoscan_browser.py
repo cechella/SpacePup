@@ -258,9 +258,10 @@ def carregar_csv_para_candles(path: str) -> list[dict]:
     """
     Lê um CSV histórico EURUSD M5 e retorna lista de dicts {time, open, high, low, close}.
     Detecta automaticamente os formatos:
-      - Dukascopy:      America/Sao_Paulo,open,high,low,close,volume (índice com timezone)
       - Investing.com:  EURUSD Historical Data\nDate,Open,High,Low,Close,Change(Pips),...
-      - Merged/padrão:  time_utc,open,high,low,close,volume (ISO 8601)
+      - Tab-separado:   Time\tOpen\tHigh\tLow\tClose\tVolume (coluna Time explícita)
+      - Dukascopy:      America/Sao_Paulo,open,high,low,close,volume (índice com timezone)
+      - Merged/padrão:  time_utc,open,high,low,close,volume (ISO 8601 como índice)
     """
     from datetime import datetime, timezone
 
@@ -282,6 +283,31 @@ def carregar_csv_para_candles(path: str) -> list[dict]:
                     dt = datetime.strptime(parts[0].strip(), '%m/%d/%Y %H:%M')
                     o, h, l, c = float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4])
                     rows.append({'time': int(dt.timestamp()), 'open': o, 'high': h, 'low': l, 'close': c})
+                except Exception:
+                    pass
+        rows.sort(key=lambda r: r['time'])
+        return rows
+
+    # ── Formato tab-separado com coluna "Time" explícita ─────────────────
+    # Ex: Time\tOpen\tHigh\tLow\tClose\tVolume (pode ter 7ª coluna extra)
+    if '\t' in primeira and primeira.lower().startswith('time'):
+        from datetime import datetime as _dt
+        rows = []
+        with open(path, encoding='utf-8', errors='replace') as f:
+            f.readline()  # pula header
+            for line in f:
+                parts = line.strip().split('\t')
+                if len(parts) < 5:
+                    continue
+                try:
+                    ts = int(_dt.strptime(parts[0].strip(), '%Y-%m-%d %H:%M:%S').timestamp())
+                    rows.append({
+                        'time' : ts,
+                        'open' : float(parts[1]),
+                        'high' : float(parts[2]),
+                        'low'  : float(parts[3]),
+                        'close': float(parts[4]),
+                    })
                 except Exception:
                     pass
         rows.sort(key=lambda r: r['time'])
