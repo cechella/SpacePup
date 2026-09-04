@@ -32,11 +32,16 @@ export async function POST(req: NextRequest) {
       .from('rafi_bot_config')
       .upsert({ ...cfg, profile, updated_at: ts }, { onConflict: 'profile' })
 
-    if (error) throw error
+    if (error) {
+      const msg = error.message ?? error.details ?? error.hint ?? JSON.stringify(error)
+      return NextResponse.json({ error: msg, code: error.code }, { status: 500 })
+    }
 
     return NextResponse.json({ ok: true, updated_at: ts })
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
+    const msg = e instanceof Error ? e.message
+      : (e && typeof e === 'object' && 'message' in e) ? String((e as any).message)
+      : JSON.stringify(e)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
