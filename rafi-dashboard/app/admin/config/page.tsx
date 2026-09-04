@@ -463,42 +463,53 @@ export default function ConfigPage() {
                     {grupo.campos.map(campo => {
                       const difere     = divergindo.has(campo.key)
                       const desativado = camposOff.has(campo.key)
+                      const ativo      = !desativado
                       return (
                         <div key={campo.key} style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-                          padding: '5px 8px', borderRadius: 5,
-                          opacity: desativado ? 0.38 : 1,
-                          background: desativado ? 'transparent' : difere ? `${C.re}08` : 'transparent',
-                          border: `1px solid ${desativado ? C.t3 + '30' : difere ? C.re + '30' : 'transparent'}`,
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          padding: '6px 8px', borderRadius: 5,
+                          background: ativo && difere ? `${C.re}08` : 'transparent',
+                          border: `1px solid ${ativo && difere ? C.re + '30' : 'transparent'}`,
                           transition: 'all 0.3s',
                         }}>
-                          <div style={{ flex: 1 }}>
+                          {/* Toggle slider ativar/desativar — igual ao Filtro Ativo */}
+                          <button
+                            onClick={() => toggleCampo(campo.key)}
+                            disabled={locked}
+                            title={ativo ? 'Clique para desativar' : 'Clique para ativar'}
+                            style={{ width: 34, height: 18, borderRadius: 9, border: 'none', padding: 0,
+                              flexShrink: 0, cursor: locked ? 'default' : 'pointer',
+                              background: ativo ? C.gr : C.t3,
+                              position: 'relative', transition: 'background 0.25s' }}>
+                            <span style={{ position: 'absolute', top: 2,
+                              left: ativo ? 17 : 2,
+                              width: 14, height: 14, borderRadius: '50%',
+                              background: '#fff', transition: 'left 0.25s',
+                              boxShadow: '0 1px 3px rgba(0,0,0,0.4)' }} />
+                          </button>
+
+                          {/* Label + desc */}
+                          <div style={{ flex: 1, opacity: desativado ? 0.4 : 1, transition: 'opacity 0.25s' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              {/* Botão ativar/desativar por campo */}
-                              <button
-                                onClick={() => toggleCampo(campo.key)}
-                                title={desativado ? 'Ativar parâmetro' : 'Desativar parâmetro'}
-                                style={{ width: 14, height: 14, borderRadius: '50%', border: 'none', padding: 0,
-                                  flexShrink: 0, cursor: locked ? 'default' : 'pointer',
-                                  background: desativado ? C.t3 : grupo.cor,
-                                  boxShadow: desativado ? 'none' : `0 0 4px ${grupo.cor}60`,
-                                  transition: 'all 0.2s' }} />
-                              <span style={{ fontSize: 10, color: desativado ? C.t2 : C.tx, fontWeight: 600,
-                                textDecoration: desativado ? 'line-through' : 'none' }}>{campo.label}</span>
+                              <span style={{ fontSize: 10, color: C.tx, fontWeight: 600 }}>{campo.label}</span>
                               {desativado && <span style={{ fontSize: 6, color: C.t2, fontWeight: 700,
-                                background: `${C.t3}40`, padding: '1px 5px', borderRadius: 3,
+                                background: `${C.t3}50`, padding: '1px 5px', borderRadius: 3,
                                 letterSpacing: '0.08em' }}>INATIVO</span>}
-                              {!desativado && difere && <span style={{ fontSize: 7, color: C.re, fontWeight: 800,
+                              {ativo && difere && <span style={{ fontSize: 7, color: C.re, fontWeight: 800,
                                 background: `${C.re}15`, padding: '1px 5px', borderRadius: 3 }}>DIFERENTE</span>}
                             </div>
                             <div style={{ fontSize: 8, color: C.t2, marginTop: 1 }}>{campo.desc}</div>
                           </div>
+
+                          {/* Valor do campo */}
                           {campo.tipo === 'bool' ? (
-                            <button onClick={() => { if (!desativado) setCfg(prev => ({ ...prev, [campo.key]: !prev[campo.key] })) }}
+                            <button
+                              onClick={() => { if (ativo && !locked) setCfg(prev => ({ ...prev, [campo.key]: !prev[campo.key] })) }}
                               style={{ width: 42, height: 22, borderRadius: 11, border: 'none',
                                 cursor: desativado || locked ? 'default' : 'pointer',
                                 background: cfg[campo.key] ? C.gr : C.t3,
-                                position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
+                                opacity: desativado ? 0.35 : 1,
+                                position: 'relative', transition: 'all 0.2s', flexShrink: 0 }}>
                               <span style={{ position: 'absolute', top: 2,
                                 left: cfg[campo.key] ? 21 : 2,
                                 width: 18, height: 18, borderRadius: '50%',
@@ -514,9 +525,10 @@ export default function ConfigPage() {
                                 if (!isNaN(v)) setCfg(prev => ({ ...prev, [campo.key]: v }))
                               }}
                               style={{ width: 88, padding: '4px 8px', textAlign: 'right',
-                                background: desativado ? 'transparent' : difere ? `${C.re}12` : C.s2,
-                                border: `1px solid ${desativado ? 'transparent' : difere ? C.re + '50' : C.bd}`,
+                                background: desativado ? C.s2 : difere ? `${C.re}12` : C.s2,
+                                border: `1px solid ${desativado ? C.t3 : difere ? C.re + '50' : C.bd}`,
                                 color: desativado ? C.t3 : difere ? C.re : accent,
+                                opacity: desativado ? 0.35 : 1,
                                 fontSize: 12, fontWeight: 700, fontFamily: 'monospace',
                                 borderRadius: 4, outline: 'none', flexShrink: 0, transition: 'all 0.3s' }}
                             />
