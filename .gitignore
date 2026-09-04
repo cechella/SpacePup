@@ -22,3 +22,5 @@ rafi-bot/data/histdata/
 rafi-bot/data/*.csv
 rafi-bot/config.yaml
 rafi-bot/src/ml/modelo.pkl
+rafi-bot/logs/*.log
+rafi-bot/logs/*.csv
