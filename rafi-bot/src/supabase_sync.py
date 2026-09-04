@@ -155,6 +155,15 @@ def publicar_heartbeat(
     forming_bb_open:   bool             = False,
     forming_price:     Optional[float] = None,
     config_hash:       Optional[str]   = None,
+    # ── campos ML (Fase 2) ────────────────────────────────────────────────
+    ml_modelo_carregado: bool            = False,
+    ml_modo:             str             = 'OBSERVAÇÃO',
+    ml_wr_rolling:       Optional[float] = None,
+    ml_pf_rolling:       Optional[float] = None,
+    ml_sinais_hoje:      int             = 0,
+    ml_aprovados_hoje:   int             = 0,
+    ml_treinado_em:      Optional[str]   = None,
+    ml_threshold:        float           = 0.65,
 ) -> bool:
     """
     Publica o status atual do bot na tabela rafi_bot_status (heartbeat).
@@ -162,6 +171,7 @@ def publicar_heartbeat(
     Chamado a cada ciclo para que o dashboard saiba que o bot está vivo.
     status: 'running' | 'waiting' | 'stopped' | 'error'
     Os campos forming_* alimentam o card "Sinal em Formação" no admin.
+    Os campos ml_* alimentam o painel de ML / Fase 2 no monitor.
     """
     cliente = _get_cliente()
     if cliente is None:
@@ -185,7 +195,16 @@ def publicar_heartbeat(
         'forming_bb_open':   forming_bb_open,
         'forming_price':     round(forming_price, 5) if forming_price is not None else None,
         'config_hash':       config_hash,
-        'updated_at':        datetime.utcnow().isoformat(),
+        # campos ML
+        'ml_modelo_carregado': ml_modelo_carregado,
+        'ml_modo':             ml_modo,
+        'ml_wr_rolling':       round(ml_wr_rolling, 4) if ml_wr_rolling is not None else None,
+        'ml_pf_rolling':       round(ml_pf_rolling, 4) if ml_pf_rolling is not None else None,
+        'ml_sinais_hoje':      ml_sinais_hoje,
+        'ml_aprovados_hoje':   ml_aprovados_hoje,
+        'ml_treinado_em':      ml_treinado_em,
+        'ml_threshold':        round(ml_threshold, 4),
+        'updated_at':          datetime.utcnow().isoformat(),
     }
 
     try:

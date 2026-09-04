@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import {
   Square, Play, RefreshCw, BarChart2, Clock, AlertTriangle,
   Wifi, WifiOff, ChevronUp, ChevronDown, Zap, Bell, X,
-  ArrowUpCircle, ArrowDownCircle, DollarSign, TrendingUp,
+  ArrowUpCircle, ArrowDownCircle, DollarSign, TrendingUp, Brain,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@supabase/supabase-js'
@@ -58,6 +58,15 @@ interface BotStatus {
   forming_rafi?: number; forming_tf_count?: number
   forming_bb_open?: boolean; forming_price?: number
   config_hash?: string | null
+  // ML / Fase 2
+  ml_modelo_carregado?: boolean
+  ml_modo?: 'OBSERVAÇÃO' | 'ADAPTAÇÃO'
+  ml_wr_rolling?: number | null
+  ml_pf_rolling?: number | null
+  ml_sinais_hoje?: number
+  ml_aprovados_hoje?: number
+  ml_treinado_em?: string | null
+  ml_threshold?: number
 }
 interface Trade {
   id: string; direction: 'buy' | 'sell'; entry: number
@@ -1372,6 +1381,80 @@ export default function MonitorPage() {
             )}
           </div>
         </div>
+
+        {/* ── ADAPTAÇÃO banner — aparece quando ML detecta queda de performance ── */}
+        {status?.ml_modo === 'ADAPTAÇÃO' && (
+          <div style={{
+            background: 'rgba(245,158,11,.08)', border: `1px solid ${C.am}40`,
+            borderRadius: 8, padding: '10px 18px',
+            display: 'flex', alignItems: 'center', gap: 12,
+          }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: C.am,
+              boxShadow: `0 0 8px ${C.am}`, animation: 'pulse 1.2s ease-in-out infinite',
+              flexShrink: 0 }} />
+            <div>
+              <span style={{ fontSize: 10, fontWeight: 800, color: C.am, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+                ⚠ ML em Modo ADAPTAÇÃO
+              </span>
+              <span style={{ fontSize: 10, color: C.t2, marginLeft: 10 }}>
+                WR/PF abaixo do mínimo — retreino XGBoost em andamento em background
+              </span>
+            </div>
+            <span style={{ marginLeft: 'auto', fontSize: 9, fontFamily: 'monospace', color: C.am }}>
+              WR {status.ml_wr_rolling !== null && status.ml_wr_rolling !== undefined ? `${(status.ml_wr_rolling * 100).toFixed(1)}%` : '—'} · PF {status.ml_pf_rolling !== null && status.ml_pf_rolling !== undefined ? status.ml_pf_rolling.toFixed(2) : '—'}
+            </span>
+          </div>
+        )}
+
+        {/* ── ML Status Panel ───────────────────────────────────────────────── */}
+        {(() => {
+          const mlOk     = status?.ml_modelo_carregado ?? false
+          const mlModo   = status?.ml_modo ?? 'OBSERVAÇÃO'
+          const mlWR     = status?.ml_wr_rolling
+          const mlPF     = status?.ml_pf_rolling
+          const mlSinais = status?.ml_sinais_hoje ?? 0
+          const mlAprov  = status?.ml_aprovados_hoje ?? 0
+          const mlDt     = status?.ml_treinado_em
+          const mlThr    = status?.ml_threshold ?? 0.65
+          const mlColor  = mlModo === 'ADAPTAÇÃO' ? C.am : mlOk ? C.gr : C.t3
+          const mlAprovPct = mlSinais > 0 ? Math.round(mlAprov / mlSinais * 100) : 0
+          return (
+            <div style={{ ...card, padding: '14px 18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <Brain size={13} style={{ color: mlColor }} />
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.tx, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  ML / Fase 2 — XGBoost
+                </span>
+                <span style={{ marginLeft: 4, fontSize: 9, fontWeight: 700, padding: '2px 8px',
+                  border: `1px solid ${mlColor}40`, color: mlColor, background: `${mlColor}10`, fontFamily: 'monospace' }}>
+                  {mlModo}
+                </span>
+                <span style={{ marginLeft: 'auto', fontSize: 8, color: mlOk ? C.gr : C.re, fontFamily: 'monospace', fontWeight: 700 }}>
+                  {mlOk ? '● MODELO CARREGADO' : '○ SEM MODELO'}
+                </span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
+                {[
+                  { label: 'Threshold', val: mlThr ? `${(mlThr * 100).toFixed(0)}%` : '65%', color: C.cy },
+                  { label: 'WR rolling', val: mlWR !== null && mlWR !== undefined ? `${(mlWR * 100).toFixed(1)}%` : '—', color: mlWR !== null && mlWR !== undefined && mlWR >= 0.70 ? C.gr : mlWR !== null && mlWR !== undefined ? C.re : C.t3 },
+                  { label: 'PF rolling', val: mlPF !== null && mlPF !== undefined ? mlPF.toFixed(2) : '—', color: mlPF !== null && mlPF !== undefined && mlPF >= 2.0 ? C.gr : mlPF !== null && mlPF !== undefined ? C.re : C.t3 },
+                  { label: 'Sinais hoje', val: `${mlAprov}/${mlSinais}`, color: C.am },
+                  { label: 'Aprovados', val: mlSinais > 0 ? `${mlAprovPct}%` : '—', color: mlAprovPct >= 50 ? C.gr : mlAprovPct > 0 ? C.am : C.t3 },
+                ].map(({ label, val, color }) => (
+                  <div key={label} style={{ background: C.s2, border: `1px solid ${C.bd}`, borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 8, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>{label}</div>
+                    <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color }}>{val}</div>
+                  </div>
+                ))}
+              </div>
+              {mlDt && (
+                <div style={{ marginTop: 8, fontSize: 9, color: C.t3, fontFamily: 'monospace', textAlign: 'right' }}>
+                  Treinado em: {new Date(mlDt).toLocaleString('pt-BR')}
+                </div>
+              )}
+            </div>
+          )
+        })()}
 
         {/* ── Main grid ─────────────────────────────────────────────────────── */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 10, alignItems: 'start' }}>

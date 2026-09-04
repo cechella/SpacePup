@@ -203,6 +203,10 @@ class RafiBot:
             pf_minimo  = 2.0,
         )
 
+        # Contadores ML por dia — resetam junto com _pnl_hoje (meia-noite)
+        self._ml_sinais_hoje    = 0
+        self._ml_aprovados_hoje = 0
+
         # Hash do config efetivo (pós-overrides) — exibido no dashboard para rastreabilidade
         self._config_hash = calcular_hash_config(self.cfg)
 
@@ -354,6 +358,8 @@ class RafiBot:
             status_hb = 'running'
         else:
             status_hb = 'waiting'
+        _info_ml   = modelo_info()
+        _status_ml = self._monitor.status()
         publicar_heartbeat(
             status         = status_hb,
             balance        = self.capital,
@@ -364,6 +370,15 @@ class RafiBot:
             server         = self._conta_server,
             account        = self._conta_account,
             config_hash    = self._config_hash,
+            # ML status
+            ml_modelo_carregado = _info_ml.get('disponivel', False),
+            ml_modo             = _status_ml.get('modo', 'OBSERVAÇÃO'),
+            ml_wr_rolling       = _status_ml.get('wr_rolling'),
+            ml_pf_rolling       = _status_ml.get('pf_rolling'),
+            ml_sinais_hoje      = self._ml_sinais_hoje,
+            ml_aprovados_hoje   = self._ml_aprovados_hoje,
+            ml_treinado_em      = _info_ml.get('treinado_em') or None,
+            ml_threshold        = _info_ml.get('threshold', 0.65),
         )
         # Atualiza card da corretora no /admin/brokers
         publicar_status_broker(
@@ -438,12 +453,21 @@ class RafiBot:
                 server=self._conta_server, account=self._conta_account,
                 forming_signal=False, forming_rafi=rafi_v,
                 config_hash=self._config_hash,
+                ml_modelo_carregado = _info_ml.get('disponivel', False),
+                ml_modo             = _status_ml.get('modo', 'OBSERVAÇÃO'),
+                ml_wr_rolling       = _status_ml.get('wr_rolling'),
+                ml_pf_rolling       = _status_ml.get('pf_rolling'),
+                ml_sinais_hoje      = self._ml_sinais_hoje,
+                ml_aprovados_hoje   = self._ml_aprovados_hoje,
+                ml_treinado_em      = _info_ml.get('treinado_em') or None,
+                ml_threshold        = _info_ml.get('threshold', 0.65),
             )
             return
 
         # 9. Filtro ML — P(win) ≥ 65% para abrir trade
         candles_lista = self._df_para_candles(df)
         dir_int       = 1 if sinal['direcao'] == 'compra' else -1
+        self._ml_sinais_hoje += 1
         deve_operar, prob_ml = filtrar_sinal(
             candles_ate_sinal = candles_lista,
             direcao           = dir_int,
@@ -453,6 +477,8 @@ class RafiBot:
         )
         sinal['probabilidade_ml'] = prob_ml
         sinal['ml_aprovado']      = deve_operar
+        if deve_operar:
+            self._ml_aprovados_hoje += 1
 
         if not deve_operar:
             logger.info(
@@ -968,9 +994,11 @@ class RafiBot:
                 f"Novo dia UTC — reiniciando contadores "
                 f"(perda: ${self._perda_hoje:.2f} | P&L: ${self._pnl_hoje:+.2f})"
             )
-            self._perda_hoje = 0.0
-            self._pnl_hoje   = 0.0
-            self._data_hoje  = hoje
+            self._perda_hoje        = 0.0
+            self._pnl_hoje          = 0.0
+            self._data_hoje         = hoje
+            self._ml_sinais_hoje    = 0
+            self._ml_aprovados_hoje = 0
 
     def _limite_diario_atingido(self) -> bool:
         """
