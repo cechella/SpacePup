@@ -61,16 +61,16 @@ class ClienteMT5:
             logger.warning("MT5 não disponível — simulação ativa")
             return False
 
-        if not mt5.initialize():
+        # Passa credenciais direto ao initialize() para autenticar mesmo
+        # quando o terminal está desconectado do servidor da corretora.
+        if login and senha and servidor:
+            ok_init = mt5.initialize(login=int(login), password=str(senha), server=str(servidor))
+        else:
+            ok_init = mt5.initialize()
+
+        if not ok_init:
             logger.error(f"Falha ao inicializar MT5: {mt5.last_error()}")
             return False
-
-        if login and senha and servidor:
-            ok = mt5.login(login, password=senha, server=servidor)
-            if not ok:
-                logger.error(f"Falha no login MT5: {mt5.last_error()}")
-                mt5.shutdown()
-                return False
 
         info = mt5.account_info()
         if info is None:
