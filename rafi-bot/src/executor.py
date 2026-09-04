@@ -140,6 +140,9 @@ class RafiBot:
         self._conta_account = 0
         self._conta_server  = ''
 
+        # Timestamp (Unix) do último sinal emitido em modo autoscan — controla gap mínimo
+        self._autoscan_ultimo_ts: int = 0
+
         # Sobrescreve config.yaml com valores salvos no dashboard (/admin/config)
         cfg_supa = carregar_config_supabase(profile='live')
         if cfg_supa:
@@ -431,19 +434,21 @@ class RafiBot:
 
     def _verificar_sinal(self, df, indice_forca, bb, niveis_sr) -> Optional[dict]:
         """
-        Verifica se o último candle gerou sinal de entrada RAFI.
+        Verifica sinal de entrada no último candle.
 
-        Replica exatamente os filtros do backtest vencedor (56 trades, +$3.769, WR~70%):
-          1. Tendência M5: MA20 > MA50 (compra) ou MA20 < MA50 (venda)
-          2. RAFI ≥ 2.50: confirma força do movimento
-          3. Bollinger estava em squeeze e está abrindo (se bb_filtro_ativo=true)
-          4. Cor do candle confirma direção (verde=compra, vermelho=venda)
-          5. Rompimento S/R: close acima do rolling_high ou abaixo do rolling_low
-          6. SL = swing_stop dos últimos swing_stop_lookback candles (estrutura de mercado)
+        Despacha para o modo configurado via dashboard (estrategia_modo):
+          'autoscan' → réplica exata do browser (BB squeeze + rompimento S/R, sem RAFI/MA)
+          'rafi'     → filtros RAFI completos (MA + RAFI + BB + S/R)
 
         Retorna dict com {direcao, entry, stop_loss, take_profit, rafi, bb_width}
         ou None se não há sinal.
         """
+        modo = self.cfg.get('estrategia_modo', 'rafi')
+
+        if modo == 'autoscan':
+            return self._verificar_sinal_autoscan(df, bb)
+
+        # ── Modo RAFI (padrão) ────────────────────────────────────────────────
         if bb is None or len(bb) < 2:
             return None
 
@@ -572,6 +577,107 @@ class RafiBot:
                 'stop_loss': stop, 'take_profit': tp,
                 'rafi': rafi_atual, 'rafi_dir': 'bear', 'bb_width': bb_curr_width,
             }
+
+    def _verificar_sinal_autoscan(self, df, bb) -> Optional[dict]:
+        """
+        Modo Autoscan — réplica exata do browser (indicators.ts autoScanBreakouts).
+
+        Critérios (sem RAFI, sem filtro de MA/tendência, sem filtro de sessão):
+          1. BB squeeze no candle anterior (width/mid < squeeze_ratio)
+          2. BB expandindo no candle atual (curr_ratio > prev_ratio * expansao_min)
+          3. COMPRA: close > max_high(sr_lookback) e close >= open (candle verde)
+          4. VENDA:  close < min_low(sr_lookback)  e close <  open (candle vermelho)
+          5. Rompimento mínimo: (close - resistance) >= min_breakout
+          6. Stop: candle_low - stop_offset (compra) / candle_high + stop_offset (venda)
+        """
+        if bb is None or len(bb) < 2:
+            return None
+
+        sr_lb         = int(self.cfg.get('sr_lookback', 20))
+        min_breakout  = float(self.cfg.get('autoscan_min_breakout', 0.00003))
+        stop_offset   = float(self.cfg.get('autoscan_stop_offset', 0.00015))
+        expansao_min  = float(self.cfg.get('bb_squeeze_expansao_min', 1.05))
+        squeeze_ratio = float(self.cfg.get('bb_limiar_estreita', 0.0012))
+        ratio_rr      = float(self.cfg.get('ratio_risco_retorno', 1.5))
+        min_gap       = int(self.cfg.get('autoscan_min_gap_candles', 8))
+
+        n_needed = sr_lb + int(self.cfg.get('bb_periodo', 8)) + 2
+        if len(df) < n_needed:
+            return None
+
+        # Gap mínimo: verifica se passaram candles suficientes desde o último sinal
+        candle_ts = int(df.index[-1].timestamp())
+        segundos_gap = min_gap * 300  # M5 = 300s por candle
+        if candle_ts - self._autoscan_ultimo_ts < segundos_gap:
+            return None
+
+        # BB ratios: width = upper - lower; mid = média
+        bb_mid_curr  = float(bb['bb_media'].iloc[-1])
+        bb_mid_prev  = float(bb['bb_media'].iloc[-2])
+        bb_w_curr    = float(bb['bb_superior'].iloc[-1] - bb['bb_inferior'].iloc[-1])
+        bb_w_prev    = float(bb['bb_superior'].iloc[-2] - bb['bb_inferior'].iloc[-2])
+        prev_ratio   = bb_w_prev / bb_mid_prev if bb_mid_prev else 0
+        curr_ratio   = bb_w_curr / bb_mid_curr if bb_mid_curr else 0
+
+        # Filtro 1: squeeze no candle anterior
+        if prev_ratio >= squeeze_ratio:
+            return None
+        # Filtro 2: expansão no candle atual
+        if curr_ratio <= prev_ratio * expansao_min:
+            return None
+
+        c      = df.iloc[-1]
+        close  = float(c['close'])
+        open_  = float(c['open'])
+        low    = float(c['low'])
+        high   = float(c['high'])
+
+        # S/R = max HIGH / min LOW dos candles anteriores (sem lookahead)
+        window     = df.iloc[-(sr_lb + 1):-1]
+        resistance = float(window['high'].max())
+        support    = float(window['low'].min())
+
+        p = lambda v: round(v, 5)
+
+        # COMPRA: fecha acima da resistência, candle verde
+        if close > resistance and (close - resistance) >= min_breakout and close >= open_:
+            entry = p(resistance)
+            stop  = p(low - stop_offset)
+            risco = entry - stop
+            if risco <= 0:
+                return None
+            tp = p(entry + risco * ratio_rr)
+            logger.info(
+                f"SINAL AUTOSCAN COMPRA | Entry: {entry:.5f} | SL: {stop:.5f} | TP: {tp:.5f} "
+                f"| BB_ratio: prev={prev_ratio:.5f} curr={curr_ratio:.5f}"
+            )
+            self._autoscan_ultimo_ts = candle_ts
+            return {
+                'direcao': 'compra', 'entry': entry,
+                'stop_loss': stop, 'take_profit': tp,
+                'rafi': 0.0, 'rafi_dir': 'bull', 'bb_width': bb_w_curr,
+            }
+
+        # VENDA: fecha abaixo do suporte, candle vermelho
+        if close < support and (support - close) >= min_breakout and close < open_:
+            entry = p(support)
+            stop  = p(high + stop_offset)
+            risco = stop - entry
+            if risco <= 0:
+                return None
+            tp = p(entry - risco * ratio_rr)
+            logger.info(
+                f"SINAL AUTOSCAN VENDA | Entry: {entry:.5f} | SL: {stop:.5f} | TP: {tp:.5f} "
+                f"| BB_ratio: prev={prev_ratio:.5f} curr={curr_ratio:.5f}"
+            )
+            self._autoscan_ultimo_ts = candle_ts
+            return {
+                'direcao': 'venda', 'entry': entry,
+                'stop_loss': stop, 'take_profit': tp,
+                'rafi': 0.0, 'rafi_dir': 'bear', 'bb_width': bb_w_curr,
+            }
+
+        return None
 
     # ─────────────────────────────────────────────────────────────────────────
     # EXECUÇÃO DA ORDEM
