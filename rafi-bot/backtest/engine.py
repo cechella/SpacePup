@@ -35,7 +35,7 @@ from typing import Optional
 
 from src.indicators import calcular_indice_forca, calcular_bollinger, bollinger_estreitas_abrindo
 from src.strategy import calcular_stops, verificar_saida
-from src.risk_manager import GestorRisco
+from src.risk_manager import GestorRisco, lote_por_faixa
 
 logger = logging.getLogger(__name__)
 
@@ -330,6 +330,8 @@ class Backtest:
             timestamp   = self.df_m5.index[i]
             close_atual = float(self.df_m5['close'].iloc[i])
             open_atual  = float(self.df_m5['open'].iloc[i])
+            high_atual  = float(self.df_m5['high'].iloc[i])
+            low_atual   = float(self.df_m5['low'].iloc[i])
             forca_val   = forca_serie.iloc[i]
             forca_atual = float(forca_val) if not np.isnan(forca_val) else 0.0
 
@@ -337,39 +339,63 @@ class Backtest:
                     else datetime.fromtimestamp(timestamp.timestamp(), tz=timezone.utc)
 
             # ── Verificar saída de todas as posições abertas ───
+            # Cada entrada: (posicao, motivo, preco_override)
+            # preco_override=SL ou TP quando atingidos intra-candle; None=usa close
             posicoes_a_fechar = []
             for posicao in list(posicoes_abertas):
+                sl  = posicao['stop_loss']
+                tp  = posicao['take_profit']
+                sig = posicao['sinal']
+
                 # Saída por duração máxima (evita trades multi-semanas com TP inalcançável)
                 if max_duracao_candles > 0:
                     duracao = i - posicao.get('indice_entrada', i)
                     if duracao >= max_duracao_candles:
                         posicoes_a_fechar.append(
                             (posicao,
-                             f"Duração máxima ({max_duracao_candles}c/{max_duracao_candles*5//60}h) atingida")
+                             f"Duração máxima ({max_duracao_candles}c/{max_duracao_candles*5//60}h) atingida",
+                             None)
                         )
                         continue
 
                 # Breakeven stop: após +1R de lucro, move SL para preço de entrada
-                # Converte perdas totais em empate → melhora WR efetivo sem mudar sinal
                 if breakeven_stop_ativo and not posicao.get('breakeven_atingido', False):
                     entrada  = posicao['preco_entrada']
                     risco_pr = posicao['risco_pips'] * 0.0001 * breakeven_gatilho_r
-                    if posicao['sinal'] == 'compra' and close_atual >= entrada + risco_pr:
+                    if sig == 'compra' and close_atual >= entrada + risco_pr:
                         posicao['stop_loss']          = entrada + self.custo_total
                         posicao['breakeven_atingido'] = True
-                        logger.debug(f"Breakeven atingido (compra) → SL={posicao['stop_loss']:.5f}")
-                    elif posicao['sinal'] == 'venda' and close_atual <= entrada - risco_pr:
+                        sl = posicao['stop_loss']
+                        logger.debug(f"Breakeven atingido (compra) → SL={sl:.5f}")
+                    elif sig == 'venda' and close_atual <= entrada - risco_pr:
                         posicao['stop_loss']          = entrada - self.custo_total
                         posicao['breakeven_atingido'] = True
-                        logger.debug(f"Breakeven atingido (venda) → SL={posicao['stop_loss']:.5f}")
+                        sl = posicao['stop_loss']
+                        logger.debug(f"Breakeven atingido (venda) → SL={sl:.5f}")
 
+                # Verificação intra-candle (high/low) — idêntico ao browser:
+                # SL detectado pelo mínimo/máximo do candle, saída no preço do SL/TP
+                if sig == 'compra' and low_atual <= sl:
+                    posicoes_a_fechar.append((posicao, 'Stop Loss', sl))
+                    continue
+                if sig == 'venda' and high_atual >= sl:
+                    posicoes_a_fechar.append((posicao, 'Stop Loss', sl))
+                    continue
+                if sig == 'compra' and high_atual >= tp:
+                    posicoes_a_fechar.append((posicao, 'Take Profit', tp))
+                    continue
+                if sig == 'venda' and low_atual <= tp:
+                    posicoes_a_fechar.append((posicao, 'Take Profit', tp))
+                    continue
+
+                # Demais saídas (exaustão RAFI, fallback close) via verificar_saida
                 posicao['forca_anterior'] = forca_anterior
                 saida = verificar_saida(close_atual, posicao, forca_atual, forca_exaust)
                 if saida['fechar']:
-                    posicoes_a_fechar.append((posicao, saida['motivo']))
+                    posicoes_a_fechar.append((posicao, saida['motivo'], None))
 
-            for posicao, motivo in posicoes_a_fechar:
-                self._fechar_posicao(posicao, close_atual, ts_dt, motivo)
+            for posicao, motivo, preco_override in posicoes_a_fechar:
+                self._fechar_posicao(posicao, close_atual, ts_dt, motivo, preco_override)
                 posicoes_abertas.remove(posicao)
 
             forca_anterior = forca_atual
@@ -388,9 +414,7 @@ class Backtest:
                 max_pos_agora = max_trades_simultaneos
 
             # Não busca novo sinal se já no máximo de posições simultâneas
-            # Autoscan não tem limite de posições simultâneas (igual ao browser que
-            # apenas conta sinais sem simular o ciclo de vida das posições)
-            if modo != 'autoscan' and len(posicoes_abertas) >= max_pos_agora:
+            if len(posicoes_abertas) >= max_pos_agora:
                 continue
 
             _d_total += 1
@@ -403,9 +427,15 @@ class Backtest:
             _d_sessao += 1
 
             # ── Verificar permissão do gestor de risco ─────────
-            pode, _ = self.gestor.pode_operar(self.capital)
-            if not pode:
-                continue
+            # Autoscan: replica browser (não bloqueia por capital — usa lot mínimo a $0)
+            if modo == 'autoscan':
+                if self.capital < 0:
+                    continue  # capital negativo não deve acontecer com max(0,...) abaixo
+                pode = True
+            else:
+                pode, _ = self.gestor.pode_operar(self.capital)
+                if not pode:
+                    continue
             _d_risco += 1
 
             # ── Guard: capital mínimo operacional ──────────────
@@ -703,21 +733,23 @@ class Backtest:
                 if pd.isna(rh) or pd.isna(rl):
                     continue
 
-                candle_low_atual  = float(self.df_m5['low'].iloc[i])
-                candle_high_atual = float(self.df_m5['high'].iloc[i])
+                candle_low_atual  = low_atual   # já calculado no topo do loop
+                candle_high_atual = high_atual  # já calculado no topo do loop
 
                 # Filtro D + E: Rompimento de S/R + cor do candle confirma direção
+                # SL no mínimo/máximo do candle de rompimento ± stop_offset
+                # Idêntico ao browser autoScanBreakouts: stop = c['low'] - stop_offset
                 if close_atual > rh + min_breakout and close_atual >= open_atual:
                     # BUY: rompe resistência + candle verde
                     direcao     = 'compra'
-                    entrada     = round(rh, 5)                    # entry = nível da resistência
-                    nivel_stop  = round(candle_low_atual - stop_offset, 5)  # SL = mínima − 1 pip
+                    entrada     = round(rh, 5)                              # entry = nível S/R
+                    nivel_stop  = round(candle_low_atual - stop_offset, 5)  # SL = low − buffer
                     _d_cor += 1
                 elif close_atual < rl - min_breakout and close_atual < open_atual:
                     # SELL: rompe suporte + candle vermelho
                     direcao     = 'venda'
-                    entrada     = round(rl, 5)                    # entry = nível do suporte
-                    nivel_stop  = round(candle_high_atual + stop_offset, 5)  # SL = máxima + 1 pip
+                    entrada     = round(rl, 5)                               # entry = nível S/R
+                    nivel_stop  = round(candle_high_atual + stop_offset, 5)  # SL = high + buffer
                     _d_cor += 1
                 else:
                     continue
@@ -731,10 +763,8 @@ class Backtest:
                 tp = round(entrada + risco * ratio_rr, 5) if direcao == 'compra' \
                      else round(entrada - risco * ratio_rr, 5)
 
-                # Sizing de lote pelo Kelly % (mesmo mecanismo do bot)
-                lote = self.gestor.calcular_lote(self.capital, risco_pips, incluir_spread=True)
-                if lote <= 0:
-                    continue
+                # Sizing: tabela faixa pura (sem ajuste semanal) — idêntico ao browser
+                lote = lote_por_faixa(max(0.0, self.capital))
 
                 risco_usd = round(risco_pips * lote * 10.0, 2)
                 self.gestor.abrir_trade()
@@ -756,6 +786,7 @@ class Backtest:
                     'bb_width'         : bb_wid_curr,
                     'bb_abrindo'       : True,
                     'ma_diff'          : None,
+                    'modo'             : 'autoscan',  # sinaliza P&L sem custo (browser parity)
                 }
                 posicoes_abertas.append(posicao)
                 logger.info(
@@ -970,25 +1001,46 @@ class Backtest:
                          posicao: dict,
                          close_atual: float,
                          timestamp: datetime,
-                         motivo: str) -> None:
-        """Simula o fechamento e calcula o P&L em USD."""
+                         motivo: str,
+                         preco_override: Optional[float] = None) -> None:
+        """
+        Simula o fechamento e calcula o P&L em USD.
+
+        preco_override: quando SL/TP é atingido intra-candle, passar o preço exato
+        do SL ou TP para calcular P&L correto (idêntico ao browser). Se None, usa close.
+        """
         sinal         = posicao['sinal']
         lote          = posicao['lote']
         preco_entrada = posicao['preco_entrada']
 
-        if sinal == 'compra':
-            preco_saida   = close_atual - self.custo_total / 2
-            variacao_pips = (preco_saida - preco_entrada) / 0.0001
+        eh_autoscan = posicao.get('modo') == 'autoscan'
+
+        if eh_autoscan and preco_override is not None:
+            # Replica exata do browser: saída no preço exato do SL/TP, sem custo
+            preco_saida = preco_override
+            if sinal == 'compra':
+                variacao_pips = (preco_saida - preco_entrada) * 10000
+            else:
+                variacao_pips = (preco_entrada - preco_saida) * 10000
+            comissao_usd = 0.0
         else:
-            preco_saida   = close_atual + self.custo_total / 2
-            variacao_pips = (preco_entrada - preco_saida) / 0.0001
+            preco_base = preco_override if preco_override is not None else close_atual
+            if sinal == 'compra':
+                preco_saida   = preco_base - self.custo_total / 2
+                variacao_pips = (preco_saida - preco_entrada) / 0.0001
+            else:
+                preco_saida   = preco_base + self.custo_total / 2
+                variacao_pips = (preco_entrada - preco_saida) / 0.0001
+            comissao_usd = self.comissao_lote * lote
 
         # EURUSD: $10/pip por lote padrão (100.000 unidades)
-        # Desconta comissão Razor ($6/lote round trip, cobrada na abertura)
-        comissao_usd = self.comissao_lote * lote
         pnl_usd = round(variacao_pips * lote * 10.0 - comissao_usd, 2)
 
-        self.capital = round(self.capital + pnl_usd, 2)
+        # Autoscan: capital não pode ficar negativo (replica browser max(0, ...))
+        if eh_autoscan:
+            self.capital = max(0.0, round(self.capital + pnl_usd, 2))
+        else:
+            self.capital = round(self.capital + pnl_usd, 2)
         self.gestor.fechar_trade(pnl_usd, self.capital)
 
         try:
