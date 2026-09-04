@@ -56,17 +56,18 @@ const FAIXAS_LOTE = [
 
 const GRUPOS: {
   label: string; cor: string
-  visible?: (cfg: Config) => boolean
+  // Campos que vêm desativados por padrão conforme o modo selecionado
+  camposOffPorModo?: { autoscan?: (keyof Config)[]; rafi?: (keyof Config)[] }
   campos: { key: keyof Config; label: string; desc: string; tipo: 'float'|'int'|'bool'; min?: number; max?: number; step?: number }[]
 }[] = [
   { label: 'Índice de Força RAFI', cor: C.cy,
-    visible: (cfg) => cfg.estrategia_modo === 'rafi',
+    camposOffPorModo: { autoscan: ['forca_limiar', 'rafi_periodo'] },
     campos: [
     { key: 'forca_limiar',       label: 'RAFI Limiar',    desc: 'Mínimo para entrada (2.50 = backtest)',    tipo: 'float', min: 0.5,  max: 5,    step: 0.05   },
     { key: 'rafi_periodo',       label: 'RAFI Período',   desc: 'Janela de cálculo do índice de força',     tipo: 'int',   min: 3,    max: 50              },
   ]},
   { label: 'Tendência M5', cor: C.bl,
-    visible: (cfg) => cfg.estrategia_modo === 'rafi',
+    camposOffPorModo: { autoscan: ['ma_rapida', 'ma_lenta', 'ma_threshold'] },
     campos: [
     { key: 'ma_rapida',          label: 'MA Rápida',      desc: 'Período da média móvel rápida',            tipo: 'int',   min: 5,    max: 50              },
     { key: 'ma_lenta',           label: 'MA Lenta',       desc: 'Período da média móvel lenta',             tipo: 'int',   min: 10,   max: 200             },
@@ -83,18 +84,28 @@ const GRUPOS: {
     { key: 'bb_desvios',         label: 'Desvios',        desc: 'Número de desvios padrão',                 tipo: 'float', min: 1,    max: 4,    step: 0.1  },
   ]},
   { label: 'Autoscan — Rompimento', cor: C.am,
-    visible: (cfg) => cfg.estrategia_modo === 'autoscan',
+    camposOffPorModo: { rafi: ['autoscan_min_breakout', 'autoscan_min_gap_candles', 'autoscan_stop_offset', 'bb_squeeze_expansao_min'] },
     campos: [
-    { key: 'autoscan_min_breakout',    label: 'Min. Rompimento', desc: 'Fechamento mínimo além do S/R (ex: 0.00003 = 0.3 pip)', tipo: 'float', min: 0, max: 0.001, step: 0.00001 },
-    { key: 'autoscan_min_gap_candles', label: 'Gap Mín. (candles)', desc: 'Candles mínimos entre sinais (8 = 40 min)',           tipo: 'int',   min: 1, max: 50              },
-    { key: 'autoscan_stop_offset',     label: 'Buffer Stop (pip)', desc: 'Buffer abaixo do candle_low para stop (0.00015=1.5p)', tipo: 'float', min: 0, max: 0.001, step: 0.00005 },
-    { key: 'bb_squeeze_expansao_min',  label: 'Expansão BB mín.', desc: 'BB deve crescer este % vs candle anterior (1.05=5%)',  tipo: 'float', min: 1, max: 2,    step: 0.01   },
+    { key: 'autoscan_min_breakout',    label: 'Min. Rompimento',    desc: 'Fechamento mínimo além do S/R (ex: 0.00003 = 0.3 pip)', tipo: 'float', min: 0, max: 0.001, step: 0.00001 },
+    { key: 'autoscan_min_gap_candles', label: 'Gap Mín. (candles)', desc: 'Candles mínimos entre sinais (8 = 40 min)',              tipo: 'int',   min: 1, max: 50              },
+    { key: 'autoscan_stop_offset',     label: 'Buffer Stop (pip)',  desc: 'Buffer abaixo do candle_low para stop (0.00015=1.5p)',   tipo: 'float', min: 0, max: 0.001, step: 0.00005 },
+    { key: 'bb_squeeze_expansao_min',  label: 'Expansão BB mín.',   desc: 'BB deve crescer este % vs candle anterior (1.05=5%)',   tipo: 'float', min: 1, max: 2,    step: 0.01   },
   ]},
   { label: 'Execução', cor: C.re, campos: [
     { key: 'ratio_risco_retorno',    label: 'R:R',           desc: 'Razão risco:retorno (1.5 = backtest)', tipo: 'float', min: 1, max: 5, step: 0.1 },
     { key: 'max_trades_simultaneos', label: 'Máx. Posições', desc: 'Trades simultâneos permitidos',       tipo: 'int',   min: 1, max: 5            },
   ]},
 ]
+
+// Campos desativados por padrão para cada modo
+function camposOffPadrao(modo: string): Set<keyof Config> {
+  const off = new Set<keyof Config>()
+  GRUPOS.forEach(g => {
+    const lista = g.camposOffPorModo?.[modo as 'autoscan' | 'rafi']
+    lista?.forEach(k => off.add(k))
+  })
+  return off
+}
 
 const CHAVES_NUMERICAS = Object.keys(DEFAULTS).filter(k => typeof DEFAULTS[k as keyof Config] === 'number') as (keyof Config)[]
 const CHAVES_BOOL      = Object.keys(DEFAULTS).filter(k => typeof DEFAULTS[k as keyof Config] === 'boolean') as (keyof Config)[]
@@ -173,6 +184,15 @@ export default function ConfigPage() {
   // Cadeados — ambos bloqueados por padrão
   const [simLocked,  setSimLocked]  = useState(true)
   const [liveLocked, setLiveLocked] = useState(true)
+
+  // Campos desativados por perfil (toggle por parâmetro individual)
+  // Começa com os defaults de cada modo e o usuário pode mudar manualmente
+  const [simCamposOff,  setSimCamposOff]  = useState<Set<keyof Config>>(() => camposOffPadrao(DEFAULTS.estrategia_modo))
+  const [liveCamposOff, setLiveCamposOff] = useState<Set<keyof Config>>(() => camposOffPadrao(DEFAULTS.estrategia_modo))
+
+  // Quando o modo muda, reaplica os defaults (mantendo overrides manuais futuros)
+  useEffect(() => { setSimCamposOff(camposOffPadrao(simCfg.estrategia_modo))  }, [simCfg.estrategia_modo])
+  useEffect(() => { setLiveCamposOff(camposOffPadrao(liveCfg.estrategia_modo)) }, [liveCfg.estrategia_modo])
 
   // Modal de confirmação para salvar ao vivo
   const [showModal, setShowModal] = useState(false)
@@ -421,7 +441,18 @@ export default function ConfigPage() {
                 )}
               </div>
 
-              {GRUPOS.filter(grupo => !grupo.visible || grupo.visible(cfg)).map(grupo => (
+              {(() => {
+                const camposOff    = profile === 'simulator' ? simCamposOff  : liveCamposOff
+                const setCamposOff = profile === 'simulator' ? setSimCamposOff : setLiveCamposOff
+                const toggleCampo  = (key: keyof Config) => {
+                  if (locked) return
+                  setCamposOff(prev => {
+                    const next = new Set(prev)
+                    next.has(key) ? next.delete(key) : next.add(key)
+                    return next
+                  })
+                }
+                return GRUPOS.map(grupo => (
                 <div key={grupo.label}>
                   <div style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase',
                     letterSpacing: '0.12em', color: grupo.cor,
@@ -430,27 +461,43 @@ export default function ConfigPage() {
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
                     {grupo.campos.map(campo => {
-                      const difere = divergindo.has(campo.key)
+                      const difere     = divergindo.has(campo.key)
+                      const desativado = camposOff.has(campo.key)
                       return (
                         <div key={campo.key} style={{
                           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
                           padding: '5px 8px', borderRadius: 5,
-                          background: difere ? `${C.re}08` : 'transparent',
-                          border: `1px solid ${difere ? C.re + '30' : 'transparent'}`,
+                          opacity: desativado ? 0.38 : 1,
+                          background: desativado ? 'transparent' : difere ? `${C.re}08` : 'transparent',
+                          border: `1px solid ${desativado ? C.t3 + '30' : difere ? C.re + '30' : 'transparent'}`,
                           transition: 'all 0.3s',
                         }}>
                           <div style={{ flex: 1 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ fontSize: 10, color: C.tx, fontWeight: 600 }}>{campo.label}</span>
-                              {difere && <span style={{ fontSize: 7, color: C.re, fontWeight: 800,
+                              {/* Botão ativar/desativar por campo */}
+                              <button
+                                onClick={() => toggleCampo(campo.key)}
+                                title={desativado ? 'Ativar parâmetro' : 'Desativar parâmetro'}
+                                style={{ width: 14, height: 14, borderRadius: '50%', border: 'none', padding: 0,
+                                  flexShrink: 0, cursor: locked ? 'default' : 'pointer',
+                                  background: desativado ? C.t3 : grupo.cor,
+                                  boxShadow: desativado ? 'none' : `0 0 4px ${grupo.cor}60`,
+                                  transition: 'all 0.2s' }} />
+                              <span style={{ fontSize: 10, color: desativado ? C.t2 : C.tx, fontWeight: 600,
+                                textDecoration: desativado ? 'line-through' : 'none' }}>{campo.label}</span>
+                              {desativado && <span style={{ fontSize: 6, color: C.t2, fontWeight: 700,
+                                background: `${C.t3}40`, padding: '1px 5px', borderRadius: 3,
+                                letterSpacing: '0.08em' }}>INATIVO</span>}
+                              {!desativado && difere && <span style={{ fontSize: 7, color: C.re, fontWeight: 800,
                                 background: `${C.re}15`, padding: '1px 5px', borderRadius: 3 }}>DIFERENTE</span>}
                             </div>
                             <div style={{ fontSize: 8, color: C.t2, marginTop: 1 }}>{campo.desc}</div>
                           </div>
                           {campo.tipo === 'bool' ? (
-                            <button onClick={() => setCfg(prev => ({ ...prev, [campo.key]: !prev[campo.key] }))}
+                            <button onClick={() => { if (!desativado) setCfg(prev => ({ ...prev, [campo.key]: !prev[campo.key] })) }}
                               style={{ width: 42, height: 22, borderRadius: 11, border: 'none',
-                                cursor: 'pointer', background: cfg[campo.key] ? C.gr : C.t3,
+                                cursor: desativado || locked ? 'default' : 'pointer',
+                                background: cfg[campo.key] ? C.gr : C.t3,
                                 position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
                               <span style={{ position: 'absolute', top: 2,
                                 left: cfg[campo.key] ? 21 : 2,
@@ -460,15 +507,16 @@ export default function ConfigPage() {
                           ) : (
                             <input type="number"
                               value={cfg[campo.key] as number}
+                              disabled={desativado || locked}
                               min={campo.min} max={campo.max} step={campo.step ?? 1}
                               onChange={e => {
                                 const v = campo.tipo === 'int' ? parseInt(e.target.value) : parseFloat(e.target.value)
                                 if (!isNaN(v)) setCfg(prev => ({ ...prev, [campo.key]: v }))
                               }}
                               style={{ width: 88, padding: '4px 8px', textAlign: 'right',
-                                background: difere ? `${C.re}12` : C.s2,
-                                border: `1px solid ${difere ? C.re + '50' : C.bd}`,
-                                color: difere ? C.re : accent,
+                                background: desativado ? 'transparent' : difere ? `${C.re}12` : C.s2,
+                                border: `1px solid ${desativado ? 'transparent' : difere ? C.re + '50' : C.bd}`,
+                                color: desativado ? C.t3 : difere ? C.re : accent,
                                 fontSize: 12, fontWeight: 700, fontFamily: 'monospace',
                                 borderRadius: 4, outline: 'none', flexShrink: 0, transition: 'all 0.3s' }}
                             />
@@ -478,7 +526,8 @@ export default function ConfigPage() {
                     })}
                   </div>
                 </div>
-              ))}
+              ))
+              })()}
             </div>
 
             {/* Tabela de crescimento de lote */}
