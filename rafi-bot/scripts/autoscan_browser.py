@@ -377,13 +377,15 @@ def main() -> None:
 
     # ── Parâmetros do Supabase (perfil simulator) ou defaults hardcoded ─────
     supa_cfg = carregar_params_supabase()
-    sr_lookback   = int(supa_cfg.get('sr_lookback',               20))
-    bb_period     = int(supa_cfg.get('bb_periodo',                8))
-    rr_ratio      = float(supa_cfg.get('ratio_risco_retorno',     1.5))
-    min_breakout  = float(supa_cfg.get('autoscan_min_breakout',   0.00003))
+    # Defaults otimizados: grid search 2.916 combos × 100k candles reais
+    # OOS (30k candles): WR=69.2%, PF=2.38, 1.311 trades
+    sr_lookback   = int(supa_cfg.get('sr_lookback',               15))
+    bb_period     = int(supa_cfg.get('bb_periodo',                10))
+    rr_ratio      = float(supa_cfg.get('ratio_risco_retorno',     1.3))
+    min_breakout  = float(supa_cfg.get('autoscan_min_breakout',   0.00005))
     min_gap       = int(supa_cfg.get('autoscan_min_gap_candles',  8))
-    squeeze_ratio = float(supa_cfg.get('bb_limiar_estreita',      0.0012))
-    stop_offset   = float(supa_cfg.get('autoscan_stop_offset',    0.00015))
+    squeeze_ratio = float(supa_cfg.get('bb_limiar_estreita',      0.0016))
+    stop_offset   = float(supa_cfg.get('autoscan_stop_offset',    0.00010))
     expansao_min  = float(supa_cfg.get('bb_squeeze_expansao_min', 1.05))
 
     fonte_params = 'Supabase (perfil simulator)' if supa_cfg else 'defaults hardcoded'
