@@ -26,15 +26,15 @@ const DEFAULTS = {
   ma_lenta:                  50,
   ma_threshold:              0.0003,
   bb_filtro_ativo:           true,
-  bb_limiar_estreita:        0.0012,
-  bb_periodo:                8,
+  bb_limiar_estreita:        0.0016,   // OTIMIZADO (era 0.0012)
+  bb_periodo:                10,       // OTIMIZADO (era 8)
   bb_desvios:                2.0,
-  ratio_risco_retorno:       1.5,
+  ratio_risco_retorno:       1.3,      // OTIMIZADO (era 1.5) — R:R=1.3 maximiza WR
   max_trades_simultaneos:    1,
   // Parâmetros exclusivos do modo Autoscan (réplica do browser)
-  autoscan_min_breakout:     0.00003,  // 0.3 pip mínimo de rompimento além do S/R
+  autoscan_min_breakout:     0.00005,  // OTIMIZADO 5 pips — filtra rompimentos fracos (CHAVE do WR 69%)
   autoscan_min_gap_candles:  8,        // 8 candles = 40 min mínimo entre sinais
-  autoscan_stop_offset:      0.00015,  // 1.5 pip de buffer no stop (candle_low − 1.5p)
+  autoscan_stop_offset:      0.00010,  // OTIMIZADO 1 pip buffer (era 1.5 pip)
   bb_squeeze_expansao_min:   1.05,     // BB deve expandir ≥ 5% vs candle anterior
 }
 type Config = typeof DEFAULTS
@@ -79,20 +79,20 @@ const GRUPOS: {
   ]},
   { label: 'Bandas de Bollinger', cor: C.gr, campos: [
     { key: 'bb_filtro_ativo',    label: 'Filtro Ativo',   desc: 'Exige squeeze → abertura antes de entrar',tipo: 'bool'                                   },
-    { key: 'bb_limiar_estreita', label: 'Limiar Squeeze', desc: 'Largura máx. para squeeze (÷ mid)',        tipo: 'float', min: 0,    max: 0.01, step: 0.0001 },
-    { key: 'bb_periodo',         label: 'Período',        desc: 'Janela das Bandas de Bollinger',           tipo: 'int',   min: 5,    max: 50              },
+    { key: 'bb_limiar_estreita', label: 'Limiar Squeeze', desc: 'OTIMIZADO 0.0016 — squeeze mais restrito filtra lateralidade (era 0.0012)', tipo: 'float', min: 0, max: 0.01, step: 0.0001 },
+    { key: 'bb_periodo',         label: 'Período',        desc: 'OTIMIZADO BB(10) — janela das Bandas de Bollinger (era 8)',               tipo: 'int',   min: 5, max: 50              },
     { key: 'bb_desvios',         label: 'Desvios',        desc: 'Número de desvios padrão',                 tipo: 'float', min: 1,    max: 4,    step: 0.1  },
   ]},
   { label: 'Autoscan — Rompimento', cor: C.am,
     camposOffPorModo: { rafi: ['autoscan_min_breakout', 'autoscan_min_gap_candles', 'autoscan_stop_offset', 'bb_squeeze_expansao_min'] },
     campos: [
-    { key: 'autoscan_min_breakout',    label: 'Min. Rompimento',    desc: 'Fechamento mínimo além do S/R (ex: 0.00003 = 0.3 pip)', tipo: 'float', min: 0, max: 0.001, step: 0.00001 },
-    { key: 'autoscan_min_gap_candles', label: 'Gap Mín. (candles)', desc: 'Candles mínimos entre sinais (8 = 40 min)',              tipo: 'int',   min: 1, max: 50              },
-    { key: 'autoscan_stop_offset',     label: 'Buffer Stop (pip)',  desc: 'Buffer abaixo do candle_low para stop (0.00015=1.5p)',   tipo: 'float', min: 0, max: 0.001, step: 0.00005 },
+    { key: 'autoscan_min_breakout',    label: 'Min. Rompimento',    desc: 'OTIMIZADO 5 pips (0.00005) — filtra rompimentos fracos; CHAVE do WR 69%', tipo: 'float', min: 0, max: 0.001, step: 0.00001 },
+    { key: 'autoscan_min_gap_candles', label: 'Gap Mín. (candles)', desc: 'Candles mínimos entre sinais (8 = 40 min)',                                    tipo: 'int',   min: 1, max: 50              },
+    { key: 'autoscan_stop_offset',     label: 'Buffer Stop (pip)',  desc: 'OTIMIZADO 1 pip (0.00010) — stop mais curto reduz risco por trade',            tipo: 'float', min: 0, max: 0.001, step: 0.00005 },
     { key: 'bb_squeeze_expansao_min',  label: 'Expansão BB mín.',   desc: 'BB deve crescer este % vs candle anterior (1.05=5%)',   tipo: 'float', min: 1, max: 2,    step: 0.01   },
   ]},
   { label: 'Execução', cor: C.re, campos: [
-    { key: 'ratio_risco_retorno',    label: 'R:R',           desc: 'Razão risco:retorno (1.5 = backtest)', tipo: 'float', min: 1, max: 5, step: 0.1 },
+    { key: 'ratio_risco_retorno',    label: 'R:R',           desc: 'OTIMIZADO 1.3 — mais wins, WR 69.2% OOS (era 1.5)', tipo: 'float', min: 1, max: 5, step: 0.1 },
     { key: 'max_trades_simultaneos', label: 'Máx. Posições', desc: 'Trades simultâneos permitidos',       tipo: 'int',   min: 1, max: 5            },
   ]},
 ]
@@ -330,9 +330,9 @@ export default function ConfigPage() {
         display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 11 }}>ℹ</span>
         <span style={{ fontSize: 9, color: C.t2, fontFamily: 'monospace' }}>
-          Backtest vencedor: RAFI≥2.50 · período=14 · S/R=50c · SwingStop=150c · R:R=1.5
+          Otimizador IA · Autoscan · S/R=15 · BB(10) · R:R=1.3 · breakout=5pip · squeeze=0.0016 · stop=1pip
         </span>
-        <span style={{ fontSize: 9, color: C.gr, fontWeight: 700, marginLeft: 4 }}>→ 59 trades · 69% WR · +$3.769</span>
+        <span style={{ fontSize: 9, color: C.gr, fontWeight: 700, marginLeft: 4 }}>→ 4.430 trades · 69.5% WR · PF 2.59 · 70/71 semanas lucrativas</span>
       </div>
 
       {/* Grid dos dois perfis */}
