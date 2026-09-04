@@ -254,14 +254,71 @@ def carregar_params_supabase() -> dict:
     return {}
 
 
+def carregar_csv_para_candles(path: str) -> list[dict]:
+    """
+    Lê um CSV no formato Dukascopy (ou o formato merged do scratchpad)
+    e retorna lista de dicts {time, open, high, low, close}.
+    """
+    df = pd.read_csv(path, index_col=0, parse_dates=True)
+    df.columns = [c.lower() for c in df.columns]
+    # Garante índice UTC
+    if df.index.tz is None:
+        df.index = df.index.tz_localize('UTC')
+    else:
+        df.index = df.index.tz_convert('UTC')
+    df = df.sort_index()
+    return [
+        {'time': int(row.Index.timestamp()), 'open': row.open,
+         'high': row.high, 'low': row.low, 'close': row.close}
+        for row in df.itertuples()
+    ]
+
+
+def carregar_pasta(pasta: str) -> tuple[list[dict], str]:
+    """
+    Mescla todos os CSVs de uma pasta em ordem cronológica.
+    Ignora arquivos vazios (ex: sábados). Retorna (candles, descricao).
+    """
+    import glob
+    arquivos = sorted(glob.glob(os.path.join(pasta, '*.csv')))
+    if not arquivos:
+        raise ValueError(f'Nenhum CSV encontrado em: {pasta}')
+
+    todos = []
+    vazios = 0
+    for arq in arquivos:
+        try:
+            candles = carregar_csv_para_candles(arq)
+            if candles:
+                todos.extend(candles)
+            else:
+                vazios += 1
+        except Exception:
+            vazios += 1
+
+    if not todos:
+        raise ValueError('Nenhum candle válido nos CSVs da pasta')
+
+    # Ordena e remove duplicatas de timestamp
+    todos.sort(key=lambda c: c['time'])
+    todos = [c for i, c in enumerate(todos) if i == 0 or c['time'] != todos[i - 1]['time']]
+
+    desc = f'{pasta} ({len(arquivos) - vazios} arquivos, {vazios} vazios ignorados)'
+    return todos, desc
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description='Autoscan browser — réplica exata do indicators.ts'
     )
     parser.add_argument('--csv', default=None,
-                        help='CSV com dados históricos (padrão: dados demo seed 1337)')
+                        help='CSV único com dados históricos')
+    parser.add_argument('--dir', default=None,
+                        help='Pasta com múltiplos CSVs Dukascopy (mescla automaticamente)')
     parser.add_argument('--capital', type=float, default=100.0,
                         help='Capital inicial em USD (padrão: 100)')
+    parser.add_argument('--semanal', action='store_true',
+                        help='Exibe relatório detalhado por semana')
     args = parser.parse_args()
 
     # ── Parâmetros do Supabase (perfil simulator) ou defaults hardcoded ─────
@@ -278,13 +335,10 @@ def main() -> None:
     fonte_params = 'Supabase (perfil simulator)' if supa_cfg else 'defaults hardcoded'
 
     # ── Carregar candles ────────────────────────────────────────────────────
-    if args.csv:
-        df = pd.read_csv(args.csv, index_col=0, parse_dates=True)
-        candles = [
-            {'time': int(row.Index.timestamp()), 'open': row.open,
-             'high': row.high, 'low': row.low, 'close': row.close}
-            for row in df.itertuples()
-        ]
+    if args.dir:
+        candles, fonte = carregar_pasta(args.dir)
+    elif args.csv:
+        candles = carregar_csv_para_candles(args.csv)
         fonte = args.csv
     else:
         df = gerar_demo_m5()
@@ -372,6 +426,68 @@ def main() -> None:
     if wr >= 55 and pf >= 1.5:
         print("  ✔ METAS FASE 1A ATINGIDAS (WR≥55% e PF≥1.5)")
     print()
+
+    # ── Relatório semanal (--semanal) ─────────────────────────────────────
+    if args.semanal and resultados:
+        from datetime import datetime, timezone
+        from collections import defaultdict
+
+        semanas: dict = defaultdict(lambda: {'trades': 0, 'wins': 0, 'losses': 0,
+                                              'pnl': 0.0, 'cap_ini': 0.0, 'cap_fim': 0.0})
+        cap_semana_ini = args.capital
+
+        # Agrupa por semana ISO (ano-semana)
+        for idx, r in enumerate(resultados):
+            dt   = datetime.strptime(r['datetime'], '%Y-%m-%d %H:%M')
+            chave = dt.strftime('%Y-W%W')  # ex: "2026-W32"
+            sem  = semanas[chave]
+            if sem['trades'] == 0:
+                sem['cap_ini'] = cap_semana_ini
+            sem['trades'] += 1
+            if r['resultado'] == 'WIN':
+                sem['wins'] += 1
+            elif r['resultado'] == 'LOSS':
+                sem['losses'] += 1
+            sem['pnl'] += r['pnl']
+            sem['cap_fim'] = r['capital']
+            # Atualiza capital inicial da próxima semana
+            if idx + 1 < len(resultados):
+                dt_next = datetime.strptime(resultados[idx + 1]['datetime'], '%Y-%m-%d %H:%M')
+                if dt_next.strftime('%Y-W%W') != chave:
+                    cap_semana_ini = r['capital']
+
+        print(f"\n{'─'*72}")
+        print(f"{'RELATÓRIO SEMANAL':^72}")
+        print(f"{'─'*72}")
+        print(f"{'SEMANA':<12} {'T':>3} {'W':>3} {'L':>3} {'WR%':>6} {'P&L':>9} {'CAP INI':>9} {'CAP FIM':>9} {'META':<6}")
+        print(f"{'─'*72}")
+
+        total_semanas     = len(semanas)
+        semanas_posit     = 0
+        semanas_meta      = 0
+
+        for chave in sorted(semanas.keys()):
+            s  = semanas[chave]
+            t  = s['trades']
+            w  = s['wins']
+            l  = s['losses']
+            wr_s = w / t * 100 if t else 0
+            pnl_s = s['pnl']
+            ok   = '✔' if wr_s >= 55 and pnl_s > 0 else ''
+            if pnl_s > 0:
+                semanas_posit += 1
+            if wr_s >= 55 and pnl_s > 0:
+                semanas_meta += 1
+            pnl_str = f"+${pnl_s:,.2f}" if pnl_s >= 0 else f"-${abs(pnl_s):,.2f}"
+            print(f"{chave:<12} {t:>3} {w:>3} {l:>3} {wr_s:>5.1f}% {pnl_str:>9} "
+                  f"${s['cap_ini']:>8.2f} ${s['cap_fim']:>8.2f} {ok}")
+
+        print(f"{'─'*72}")
+        print(f"Semanas lucrativas : {semanas_posit}/{total_semanas} "
+              f"({semanas_posit/total_semanas*100:.0f}%)")
+        print(f"Semanas com meta   : {semanas_meta}/{total_semanas} "
+              f"(WR≥55% e P&L>0)")
+        print()
 
 
 if __name__ == '__main__':
