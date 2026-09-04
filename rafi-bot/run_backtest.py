@@ -150,7 +150,14 @@ def main() -> None:
                     'sr_lookback', 'swing_stop_lookback',
                     'ma_rapida', 'ma_lenta', 'ma_threshold',
                     'bb_filtro_ativo', 'bb_limiar_estreita', 'bb_periodo', 'bb_desvios',
+                    # parâmetros exclusivos do modo autoscan — devem espelhar executor.py MAPA
+                    'autoscan_min_breakout', 'autoscan_min_gap_candles',
+                    'autoscan_stop_offset', 'autoscan_sr_lookback',
+                    'bb_squeeze_expansao_min',
+                    # gestão de risco
                     'ratio_risco_retorno', 'max_trades_simultaneos',
+                    'risco_por_trade', 'risco_maximo_diario',
+                    'modo_lote', 'max_losses_seguidos',
                 ]
                 sobrescritos = []
                 for k in CAMPOS_MAPEADOS:
