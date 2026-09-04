@@ -96,7 +96,7 @@ export default function StrategyPage() {
             Estratégia Autoscan
           </h1>
           <p style={{ fontSize: 11, color: C.t3, margin: '4px 0 0' }}>
-            Parâmetros ativos · EURUSD M5 · OOS WR=69.2% PF=2.38
+            Parâmetros ativos · EURUSD M5 · OOS WR=68.1% PF=2.33 · 26 anos validados
           </p>
         </div>
         <button onClick={load} disabled={loading} style={{
@@ -126,14 +126,14 @@ export default function StrategyPage() {
           <Section title="Autoscan — Parâmetros Chave" icon={Sliders}>
             <div style={{ background: '#10b98110', border: `1px solid #10b98130`, borderRadius: 8,
               padding: '8px 12px', marginBottom: 12, fontSize: 11, color: C.gr, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <CheckCircle size={12} /> Grid-search otimizado · 2.916 combinações × 100k candles M5
+              <CheckCircle size={12} /> Grid-search otimizado · 2.916 combinações × 1,9M candles M5 (26 anos)
             </div>
             <Row label="Min. rompimento" value={cfg?.autoscan_min_breakout !== undefined ? (cfg.autoscan_min_breakout * 10000).toFixed(1) : '5.0'} unit="pips" note="CHAVE do WR 69%" />
-            <Row label="Gap mínimo entre trades" value={cfg?.autoscan_min_gap_candles ?? 8} unit="candles (40 min)" />
+            <Row label="Gap mínimo entre trades" value={cfg?.autoscan_min_gap_candles ?? 5} unit="candles (25 min)" note="otimizado 26 anos" />
             <Row label="Buffer no stop" value={cfg?.autoscan_stop_offset !== undefined ? (cfg.autoscan_stop_offset * 10000).toFixed(1) : '1.0'} unit="pips" />
             <Row label="Expansão BB mínima" value={cfg?.bb_squeeze_expansao_min ?? 1.05} unit="×" />
-            <Row label="S/R lookback" value={cfg?.sr_lookback ?? 15} unit="candles" note="otimizado" />
-            <Row label="R:R ratio" value={cfg?.ratio_risco_retorno ?? 1.3} unit="×" note="OOS WR=69.2%" />
+            <Row label="S/R lookback" value={cfg?.sr_lookback ?? 10} unit="candles" note="otimizado 26 anos" />
+            <Row label="R:R ratio" value={cfg?.ratio_risco_retorno ?? 1.3} unit="×" note="OOS WR=68.1%" />
           </Section>
 
           {/* Gestão de Risco */}
@@ -150,13 +150,13 @@ export default function StrategyPage() {
           {/* Resultado OOS */}
           <div style={{ gridColumn: '1 / -1', background: C.s1, border: `1px solid ${C.bd}`, borderRadius: 12, padding: 20 }}>
             <div style={{ fontSize: 11, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
-              Resultado Out-of-Sample (30.000 candles — validação independente)
+              Resultado Out-of-Sample (569.748 candles — Nov 2018 → Ago 2026 · nunca vistos no treino)
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
               {[
-                { label: 'Win Rate', value: '69.2%', color: C.gr },
-                { label: 'Profit Factor', value: '2.38', color: C.cy },
-                { label: 'Trades OOS', value: '1.311', color: C.am },
+                { label: 'Win Rate', value: '68.1%', color: C.gr },
+                { label: 'Profit Factor', value: '2.33', color: C.cy },
+                { label: 'Trades OOS', value: '36.897', color: C.am },
                 { label: 'R:R otimizado', value: '1.3×', color: C.cy },
               ].map(({ label, value, color }) => (
                 <div key={label} style={{ background: C.s2, border: `1px solid ${C.bd}`, borderRadius: 8, padding: '14px 16px' }}>

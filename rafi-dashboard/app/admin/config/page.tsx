@@ -27,13 +27,13 @@ const DEFAULTS = {
   ma_threshold:              0.0003,
   bb_filtro_ativo:           true,
   bb_limiar_estreita:        0.0016,   // OTIMIZADO (era 0.0012)
-  bb_periodo:                10,       // OTIMIZADO (era 8)
+  bb_periodo:                6,        // OTIMIZADO: BB(6) — 26 anos, 2.916 combinações (era 10)
   bb_desvios:                2.0,
   ratio_risco_retorno:       1.3,      // OTIMIZADO (era 1.5) — R:R=1.3 maximiza WR
   max_trades_simultaneos:    1,
   // Parâmetros exclusivos do modo Autoscan (réplica do browser)
-  autoscan_min_breakout:     0.00005,  // OTIMIZADO 5 pips — filtra rompimentos fracos (CHAVE do WR 69%)
-  autoscan_min_gap_candles:  8,        // 8 candles = 40 min mínimo entre sinais
+  autoscan_min_breakout:     0.00005,  // OTIMIZADO 5 pips — filtra rompimentos fracos (CHAVE do WR 68%)
+  autoscan_min_gap_candles:  5,        // OTIMIZADO: 5 candles = 25 min (era 8 = 40 min) — 26 anos OOS
   autoscan_stop_offset:      0.00010,  // OTIMIZADO 1 pip buffer (era 1.5 pip)
   bb_squeeze_expansao_min:   1.05,     // BB deve expandir ≥ 5% vs candle anterior
 }
@@ -74,20 +74,20 @@ const GRUPOS: {
     { key: 'ma_threshold',       label: 'MA Threshold',   desc: 'Diferença mínima MA rápida−lenta (pip)',   tipo: 'float', min: 0,    max: 0.01, step: 0.0001 },
   ]},
   { label: 'Suporte & Resistência', cor: C.am, campos: [
-    { key: 'sr_lookback',        label: 'S/R Lookback',   desc: 'OTIMIZADO 15 candles (autoscan) — S/R mais recente e preciso (era 20)', tipo: 'int', min: 10, max: 200 },
+    { key: 'sr_lookback',        label: 'S/R Lookback',   desc: 'OTIMIZADO 10 candles — 26 anos 1.9M candles OOS WR=68.1% (era 15)', tipo: 'int', min: 5, max: 200 },
     { key: 'swing_stop_lookback',label: 'Swing Stop',     desc: 'Candles para posicionar stop-loss (apenas modo rafi)',     tipo: 'int', min: 20, max: 500 },
   ]},
   { label: 'Bandas de Bollinger', cor: C.gr, campos: [
     { key: 'bb_filtro_ativo',    label: 'Filtro Ativo',   desc: 'Exige squeeze → abertura antes de entrar',tipo: 'bool'                                   },
     { key: 'bb_limiar_estreita', label: 'Limiar Squeeze', desc: 'OTIMIZADO 0.0016 — squeeze mais restrito filtra lateralidade (era 0.0012)', tipo: 'float', min: 0, max: 0.01, step: 0.0001 },
-    { key: 'bb_periodo',         label: 'Período',        desc: 'OTIMIZADO BB(10) — janela das Bandas de Bollinger (era 8)',               tipo: 'int',   min: 5, max: 50              },
+    { key: 'bb_periodo',         label: 'Período',        desc: 'OTIMIZADO BB(6) — 26 anos 1.9M candles OOS WR=68.1% (era 10)',          tipo: 'int',   min: 3, max: 50              },
     { key: 'bb_desvios',         label: 'Desvios',        desc: 'Número de desvios padrão',                 tipo: 'float', min: 1,    max: 4,    step: 0.1  },
   ]},
   { label: 'Autoscan — Rompimento', cor: C.am,
     camposOffPorModo: { rafi: ['autoscan_min_breakout', 'autoscan_min_gap_candles', 'autoscan_stop_offset', 'bb_squeeze_expansao_min'] },
     campos: [
     { key: 'autoscan_min_breakout',    label: 'Min. Rompimento',    desc: 'OTIMIZADO 5 pips (0.00005) — filtra rompimentos fracos; CHAVE do WR 69%', tipo: 'float', min: 0, max: 0.001, step: 0.00001 },
-    { key: 'autoscan_min_gap_candles', label: 'Gap Mín. (candles)', desc: 'Candles mínimos entre sinais (8 = 40 min)',                                    tipo: 'int',   min: 1, max: 50              },
+    { key: 'autoscan_min_gap_candles', label: 'Gap Mín. (candles)', desc: 'OTIMIZADO 5 candles = 25 min (era 8=40 min) — 26 anos OOS',                  tipo: 'int',   min: 1, max: 50              },
     { key: 'autoscan_stop_offset',     label: 'Buffer Stop (pip)',  desc: 'OTIMIZADO 1 pip (0.00010) — stop mais curto reduz risco por trade',            tipo: 'float', min: 0, max: 0.001, step: 0.00005 },
     { key: 'bb_squeeze_expansao_min',  label: 'Expansão BB mín.',   desc: 'BB deve crescer este % vs candle anterior (1.05=5%)',   tipo: 'float', min: 1, max: 2,    step: 0.01   },
   ]},
