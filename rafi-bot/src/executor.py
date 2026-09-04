@@ -44,6 +44,7 @@ from .indicators   import (
     rompimento_ocorreu,
 )
 from .risk_manager import lote_por_faixa
+from .ml.predictor import filtrar_sinal, MonitorPerformance, modelo_info
 from .supabase_sync import (
     sincronizar_trade,
     atualizar_resultado,
@@ -56,6 +57,7 @@ from .supabase_sync import (
     carregar_config_supabase,
     carregar_broker_ativo,
     publicar_status_broker,
+    gravar_rafi_trade,
 )
 
 # ── Configuração de logging ───────────────────────────────────────────────────
@@ -194,8 +196,27 @@ class RafiBot:
             self._broker_servidor = None
             logger.warning("rafi_brokers indisponível — usando par do config.yaml (fallback)")
 
+        # Monitor de performance ML — rastreia WR/PF rolling e aciona retreino
+        self._monitor = MonitorPerformance(
+            janela     = 20,
+            wr_minimo  = 0.70,
+            pf_minimo  = 2.0,
+        )
+
         # Hash do config efetivo (pós-overrides) — exibido no dashboard para rastreabilidade
         self._config_hash = calcular_hash_config(self.cfg)
+
+        # Informa status do modelo ML no startup
+        info_ml = modelo_info()
+        if info_ml.get('disponivel'):
+            logger.info(
+                f"Modelo ML carregado | Trades treino: {info_ml['n_trades']:,} | "
+                f"WR histórico: {info_ml['wr_historico']:.1%} | "
+                f"Threshold: {info_ml['threshold']:.0%}"
+            )
+        else:
+            logger.info("Modelo ML não encontrado — bot opera sem filtro ML até primeiro treino")
+
         logger.info(f"RafiBot iniciado | Par: {self.par} | Capital: ${self.capital:.2f} | Config: {self._config_hash}")
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -420,10 +441,36 @@ class RafiBot:
             )
             return
 
-        # 9. Calcula lote e envia ordem
+        # 9. Filtro ML — P(win) ≥ 65% para abrir trade
+        candles_lista = self._df_para_candles(df)
+        dir_int       = 1 if sinal['direcao'] == 'compra' else -1
+        deve_operar, prob_ml = filtrar_sinal(
+            candles_ate_sinal = candles_lista,
+            direcao           = dir_int,
+            forca_rompimento  = sinal.get('forca_rompimento', 0.00005),
+            rr_ratio          = float(self.cfg.get('ratio_risco_retorno', 1.3)),
+            wr_rolling20      = self._monitor.wr_rolling(),
+        )
+        sinal['probabilidade_ml'] = prob_ml
+        sinal['ml_aprovado']      = deve_operar
+
+        if not deve_operar:
+            logger.info(
+                f"Sinal REJEITADO pelo ML | {sinal['direcao'].upper()} | "
+                f"P(win)={prob_ml:.1%} < 65%"
+            )
+            publicar_log(
+                f"Sinal {sinal['direcao'].upper()} rejeitado pelo ML | "
+                f"P(win)={prob_ml:.1%}",
+                level='info',
+            )
+            return
+
+        # 10. Calcula lote e envia ordem
         publicar_log(
-            f"SINAL {sinal['direcao'].upper()} detectado | Entry={sinal['entry']:.5f} | "
-            f"SL={sinal['stop_loss']:.5f} | TP={sinal['take_profit']:.5f} | RAFI={sinal['rafi']:.2f}",
+            f"SINAL {sinal['direcao'].upper()} aprovado ML={prob_ml:.1%} | "
+            f"Entry={sinal['entry']:.5f} | SL={sinal['stop_loss']:.5f} | "
+            f"TP={sinal['take_profit']:.5f} | RAFI={sinal['rafi']:.2f}",
             level='signal',
         )
         self._executar_sinal(sinal, df, indice_forca, bb)
@@ -558,6 +605,7 @@ class RafiBot:
                 'direcao': 'compra', 'entry': entry,
                 'stop_loss': stop, 'take_profit': tp,
                 'rafi': rafi_atual, 'rafi_dir': 'bull', 'bb_width': bb_curr_width,
+                'forca_rompimento': max(0.0, close_atual - rolling_high),
             }
 
         else:
@@ -576,6 +624,7 @@ class RafiBot:
                 'direcao': 'venda', 'entry': entry,
                 'stop_loss': stop, 'take_profit': tp,
                 'rafi': rafi_atual, 'rafi_dir': 'bear', 'bb_width': bb_curr_width,
+                'forca_rompimento': max(0.0, rolling_low - close_atual),
             }
 
     def _verificar_sinal_autoscan(self, df, bb) -> Optional[dict]:
@@ -656,6 +705,7 @@ class RafiBot:
                 'direcao': 'compra', 'entry': entry,
                 'stop_loss': stop, 'take_profit': tp,
                 'rafi': 0.0, 'rafi_dir': 'bull', 'bb_width': bb_w_curr,
+                'forca_rompimento': close - resistance,
             }
 
         # VENDA: fecha abaixo do suporte, candle vermelho
@@ -675,9 +725,28 @@ class RafiBot:
                 'direcao': 'venda', 'entry': entry,
                 'stop_loss': stop, 'take_profit': tp,
                 'rafi': 0.0, 'rafi_dir': 'bear', 'bb_width': bb_w_curr,
+                'forca_rompimento': support - close,
             }
 
         return None
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # HELPERS
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _df_para_candles(df) -> list:
+        """Converte DataFrame de candles para lista de dicts usada pelo feature_builder."""
+        candles = []
+        for ts, row in df.iterrows():
+            candles.append({
+                'time':  int(ts.timestamp()),
+                'open':  float(row['open']),
+                'high':  float(row['high']),
+                'low':   float(row['low']),
+                'close': float(row['close']),
+            })
+        return candles
 
     # ─────────────────────────────────────────────────────────────────────────
     # EXECUÇÃO DA ORDEM
@@ -704,17 +773,21 @@ class RafiBot:
         preco_ent = resultado['preco_entrada']
         ts        = int(time.time())
 
-        # Registra posição aberta para monitoramento
+        # Registra posição aberta para monitoramento (inclui dados ML para gravação ao fechar)
         self._posicoes[ticket] = {
-            'ts':          ts,
-            'entry':       preco_ent,
-            'stop_loss':   sinal['stop_loss'],
-            'take_profit': sinal['take_profit'],
-            'lot':         lote,
-            'direcao':     sinal['direcao'],
-            'rafi':        sinal['rafi'],
-            'rafi_dir':    sinal['rafi_dir'],
-            'bb_width':    sinal['bb_width'],
+            'ts':              ts,
+            'entry':           preco_ent,
+            'stop_loss':       sinal['stop_loss'],
+            'take_profit':     sinal['take_profit'],
+            'lot':             lote,
+            'direcao':         sinal['direcao'],
+            'rafi':            sinal['rafi'],
+            'rafi_dir':        sinal['rafi_dir'],
+            'bb_width':        sinal['bb_width'],
+            'probabilidade_ml': sinal.get('probabilidade_ml'),
+            'ml_aprovado':     sinal.get('ml_aprovado'),
+            'forca_rompimento': sinal.get('forca_rompimento', 0.0),
+            'rr_ratio':        float(self.cfg.get('ratio_risco_retorno', 1.3)),
         }
 
         # ── Sincroniza com Supabase (aparece no admin) ────────────────────────
@@ -769,11 +842,39 @@ class RafiBot:
             if resultado == 'loss':
                 self._perda_hoje += abs(pnl_trade)
 
-            # Atualiza saldo e Supabase
+            # Atualiza saldo e Supabase (tabela rafi_bot_status)
             if cap_novo is not None:
                 self.capital = cap_novo
             atualizar_resultado(ticket=ticket, result=resultado,
                                 ts=info['ts'], pnl=pnl_trade)
+
+            # Resultado em múltiplos de R para o monitor ML
+            rr      = info.get('rr_ratio', 1.3)
+            lucro_r = rr if resultado == 'win' else -1.0
+            resultado_int = 1 if resultado == 'win' else 0
+
+            # Grava na tabela rafi_trades (alimenta o modelo ML)
+            gravar_rafi_trade(
+                resultado        = resultado_int,
+                lucro_r          = lucro_r,
+                lucro_usd        = pnl_trade,
+                lotes            = info.get('lot'),
+                direcao          = 1 if info['direcao'] == 'compra' else -1,
+                forca_rompimento = info.get('forca_rompimento'),
+                rr_ratio         = rr,
+                preco_entrada    = info.get('entry'),
+                preco_saida      = cap_novo,       # aproximação — MT5 fecha ao preço de mercado
+                preco_stop       = info.get('stop_loss'),
+                preco_target     = info.get('take_profit'),
+                probabilidade_ml = info.get('probabilidade_ml'),
+                ml_aprovado      = info.get('ml_aprovado'),
+            )
+
+            # Registra no monitor de performance (dispara retreino se WR/PF cair)
+            self._monitor.registrar_trade(
+                resultado = resultado_int,
+                lucro_r   = lucro_r,
+            )
 
             del self._posicoes[ticket]
 

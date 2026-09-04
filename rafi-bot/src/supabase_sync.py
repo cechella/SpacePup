@@ -458,6 +458,69 @@ def publicar_status_broker(
         return False
 
 
+def gravar_rafi_trade(
+    resultado:         int,              # 1=win 0=loss
+    lucro_r:           float,            # em múltiplos de R (1.3 win / -1.0 loss)
+    lucro_usd:         Optional[float]  = None,
+    lotes:             Optional[float]  = None,
+    direcao:           Optional[int]    = None,   # +1 compra / -1 venda
+    forca_rompimento:  Optional[float]  = None,
+    rr_ratio:          Optional[float]  = None,
+    preco_entrada:     Optional[float]  = None,
+    preco_saida:       Optional[float]  = None,
+    preco_stop:        Optional[float]  = None,
+    preco_target:      Optional[float]  = None,
+    probabilidade_ml:  Optional[float]  = None,
+    ml_aprovado:       Optional[bool]   = None,
+    perfil:            str              = 'live',
+) -> bool:
+    """
+    Grava o resultado de um trade fechado na tabela rafi_historico.
+
+    Essa tabela alimenta o modelo XGBoost (retreino automático) e o monitor
+    de performance (WR/PF rolling). É diferente da tabela rafi_trades, que
+    exibe trades em andamento no dashboard admin.
+    """
+    cliente = _get_cliente()
+    if cliente is None:
+        return False
+
+    p5 = lambda v: round(v, 5) if v is not None else None
+    p4 = lambda v: round(v, 4) if v is not None else None
+    p2 = lambda v: round(v, 2) if v is not None else None
+
+    row = {
+        'aberto_em':        datetime.utcnow().isoformat(),
+        'perfil':           perfil,
+        'resultado':        resultado,
+        'lucro_r':          p4(lucro_r),
+        'lucro_usd':        p2(lucro_usd),
+        'lotes':            p2(lotes),
+        'direcao':          direcao,
+        'forca_rompimento': p5(forca_rompimento),
+        'rr_ratio':         p4(rr_ratio),
+        'preco_entrada':    p5(preco_entrada),
+        'preco_saida':      p5(preco_saida),
+        'preco_stop':       p5(preco_stop),
+        'preco_target':     p5(preco_target),
+        'probabilidade_ml': p4(probabilidade_ml),
+        'ml_aprovado':      ml_aprovado,
+        'ml_threshold':     0.65,
+    }
+
+    try:
+        cliente.table('rafi_historico').insert(row).execute()
+        logger.info(
+            f"[Supabase] Trade gravado → {'WIN' if resultado else 'LOSS'} "
+            f"| R={lucro_r:+.2f} | ML={probabilidade_ml:.1%}" if probabilidade_ml else
+            f"[Supabase] Trade gravado → {'WIN' if resultado else 'LOSS'} | R={lucro_r:+.2f}"
+        )
+        return True
+    except Exception as e:
+        logger.error(f"[Supabase] Erro ao gravar trade ML: {e}")
+        return False
+
+
 def carregar_config_supabase(profile: str = 'live') -> Optional[dict]:
     """
     Carrega configurações do perfil indicado na tabela rafi_bot_config.
