@@ -654,19 +654,22 @@ class Backtest:
 
             elif modo == 'autoscan':
                 # ── AUTOSCAN: replica exata do autoScanBreakouts() do browser ──
-                # Sem filtro RAFI, sem MA, sem sessão, sem multi-TF.
-                # 5 filtros: BB squeeze → BB expandindo → S/R rompido → cor candle → gap
+                # Sem filtro RAFI, sem MA, sem multi-TF (sessão = 00:00-23:59 no config).
+                # 5 filtros: gap → BB squeeze → BB expansão → S/R rompido → cor candle
+                # _d_total/_d_sessao/_d_risco já foram incrementados pelo bloco geral acima.
+                # Usa _d_trend/_d_rafi/_d_bb/_d_cor/_d_sr para cada filtro autoscan-específico.
 
-                # Parâmetros do autoscan (lidos do config)
-                squeeze_ratio   = float(self.config.get('bb_limiar_estreita',      0.0012))
+                # Parâmetros (lidos do config — defaults=valores otimizados para fallback seguro)
+                squeeze_ratio   = float(self.config.get('bb_limiar_estreita',      0.0016))
                 expansao_min    = float(self.config.get('bb_squeeze_expansao_min', 1.05))
-                min_breakout    = float(self.config.get('autoscan_min_breakout',   0.00003))
-                min_gap         = int(self.config.get('autoscan_min_gap_candles',  8))
-                stop_offset     = float(self.config.get('autoscan_stop_offset',    0.00015))
+                min_breakout    = float(self.config.get('autoscan_min_breakout',   0.00005))
+                min_gap         = int(self.config.get('autoscan_min_gap_candles',  5))
+                stop_offset     = float(self.config.get('autoscan_stop_offset',    0.00010))
 
-                # Filtro 5: gap mínimo entre trades (mesmo sem posição aberta)
+                # Filtro A (gap): candles mínimos desde o último trade autoscan
                 if i - last_autoscan_candle < min_gap:
                     continue
+                _d_trend += 1  # passou gap
 
                 # BB do candle anterior e atual
                 bb_sup_prev = float(bb['bb_superior'].iloc[i - 1])
@@ -684,13 +687,15 @@ class Backtest:
                 prev_ratio = bb_wid_prev / bb_mid_prev
                 curr_ratio = bb_wid_curr / bb_mid_curr
 
-                # Filtro 1: BB anterior estava em squeeze
+                # Filtro B: BB anterior estava em squeeze (ratio < limiar)
                 if prev_ratio >= squeeze_ratio:
                     continue
+                _d_rafi += 1  # passou squeeze
 
-                # Filtro 2: BB está expandindo agora (>= 5% de aumento)
+                # Filtro C: BB está expandindo agora (>= expansao_min × candle anterior)
                 if curr_ratio <= prev_ratio * expansao_min:
                     continue
+                _d_bb += 1  # passou expansão
 
                 # S/R = max/min dos sr_lookback candles anteriores (sem lookahead via shift(1))
                 rh = rolling_high.iloc[i]
@@ -701,17 +706,19 @@ class Backtest:
                 candle_low_atual  = float(self.df_m5['low'].iloc[i])
                 candle_high_atual = float(self.df_m5['high'].iloc[i])
 
-                # Filtro 3 + 4: Rompimento de S/R + cor do candle
+                # Filtro D + E: Rompimento de S/R + cor do candle confirma direção
                 if close_atual > rh + min_breakout and close_atual >= open_atual:
                     # BUY: rompe resistência + candle verde
                     direcao     = 'compra'
                     entrada     = round(rh, 5)                    # entry = nível da resistência
-                    nivel_stop  = round(candle_low_atual - stop_offset, 5)  # SL = mínima − 1.5 pip
+                    nivel_stop  = round(candle_low_atual - stop_offset, 5)  # SL = mínima − 1 pip
+                    _d_cor += 1
                 elif close_atual < rl - min_breakout and close_atual < open_atual:
                     # SELL: rompe suporte + candle vermelho
                     direcao     = 'venda'
                     entrada     = round(rl, 5)                    # entry = nível do suporte
-                    nivel_stop  = round(candle_high_atual + stop_offset, 5)  # SL = máxima + 1.5 pip
+                    nivel_stop  = round(candle_high_atual + stop_offset, 5)  # SL = máxima + 1 pip
+                    _d_cor += 1
                 else:
                     continue
 
@@ -839,7 +846,13 @@ class Backtest:
 
         if modo == 'autoscan':
             logger.info(
-                f"[DIAGNÓSTICO AUTOSCAN] Candles M5: {n} → trades: {len(self.trades)}"
+                f"[DIAGNÓSTICO AUTOSCAN] Candles M5: {n}"
+                f" → sessão/risco: {_d_risco}"
+                f" → gap ok: {_d_trend}"
+                f" → squeeze: {_d_rafi}"
+                f" → expansão: {_d_bb}"
+                f" → breakout+cor: {_d_cor}"
+                f" → trades: {len(self.trades)}"
             )
         elif modo == 'epm':
             logger.info(
@@ -1093,6 +1106,29 @@ class BacktestCSV(Backtest):
         df = pd.read_csv(caminho, sep=sep, header=0)
         df.columns = [c.strip().replace('<', '').replace('>', '').lower()
                       for c in df.columns]
+
+        # Quando o CSV tem uma coluna a mais do que o header (ex.: datetime + OHLCV +
+        # tickvol + spread com header tendo só 6 nomes), pandas usa a 1ª coluna como
+        # índice automático. Detecta e restaura como coluna 'time'.
+        # Quando o CSV tem N+1 colunas de dados mas N headers (ex.: datetime + OHLCV +
+        # tickvol + spread com header de 6 nomes), pandas usa a 1ª coluna como índice.
+        # Colunas ficam deslocadas: 'Time'=open, 'Open'=high, etc. Corrige mapeamento.
+        if len(df) > 0 and isinstance(df.index[0], str):
+            try:
+                pd.to_datetime(df.index[0])
+                cols = list(df.columns)
+                shift_names = ['open', 'high', 'low', 'close', 'volume', 'spread']
+                rename = {c: shift_names[i] for i, c in enumerate(cols) if i < len(shift_names)}
+                df = df.rename(columns=rename)
+                df.index.name = 'datetime'
+                df = df.reset_index()
+                df['datetime'] = pd.to_datetime(df['datetime'], utc=True)
+                df = df.set_index('datetime').sort_index()
+                if 'volume' not in df.columns:
+                    df['volume'] = 0
+                return df[['open', 'high', 'low', 'close', 'volume']].astype(float)
+            except (ValueError, TypeError, IndexError):
+                pass
 
         if 'date' in df.columns and 'time' in df.columns:
             df['datetime'] = pd.to_datetime(df['date'] + ' ' + df['time'], utc=True)
