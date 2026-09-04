@@ -256,12 +256,40 @@ def carregar_params_supabase() -> dict:
 
 def carregar_csv_para_candles(path: str) -> list[dict]:
     """
-    Lê um CSV no formato Dukascopy (ou o formato merged do scratchpad)
-    e retorna lista de dicts {time, open, high, low, close}.
+    Lê um CSV histórico EURUSD M5 e retorna lista de dicts {time, open, high, low, close}.
+    Detecta automaticamente os formatos:
+      - Dukascopy:      America/Sao_Paulo,open,high,low,close,volume (índice com timezone)
+      - Investing.com:  EURUSD Historical Data\nDate,Open,High,Low,Close,Change(Pips),...
+      - Merged/padrão:  time_utc,open,high,low,close,volume (ISO 8601)
     """
+    from datetime import datetime, timezone
+
+    with open(path, encoding='utf-8', errors='replace') as f:
+        primeira = f.readline().strip()
+        segunda  = f.readline().strip()
+
+    # ── Formato Investing.com (primeira linha = título, segunda = header) ──
+    if 'Change' in segunda or primeira.upper().startswith('EURUSD HISTORICAL'):
+        rows = []
+        with open(path, encoding='utf-8', errors='replace') as f:
+            for i, line in enumerate(f):
+                if i < 2:   # pula título e header
+                    continue
+                parts = line.strip().split(',')
+                if len(parts) < 5:
+                    continue
+                try:
+                    dt = datetime.strptime(parts[0].strip(), '%m/%d/%Y %H:%M')
+                    o, h, l, c = float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4])
+                    rows.append({'time': int(dt.timestamp()), 'open': o, 'high': h, 'low': l, 'close': c})
+                except Exception:
+                    pass
+        rows.sort(key=lambda r: r['time'])
+        return rows
+
+    # ── Formato Dukascopy / Merged (pandas com índice de data) ────────────
     df = pd.read_csv(path, index_col=0, parse_dates=True)
-    df.columns = [c.lower() for c in df.columns]
-    # Garante índice UTC
+    df.columns = [c.lower().split('(')[0].strip() for c in df.columns]
     if df.index.tz is None:
         df.index = df.index.tz_localize('UTC')
     else:
