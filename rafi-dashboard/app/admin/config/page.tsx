@@ -74,7 +74,7 @@ const GRUPOS: {
     { key: 'ma_threshold',       label: 'MA Threshold',   desc: 'Diferença mínima MA rápida−lenta (pip)',   tipo: 'float', min: 0,    max: 0.01, step: 0.0001 },
   ]},
   { label: 'Suporte & Resistência', cor: C.am, campos: [
-    { key: 'sr_lookback',        label: 'S/R Lookback',   desc: 'Candles para detectar máximos/mínimos (autoscan: use 20)', tipo: 'int', min: 10, max: 200 },
+    { key: 'sr_lookback',        label: 'S/R Lookback',   desc: 'OTIMIZADO 15 candles (autoscan) — S/R mais recente e preciso (era 20)', tipo: 'int', min: 10, max: 200 },
     { key: 'swing_stop_lookback',label: 'Swing Stop',     desc: 'Candles para posicionar stop-loss (apenas modo rafi)',     tipo: 'int', min: 20, max: 500 },
   ]},
   { label: 'Bandas de Bollinger', cor: C.gr, campos: [
