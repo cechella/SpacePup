@@ -88,17 +88,8 @@ def _ler_comando() -> str | None:
 
 
 def _publicar_status(status: str) -> None:
-    """Atualiza watchdog_status em rafi_bot_status para o monitor."""
-    if supa is None:
-        return
-    try:
-        supa.table('rafi_bot_status').upsert({
-            'id': 'main',
-            'watchdog_status': status,
-            'updated_at': datetime.now(timezone.utc).isoformat(),
-        }, on_conflict='id').execute()
-    except Exception:
-        pass
+    """Loga o status do watchdog localmente (sem coluna dedicada no Supabase)."""
+    logger.info(f"[Watchdog] Status: {status}")
 
 
 def _iniciar_executor() -> subprocess.Popen:
