@@ -20,3 +20,5 @@ __pycache__/
 ignition/deployments/chain-31337
 rafi-bot/data/histdata/
 rafi-bot/data/*.csv
+rafi-bot/config.yaml
+rafi-bot/src/ml/modelo.pkl
