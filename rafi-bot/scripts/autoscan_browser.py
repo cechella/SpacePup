@@ -86,7 +86,9 @@ def autoscan_breakouts(candles: list[dict],
                        rr_ratio:       float = 1.5,
                        min_breakout:   float = 0.00003,
                        min_gap:        int   = 8,
-                       squeeze_ratio:  float = 0.0012) -> list[dict]:
+                       squeeze_ratio:  float = 0.0012,
+                       expansao_min:   float = 1.05,
+                       stop_offset:    float = 0.00015) -> list[dict]:
     """
     Réplica exata de autoScanBreakouts() do browser (indicators.ts).
 
@@ -123,9 +125,9 @@ def autoscan_breakouts(candles: list[dict],
         # BB squeeze → expansão
         prev_ratio = bb_prev['width'] / bb_prev['mid']
         curr_ratio = bb_curr['width'] / bb_curr['mid']
-        if prev_ratio >= squeeze_ratio:    # não era squeeze
+        if prev_ratio >= squeeze_ratio:                  # não era squeeze
             continue
-        if curr_ratio <= prev_ratio * 1.05:  # não está expandindo
+        if curr_ratio <= prev_ratio * expansao_min:      # não está expandindo
             continue
 
         # S/R = max HIGH / min LOW dos candles anteriores (sem lookahead)
@@ -138,7 +140,7 @@ def autoscan_breakouts(candles: list[dict],
         # COMPRA: fecha acima da resistência, candle verde
         if c['close'] > resistance and c['close'] - resistance >= min_breakout and c['close'] >= c['open']:
             entry  = p5(resistance)
-            stop   = p5(c['low'] - 0.00015)
+            stop   = p5(c['low'] - stop_offset)
             risk   = entry - stop
             trades.append({
                 'time'      : c['time'],
@@ -153,7 +155,7 @@ def autoscan_breakouts(candles: list[dict],
         # VENDA: fecha abaixo do suporte, candle vermelho
         elif c['close'] < support and support - c['close'] >= min_breakout and c['close'] < c['open']:
             entry  = p5(support)
-            stop   = p5(c['high'] + 0.00015)
+            stop   = p5(c['high'] + stop_offset)
             risk   = stop - entry
             trades.append({
                 'time'      : c['time'],
@@ -220,6 +222,38 @@ def calc_pnl(signal: dict, result: str, lot: float) -> float:
 
 # ── Ponto de entrada ──────────────────────────────────────────────────────────
 
+def carregar_params_supabase() -> dict:
+    """
+    Lê os parâmetros do perfil 'simulator' na tabela rafi_bot_config.
+    Retorna dict com os valores ou {} se Supabase não estiver disponível.
+    """
+    try:
+        from supabase import create_client
+        import os
+        from pathlib import Path
+
+        # Carrega .env se existir (rafi-bot/.env)
+        env_path = Path(__file__).parent.parent / '.env'
+        if env_path.exists():
+            for line in env_path.read_text().splitlines():
+                if '=' in line and not line.startswith('#'):
+                    k, v = line.split('=', 1)
+                    os.environ.setdefault(k.strip(), v.strip())
+
+        url = os.getenv('SUPABASE_URL', '')
+        key = os.getenv('SUPABASE_KEY', '')
+        if not url or not key or 'xxxx' in url:
+            return {}
+
+        supa = create_client(url, key)
+        resp = supa.table('rafi_bot_config').select('*').eq('profile', 'simulator').limit(1).execute()
+        if resp.data:
+            return resp.data[0]
+    except Exception as e:
+        print(f"[Supabase] indisponível — usando defaults hardcoded ({e})")
+    return {}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description='Autoscan browser — réplica exata do indicators.ts'
@@ -229,6 +263,19 @@ def main() -> None:
     parser.add_argument('--capital', type=float, default=100.0,
                         help='Capital inicial em USD (padrão: 100)')
     args = parser.parse_args()
+
+    # ── Parâmetros do Supabase (perfil simulator) ou defaults hardcoded ─────
+    supa_cfg = carregar_params_supabase()
+    sr_lookback   = int(supa_cfg.get('sr_lookback',               20))
+    bb_period     = int(supa_cfg.get('bb_periodo',                8))
+    rr_ratio      = float(supa_cfg.get('ratio_risco_retorno',     1.5))
+    min_breakout  = float(supa_cfg.get('autoscan_min_breakout',   0.00003))
+    min_gap       = int(supa_cfg.get('autoscan_min_gap_candles',  8))
+    squeeze_ratio = float(supa_cfg.get('bb_limiar_estreita',      0.0012))
+    stop_offset   = float(supa_cfg.get('autoscan_stop_offset',    0.00015))
+    expansao_min  = float(supa_cfg.get('bb_squeeze_expansao_min', 1.05))
+
+    fonte_params = 'Supabase (perfil simulator)' if supa_cfg else 'defaults hardcoded'
 
     # ── Carregar candles ────────────────────────────────────────────────────
     if args.csv:
@@ -249,10 +296,24 @@ def main() -> None:
         fonte = 'demo (seed 1337, Jan 6-10 2025)'
 
     print(f"\n=== AUTOSCAN BROWSER — réplica Python ===")
-    print(f"Dados: {fonte} | {len(candles)} candles")
+    print(f"Dados       : {fonte} | {len(candles)} candles")
+    print(f"Parâmetros  : {fonte_params}")
+    print(f"  sr_lookback={sr_lookback} | bb_period={bb_period} | rr={rr_ratio}")
+    print(f"  min_breakout={min_breakout} | min_gap={min_gap} | squeeze={squeeze_ratio}")
+    print(f"  stop_offset={stop_offset} | expansao_min={expansao_min}")
 
     # ── Encontrar sinais ────────────────────────────────────────────────────
-    signals = autoscan_breakouts(candles)
+    signals = autoscan_breakouts(
+        candles,
+        sr_lookback   = sr_lookback,
+        bb_period     = bb_period,
+        rr_ratio      = rr_ratio,
+        min_breakout  = min_breakout,
+        min_gap       = min_gap,
+        squeeze_ratio = squeeze_ratio,
+        expansao_min  = expansao_min,
+        stop_offset   = stop_offset,
+    )
     print(f"Sinais encontrados: {len(signals)}")
 
     # ── Avaliar cada sinal e calcular P&L composto ──────────────────────────
