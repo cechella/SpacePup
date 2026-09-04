@@ -121,6 +121,11 @@ class Backtest:
         # ── Pré-cálculo de indicadores (O(n)) ─────────────────
         logger.info("Pré-calculando indicadores (RAFI, MA20/50 M5, S/R)...")
 
+        # Modo determinado PRIMEIRO para que sr_lookback use o valor correto por modo.
+        # config.yaml tem dois sr_lookback (autoscan=10, rafi=20); YAML mantém o último,
+        # mas 'autoscan_sr_lookback' sobrepõe corretamente para o modo autoscan.
+        modo = self.config.get('estrategia_modo', 'rafi')
+
         # Índice de força RAFI no M5
         forca_serie = calcular_indice_forca(self.df_m5)
 
@@ -137,9 +142,14 @@ class Backtest:
         trend_m5[diff_m5 >  ma_threshold] = 1
         trend_m5[diff_m5 < -ma_threshold] = -1
 
-        # S/R dinâmico: máximo e mínimo dos últimos sr_lookback candles (shift=1 evita lookahead)
-        # Usar sr_lookback do config (padrão 50 = 250 min ≈ 4h de histórico local)
-        sr_lookback  = int(self.config.get('sr_lookback', 50))
+        # S/R dinâmico: sr_lookback depende do modo.
+        # Autoscan: 'autoscan_sr_lookback' (padrão 10) ou fallback 'sr_lookback'.
+        # RAFI: 'sr_lookback' (padrão 50).
+        if modo == 'autoscan':
+            sr_lookback = int(self.config.get('autoscan_sr_lookback',
+                                              self.config.get('sr_lookback', 10)))
+        else:
+            sr_lookback = int(self.config.get('sr_lookback', 50))
         rolling_high = self.df_m5['high'].rolling(sr_lookback).max().shift(1)
         rolling_low  = self.df_m5['low'].rolling(sr_lookback).min().shift(1)
 
@@ -172,7 +182,6 @@ class Backtest:
         # ─── Pré-cálculo EPM (EMA Pullback Momentum) ──────────
         # Estratégia alternativa: entra na recuperação após pullback à EMA21
         # WR esperado: 50-55% (vs 33-37% do RAFI S/R breakout)
-        modo = self.config.get('estrategia_modo', 'rafi')
         if modo == 'epm':
             epm_ema_r   = int(self.config.get('epm_ema_rapida',    21))
             epm_ema_l   = int(self.config.get('epm_ema_lenta',     55))

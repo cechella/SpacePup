@@ -161,6 +161,7 @@ class RafiBot:
                 'autoscan_min_breakout':    'autoscan_min_breakout',    # pip mínimo além do S/R
                 'autoscan_min_gap_candles': 'autoscan_min_gap_candles', # gap entre sinais
                 'autoscan_stop_offset':     'autoscan_stop_offset',     # buffer do stop (pip)
+                'autoscan_sr_lookback':     'autoscan_sr_lookback',     # S/R lookback autoscan (10)
                 'bb_squeeze_expansao_min':  'bb_squeeze_expansao_min',  # expansão mín. da BB
                 # Gestão de risco — comuns a todos os modos
                 'risco_por_trade': 'risco_por_trade', 'ratio_risco_retorno': 'ratio_risco_retorno',
