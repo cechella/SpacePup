@@ -64,12 +64,9 @@ def ler_csv_histdata(path: Path) -> pd.DataFrame | None:
             df = df.iloc[1:].reset_index(drop=True)
 
         # Combina date + time → datetime
-        # HistData usa YYYYMMDD e HHMMSS (6 dígitos, ex: 170100 = 17:01:00)
-        df['datetime'] = pd.to_datetime(
-            df['date'].str.strip() + df['time'].str.strip().str.zfill(6),
-            format='%Y%m%d%H%M%S',
-            utc=True,
-        )
+        # HistData MetaTrader: YYYY.MM.DD,HH:MM  (ex: 2020.01.01,17:00)
+        dt_str = df['date'].str.strip() + ' ' + df['time'].str.strip()
+        df['datetime'] = pd.to_datetime(dt_str, format='mixed', utc=True)
 
         df = df[['datetime', 'open', 'high', 'low', 'close', 'volume']].copy()
         df[['open', 'high', 'low', 'close', 'volume']] = \
