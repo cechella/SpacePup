@@ -287,18 +287,24 @@ export default function ConfigPage() {
     if (!supa) return
     const edit = faixasEditando[ordem]
     if (!edit) return
+    const faixa = faixas.find(f => f.ordem === ordem)
+    if (!faixa) return
     setFaixasSaving(s => ({ ...s, [ordem]: true }))
     try {
-      const faixa = faixas.find(f => f.ordem === ordem)
-      const patch = {
-        lote: edit.lote ?? faixa?.lote,
-        capital_min: edit.capital_min ?? faixa?.capital_min,
-        capital_max: edit.capital_max !== undefined ? edit.capital_max : faixa?.capital_max,
-        updated_at: new Date().toISOString(),
-      }
-      await supa.from('rafi_lote_faixas').update(patch).eq('ordem', ordem)
-      // Atualiza estado local
-      setFaixas(prev => prev.map(f => f.ordem === ordem ? { ...f, ...patch } : f))
+      const novoLote = edit.lote        ?? faixa.lote
+      const novoMin  = edit.capital_min ?? faixa.capital_min
+      const novoMax: number | null = 'capital_max' in edit
+        ? (edit.capital_max ?? null)
+        : faixa.capital_max
+      await supa.from('rafi_lote_faixas').update({
+        lote:        novoLote,
+        capital_min: novoMin,
+        capital_max: novoMax,
+        updated_at:  new Date().toISOString(),
+      }).eq('ordem', ordem)
+      setFaixas(prev => prev.map(f =>
+        f.ordem === ordem ? { ...f, lote: novoLote, capital_min: novoMin, capital_max: novoMax } : f
+      ))
       setFaixasEditando(e => { const n = { ...e }; delete n[ordem]; return n })
       setFaixasSaved(s => ({ ...s, [ordem]: true }))
       setTimeout(() => setFaixasSaved(s => ({ ...s, [ordem]: false })), 2000)
@@ -506,15 +512,15 @@ export default function ConfigPage() {
               <div style={{ color: C.t3, marginTop: 8 }}>
                 {'# ═══════════════════════════════════════════════════'}
               </div>
-              <div style={{ color: C.t3 }}>{'# Tabela de lote (hardcoded em risk_manager.py):'}</div>
-              {FAIXAS_LOTE.map((f, i) => (
+              <div style={{ color: C.t3 }}>{'# Tabela de lote (Supabase · rafi_lote_faixas):'}</div>
+              {faixas.map((f, i) => (
                 <div key={i} style={{ display: 'flex', gap: 8 }}>
                   <span style={{ color: C.t2, minWidth: `${maxLen + 2}ch` }}>
-                    {pad(`lote_faixa_${i + 1}`)}
+                    {pad(`lote_faixa_${f.ordem}`)}
                   </span>
                   <span style={{ color: C.t3 }}>{'='}</span>
                   <span style={{ color: C.gr }}>
-                    ${f.min.toLocaleString()}{f.max === Infinity ? '+' : `–$${f.max.toLocaleString()}`} → {f.lote.toFixed(2)}L ({f.pip})
+                    ${f.capital_min.toLocaleString()}{f.capital_max === null ? '+' : `–$${f.capital_max.toLocaleString()}`} → {f.lote.toFixed(2)}L ({pipValue(f.lote)})
                   </span>
                 </div>
               ))}
