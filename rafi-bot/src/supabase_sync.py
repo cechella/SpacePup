@@ -282,7 +282,8 @@ def publicar_candles_batch(candles_list: list) -> bool:
 
 def verificar_comando_avancado() -> Optional[dict]:
     """
-    Verifica comandos avançados do dashboard: close_position, buy_manual, sell_manual.
+    Verifica comandos avançados do dashboard: close_position, close_all,
+    buy_manual, sell_manual, start, restart.
 
     Retorna {'command': str} ou None se não houver comandos pendentes.
     """
@@ -295,7 +296,8 @@ def verificar_comando_avancado() -> Optional[dict]:
             cliente.table('rafi_bot_commands')
             .select('id,command')
             .eq('pending', True)
-            .in_('command', ['close_position', 'close_all', 'buy_manual', 'sell_manual'])
+            .in_('command', ['close_position', 'close_all', 'buy_manual', 'sell_manual',
+                             'start', 'restart'])
             .order('created_at')
             .limit(1)
             .execute()

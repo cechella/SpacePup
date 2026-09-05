@@ -208,6 +208,12 @@ class RafiBot:
         self._ml_sinais_hoje    = 0
         self._ml_aprovados_hoje = 0
 
+        # Sinaliza ao loop principal para reiniciar (comando 'restart' do dashboard)
+        self._deve_reiniciar = False
+
+        # Último RAFI calculado — passado ao candle em formação para manter gauge atualizado
+        self._ultimo_rafi: Optional[float] = None
+
         # Hash do config efetivo (pós-overrides) — exibido no dashboard para rastreabilidade
         self._config_hash = calcular_hash_config(self.cfg)
 
@@ -286,10 +292,20 @@ class RafiBot:
                                        config_hash=self._config_hash)
                     break
 
-                # Comandos avançados do dashboard (fechar posição, ordem manual)
+                # Comandos avançados do dashboard (fechar posição, ordem manual, restart)
                 cmd = verificar_comando_avancado()
                 if cmd:
                     self._processar_comando_avancado(cmd)
+
+                # Reinicialização solicitada via dashboard
+                if self._deve_reiniciar:
+                    logger.info("Comando RESTART recebido — encerrando para reinicialização.")
+                    publicar_heartbeat('stopped', self.capital, self.capital, 0,
+                                       pnl_hoje=self._pnl_hoje,
+                                       par=self.par, server=self._conta_server,
+                                       account=self._conta_account,
+                                       config_hash=self._config_hash)
+                    break
 
                 # Reset diário
                 self._verificar_reset_diario()
@@ -316,8 +332,10 @@ class RafiBot:
                             server         = self._conta_server,
                             account        = self._conta_account,
                             config_hash    = self._config_hash,
+                            forming_rafi   = self._ultimo_rafi,
                         )
                         # Candle em formação: atualiza o gráfico entre fechamentos M5
+                        # Inclui o RAFI do último candle fechado para manter o gauge atualizado
                         candle_formando = self.mt5.obter_candle_formando()
                         if candle_formando:
                             publicar_candle(
@@ -327,6 +345,7 @@ class RafiBot:
                                 low        = candle_formando['low'],
                                 close      = candle_formando['close'],
                                 volume     = candle_formando['volume'],
+                                rafi       = self._ultimo_rafi,
                             )
 
         except KeyboardInterrupt:
@@ -437,6 +456,7 @@ class RafiBot:
 
         # 8. Verifica sinal de entrada no candle mais recente
         rafi_v = float(indice_forca.iloc[-1]) if indice_forca is not None else 0.0
+        self._ultimo_rafi = rafi_v  # mantém gauge atualizado no candle em formação
         sinal  = self._verificar_sinal(df, indice_forca, bb, niveis_sr)
         if sinal is None:
             logger.debug("Sem sinal de entrada.")
@@ -910,10 +930,19 @@ class RafiBot:
     # ─────────────────────────────────────────────────────────────────────────
 
     def _processar_comando_avancado(self, cmd: dict) -> None:
-        """Processa comandos avançados recebidos do dashboard (fechar, ordem manual)."""
+        """Processa comandos avançados recebidos do dashboard (fechar, ordem manual, start/restart)."""
         comando = cmd.get('command')
 
-        if comando == 'close_position':
+        if comando == 'start':
+            logger.info("Comando START recebido — bot já está em execução.")
+            return
+
+        elif comando == 'restart':
+            logger.info("Comando RESTART recebido — bot irá reinicializar.")
+            self._deve_reiniciar = True
+            return
+
+        elif comando == 'close_position':
             logger.info("Comando FECHAR POSIÇÃO recebido do dashboard")
             for pos in self.mt5.posicoes_abertas():
                 ticket = pos['ticket']

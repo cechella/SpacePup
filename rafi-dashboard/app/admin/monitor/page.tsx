@@ -684,8 +684,8 @@ export default function MonitorPage() {
   const day30Start = (now - 30 * 86400_000) / 1000
 
   function pnlPeriod(from: number) {
-    // Soma apenas trades com pnl real registrado
-    return closed.filter(t => t.time >= from && t.pnl !== null).reduce((s, t) => s + t.pnl!, 0)
+    // Soma apenas trades com pnl real registrado (usa != null para cobrir undefined e null)
+    return closed.filter(t => t.time >= from && t.pnl != null).reduce((s, t) => s + t.pnl!, 0)
   }
 
   const pnlTodayCalc = pnlPeriod(todayStart)
@@ -696,8 +696,8 @@ export default function MonitorPage() {
   const pctToday  = bal > 0 ? (pnlToday / Math.max(bal, 0.01)) * 100 : 0
   const tradesHoje = closed.filter(t => t.time >= todayStart).length
 
-  // Acumulado total: apenas trades com pnl real no banco
-  const realPnLTrades = useMemo(() => closed.filter(t => t.pnl !== null), [closed])
+  // Acumulado total: apenas trades com pnl real no banco (usa != null para cobrir undefined e null)
+  const realPnLTrades = useMemo(() => closed.filter(t => t.pnl != null), [closed])
   const totalPnL = realPnLTrades.reduce((s, t) => s + t.pnl!, 0)
 
   // Max DD diário em dólares (5% do saldo)
@@ -732,7 +732,8 @@ export default function MonitorPage() {
 
   // ── Computed forming state from latest candle (no bot required) ───────────────
   const lastCandle      = candles.length > 0 ? candles[candles.length - 1] : null
-  const liveRafi        = lastCandle?.rafi ?? null
+  // Entre fechamentos de M5 o candle em formação não tem rafi — usa forming_rafi do heartbeat
+  const liveRafi        = lastCandle?.rafi ?? (status?.forming_rafi != null ? status.forming_rafi : null)
   const computedForming = liveRafi !== null && Math.abs(liveRafi) >= 1.75 && Math.abs(liveRafi) < 2.5
   const computedDir     = lastCandle
     ? (lastCandle.close >= lastCandle.open ? 'buy' : 'sell') as 'buy' | 'sell'
@@ -2178,18 +2179,35 @@ export default function MonitorPage() {
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.bl }} />
                 IA / Fase 2 · XGBoost
               </div>
-              <div style={{ ...lbl }}>Acurácia do Modelo</div>
-              <div style={{ ...mono, fontSize: '1.3rem', fontWeight: 700,
-                margin: '4px 0', color: C.bl }}>72.4%</div>
-              <div style={{ height: 2, background: C.s3, overflow: 'hidden', marginBottom: 10 }}>
-                <div style={{ height: '100%', width: '72.4%',
-                  background: `linear-gradient(90deg, ${C.bl}, ${C.cy})` }} />
-              </div>
+              {status?.ml_modelo_carregado ? (
+                <>
+                  <div style={{ ...lbl }}>Acurácia (WR Rolling)</div>
+                  <div style={{ ...mono, fontSize: '1.3rem', fontWeight: 700,
+                    margin: '4px 0', color: C.gr }}>
+                    {status.ml_wr_rolling != null ? `${(status.ml_wr_rolling * 100).toFixed(1)}%` : '—'}
+                  </div>
+                  <div style={{ height: 2, background: C.s3, overflow: 'hidden', marginBottom: 10 }}>
+                    <div style={{ height: '100%',
+                      width: `${status.ml_wr_rolling != null ? Math.min(100, status.ml_wr_rolling * 100) : 0}%`,
+                      background: `linear-gradient(90deg, ${C.gr}, ${C.cy})` }} />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ ...lbl }}>Status do Modelo</div>
+                  <div style={{ ...mono, fontSize: '0.85rem', fontWeight: 700,
+                    margin: '4px 0 10px', color: C.am }}>AGUARDANDO DADOS</div>
+                  <div style={{ height: 2, background: C.s3, overflow: 'hidden', marginBottom: 10 }}>
+                    <div style={{ height: '100%', width: `${Math.min(100, (closed.length / 300) * 100)}%`,
+                      background: `linear-gradient(90deg, ${C.am}, ${C.cy})` }} />
+                  </div>
+                </>
+              )}
               {([
-                ['Filtro ativo',  '≥ 65%', C.am],
-                ['Features',      '12 vars', C.t2],
-                ['Sinais ML',     `${closed.filter(t => t.rafi !== null).length}`, C.bl],
-                ['Retreino',      'Semanal', C.t2],
+                ['Modo',         status?.ml_modo ?? 'OBSERVAÇÃO',   C.am],
+                ['Filtro ativo', `≥ ${((status?.ml_threshold ?? 0.65) * 100).toFixed(0)}%`, C.am],
+                ['Sinais hoje',  `${status?.ml_sinais_hoje ?? 0}`,   C.bl],
+                ['Aprovados',    `${status?.ml_aprovados_hoje ?? 0}`, C.gr],
               ] as [string, string, string][]).map(([k, v, vc]) => (
                 <div key={k} style={{ display: 'flex', justifyContent: 'space-between',
                   alignItems: 'center', padding: '5px 0',
@@ -2199,7 +2217,9 @@ export default function MonitorPage() {
                 </div>
               ))}
               <div style={{ fontSize: 8, color: C.t3, paddingTop: 8 }}>
-                300+ sinais para treino completo
+                {status?.ml_modelo_carregado
+                  ? `Treinado em: ${status.ml_treinado_em ? new Date(status.ml_treinado_em).toLocaleDateString('pt-BR') : '—'}`
+                  : `${closed.length}/300 trades para treino`}
               </div>
             </div>
           </div>
