@@ -757,10 +757,10 @@ export default function ConfigPage() {
                   </thead>
                   <tbody>
                     {faixas.map((f, i) => {
-                      const edit = faixasEditando[f.ordem] ?? {}
-                      const loteAtual = edit.lote ?? f.lote
-                      const minAtual  = edit.capital_min ?? f.capital_min
-                      const maxAtual  = 'capital_max' in edit ? edit.capital_max : f.capital_max
+                      const editRow   = faixasEditando[f.ordem]
+                      const loteAtual = editRow?.lote ?? f.lote
+                      const minAtual  = editRow?.capital_min ?? f.capital_min
+                      const maxAtual  = editRow && 'capital_max' in editRow ? editRow.capital_max : f.capital_max
                       const temEdit   = f.ordem in faixasEditando
                       const saving    = faixasSaving[f.ordem]
                       const saved     = faixasSaved[f.ordem]

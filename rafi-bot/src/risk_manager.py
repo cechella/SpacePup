@@ -112,7 +112,10 @@ class GestorRisco:
 
     def __init__(self, config: dict):
         # ── Parâmetros base ─────────────────────────────────────────────────
-        self.risco_por_trade      = float(config.get('risco_por_trade', 0.02))
+        # risco_por_trade REMOVIDO: no modo autoscan (único modo em uso),
+        # o lote é determinado exclusivamente por lote_por_faixa(capital),
+        # que lê da tabela rafi_lote_faixas no Supabase. calcular_lote()
+        # abaixo é legado do modo rafi e não é chamado em autoscan.
         self.risco_maximo_diario  = float(config.get('risco_maximo_diario', 0.05))
         self.max_trades_simult    = int(config.get('max_trades_simultaneos', 1))
         self.max_perdas_dia       = int(config.get('max_perdas_por_dia', 1))
@@ -232,13 +235,14 @@ class GestorRisco:
         elif modo == 'fixo':
             lote = self.lote_fixo
 
-        # ── Kelly % (legado) ──────────────────────────────────────────────
+        # ── Kelly % (MODO LEGADO — nunca chamado no autoscan) ────────────
         else:
             if risco_pips <= 0 or capital_atual <= 0:
                 return self.lote_minimo
             custo_extra      = (self.spread_pips + self.slippage_pips) if incluir_spread else 0.0
             risco_total_pips = risco_pips + custo_extra
-            valor_risco_usd  = capital_atual * self.risco_por_trade
+            # No autoscan este bloco nunca é atingido; 2% fixo apenas como fallback legado
+            valor_risco_usd  = capital_atual * 0.02
             pip_value        = 10.0  # EURUSD: $10/pip por lote padrão
             lote             = valor_risco_usd / (risco_total_pips * pip_value)
             lote             = max(self.lote_minimo, min(lote, self._lote_max_margem(capital_atual)))
