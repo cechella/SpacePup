@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Play, Clock, CheckCircle2, XCircle, AlertCircle,
   ChevronDown, ChevronUp, RefreshCw, Loader2,
-  TrendingUp, TrendingDown, BarChart2, Zap,
+  TrendingUp, BarChart2, Zap,
 } from 'lucide-react'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -25,6 +25,29 @@ interface BacktestRun {
   resultado:    Record<string, unknown> | null
   error_msg:    string | null
   updated_at:   string
+}
+
+// ─── Tipos internos ───────────────────────────────────────────────────────────
+
+interface BacktestResultado {
+  total_trades:        number
+  ganhos:              number
+  perdas:              number
+  win_rate_pct:        number
+  profit_factor:       number
+  sharpe_ratio:        number
+  drawdown_max_usd:    number
+  drawdown_max_pct:    number
+  retorno_pct:         number
+  retorno_total_usd:   number
+  capital_final:       number
+  expectancy_usd:      number
+  media_ganho_usd:     number
+  media_perda_usd:     number
+  duracao_media_min:   number
+  pips_ganhos_total:   number
+  pips_perdidos_total: number
+  por_mes:             Record<string, number>
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -72,7 +95,7 @@ function dataBr(iso: string): string {
 // ─── Componente de run expandido ──────────────────────────────────────────────
 
 function RunDetail({ run }: { run: BacktestRun }) {
-  const r = run.resultado as Record<string, number & { por_mes?: Record<string, number> }> | null
+  const r = run.resultado as BacktestResultado | null
   if (!r) return null
 
   const wr  = Number(r.win_rate_pct)
@@ -96,7 +119,7 @@ function RunDetail({ run }: { run: BacktestRun }) {
           { label: 'Drawdown Máx',  value: `${fmt(r.drawdown_max_pct)}%`, color: dd <= 20 ? '#22c55e' : '#ef4444' },
           { label: 'Retorno Total', value: `${ret >= 0 ? '+' : ''}${fmt(r.retorno_pct)}%`, color: ret >= 0 ? '#22c55e' : '#ef4444' },
           { label: 'Capital Final', value: `$${fmt(r.capital_final)}`,  color: '#e2e8f0' },
-          { label: 'Trades',        value: String(r.total_trades ?? '—'), color: '#e2e8f0' },
+          { label: 'Trades',        value: String(r.total_trades), color: '#e2e8f0' },
           { label: 'Duração Média', value: `${fmt(r.duracao_media_min, 0)} min`, color: '#94a3b8' },
         ].map(({ label, value, color }) => (
           <div key={label} style={{
@@ -115,12 +138,12 @@ function RunDetail({ run }: { run: BacktestRun }) {
       <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
         <div style={{ flex: 1, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 8, padding: '10px 14px' }}>
           <div style={{ fontSize: 10, color: '#22c55e', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Ganhos</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#22c55e' }}>{String(r.ganhos ?? '—')}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#22c55e' }}>{String(r.ganhos)}</div>
           <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Média: +${fmt(r.media_ganho_usd)}</div>
         </div>
         <div style={{ flex: 1, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: '10px 14px' }}>
           <div style={{ fontSize: 10, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Perdas</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#ef4444' }}>{String(r.perdas ?? '—')}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#ef4444' }}>{String(r.perdas)}</div>
           <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Média: −${fmt(r.media_perda_usd)}</div>
         </div>
         <div style={{ flex: 1, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 8, padding: '10px 14px' }}>
@@ -133,11 +156,11 @@ function RunDetail({ run }: { run: BacktestRun }) {
       </div>
 
       {/* Por mês */}
-      {r.por_mes && Object.keys(r.por_mes as object).length > 0 && (
+      {r.por_mes && Object.keys(r.por_mes).length > 0 && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Resultado por Mês</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {Object.entries(r.por_mes as Record<string, number>).map(([mes, val]) => (
+            {Object.entries(r.por_mes).map(([mes, val]) => (
               <div key={mes} style={{
                 background: Number(val) >= 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
                 border: `1px solid ${Number(val) >= 0 ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
@@ -147,7 +170,7 @@ function RunDetail({ run }: { run: BacktestRun }) {
                 color: Number(val) >= 0 ? '#22c55e' : '#ef4444',
                 fontVariantNumeric: 'tabular-nums',
               }}>
-                {mes}: {Number(val) >= 0 ? '+' : ''}${fmt(val)}
+                {mes}: {Number(val) >= 0 ? '+' : ''}${fmt(Number(val))}
               </div>
             ))}
           </div>
@@ -176,7 +199,7 @@ function RunDetail({ run }: { run: BacktestRun }) {
 function RunCard({ run, onDelete }: { run: BacktestRun; onDelete?: () => void }) {
   const [expanded, setExpanded] = useState(false)
   const { text, color, Icon } = statusLabel(run.status)
-  const r = run.resultado as Record<string, number> | null
+  const r = run.resultado as BacktestResultado | null
 
   return (
     <div style={{
