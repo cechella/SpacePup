@@ -27,6 +27,7 @@ import sys
 import time
 import logging
 import argparse
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -58,6 +59,8 @@ from .supabase_sync import (
     carregar_broker_ativo,
     publicar_status_broker,
     gravar_rafi_trade,
+    verificar_backtest_pendente,
+    atualizar_backtest_run,
 )
 
 # ── Configuração de logging ───────────────────────────────────────────────────
@@ -214,6 +217,9 @@ class RafiBot:
         # Último RAFI calculado — passado ao candle em formação para manter gauge atualizado
         self._ultimo_rafi: Optional[float] = None
 
+        # Controle de backtest em background (evita dois simultâneos)
+        self._backtest_em_andamento = False
+
         # Hash do config efetivo (pós-overrides) — exibido no dashboard para rastreabilidade
         self._config_hash = calcular_hash_config(self.cfg)
 
@@ -313,6 +319,12 @@ class RafiBot:
                 # Ciclo principal
                 self._ciclo()
 
+                # Verifica backtest solicitado pelo admin (roda em thread separada)
+                if not self._backtest_em_andamento:
+                    _bt_pendente = verificar_backtest_pendente()
+                    if _bt_pendente:
+                        self._iniciar_backtest_background(_bt_pendente)
+
                 # Aguarda próximo candle M5, publicando candle em formação a cada 30s
                 agora   = time.time()
                 proximo = (int(agora / 300) + 1) * 300
@@ -353,6 +365,130 @@ class RafiBot:
         finally:
             self.mt5.desconectar()
             logger.info("Bot encerrado.")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # BACKTEST REMOTO (disparado pelo admin dashboard)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _iniciar_backtest_background(self, run: dict) -> None:
+        """
+        Executa um backtest em thread daemon para não bloquear o loop de trading.
+
+        run: dict com {id, periodo, inicio, fim, capital, profile} do Supabase.
+        Ao terminar, grava o resultado em rafi_backtest_runs.
+        """
+        # Candles M5 por período (com margem de sessão/fim de semana)
+        PERIODO_CANDLES = {
+            '1w': 2500, '1m': 9000, '3m': 27000, '6m': 54000, '1y': 108000,
+        }
+
+        def _worker() -> None:
+            run_id = run['id']
+            try:
+                self._backtest_em_andamento = True
+                atualizar_backtest_run(run_id, 'running', progress=5)
+                periodo   = run.get('periodo', '1m')
+                n_candles = PERIODO_CANDLES.get(periodo, 9000)
+                logger.info(f"[Backtest] Run {run_id[:8]} | período: {periodo} | {n_candles:,} candles")
+                publicar_log(f"Backtest iniciado | período: {periodo}", level='info')
+
+                # Config: cópia do atual + override do perfil solicitado
+                profile   = run.get('profile', 'simulator')
+                cfg_run   = dict(self.cfg)
+                cfg_supa  = carregar_config_supabase(profile=profile)
+                if cfg_supa:
+                    for k in [
+                        'estrategia_modo', 'forca_limiar', 'rafi_periodo', 'sr_lookback',
+                        'swing_stop_lookback', 'ma_rapida', 'ma_lenta', 'ma_threshold',
+                        'bb_filtro_ativo', 'bb_limiar_estreita', 'bb_periodo', 'bb_desvios',
+                        'autoscan_min_breakout', 'autoscan_min_gap_candles',
+                        'autoscan_stop_offset', 'autoscan_sr_lookback', 'bb_squeeze_expansao_min',
+                        'ratio_risco_retorno', 'max_trades_simultaneos',
+                    ]:
+                        if k in cfg_supa and cfg_supa[k] is not None:
+                            cfg_run[k] = cfg_supa[k]
+
+                capital = float(run.get('capital') or cfg_run.get('capital_inicial', 20.0))
+                cfg_run['capital_inicial'] = capital
+                config_hash = calcular_hash_config(cfg_run)
+                atualizar_backtest_run(run_id, 'running', config_hash=config_hash, progress=15)
+
+                # Dados históricos via MT5
+                logger.info(f"[Backtest] Buscando {n_candles:,} candles M5 do MT5...")
+                df_m5 = self.mt5.obter_candles('M5', n_candles=n_candles)
+                if df_m5 is None or df_m5.empty:
+                    raise RuntimeError("MT5 não retornou dados — verifique a conexão")
+
+                # Filtro de período (--inicio / --fim)
+                import pandas as pd
+                inicio_str = run.get('inicio')
+                fim_str    = run.get('fim')
+                if inicio_str:
+                    df_m5 = df_m5[df_m5.index >= pd.Timestamp(str(inicio_str), tz='UTC')]
+                if fim_str:
+                    dt_fim = pd.Timestamp(str(fim_str), tz='UTC') + pd.Timedelta(hours=23, minutes=59)
+                    df_m5 = df_m5[df_m5.index <= dt_fim]
+                if df_m5.empty:
+                    raise RuntimeError("Nenhum dado no período selecionado")
+
+                # Reamostrar M15 do M5
+                df_m15 = df_m5.resample('15min').agg({
+                    'open': 'first', 'high': 'max', 'low': 'min',
+                    'close': 'last', 'volume': 'sum',
+                }).dropna()
+                atualizar_backtest_run(run_id, 'running', progress=35)
+
+                # Executar backtest
+                import sys as _sys
+                _sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+                from backtest.engine import Backtest
+                from backtest.report import gerar_relatorio
+                bt     = Backtest(cfg_run, df_m5, df_m15, capital=capital)
+                atualizar_backtest_run(run_id, 'running', progress=40)
+                trades = bt.executar()
+                atualizar_backtest_run(run_id, 'running', progress=85)
+
+                relatorio = gerar_relatorio(trades, capital_inicial=capital,
+                                            equity_curve=bt.equity_curve)
+
+                # Simplificar trades para JSON (≤500 registros)
+                trades_simples = []
+                for t in trades[:500]:
+                    ts_ent = t.get('timestamp_entrada')
+                    trades_simples.append({
+                        'ts':      int(ts_ent.timestamp()) if ts_ent else 0,
+                        'dir':     t.get('sinal', ''),
+                        'entry':   round(t.get('preco_entrada', 0), 5),
+                        'sl':      round(t.get('stop_loss', 0), 5),
+                        'tp':      round(t.get('take_profit', 0), 5),
+                        'pnl':     round(t.get('pnl_usd', 0), 2),
+                        'pips':    round(t.get('variacao_pips', 0), 1),
+                        'motivo':  t.get('motivo_saida', ''),
+                        'rafi':    round(t.get('forca_entrada', 0), 2) if t.get('forca_entrada') else None,
+                        'dur_c':   t.get('duracao_candles', 0),
+                    })
+
+                atualizar_backtest_run(
+                    run_id, 'done',
+                    config_hash=config_hash,
+                    progress=100,
+                    resultado=relatorio,
+                    trades_json=trades_simples,
+                )
+                wr = relatorio.get('win_rate_pct', 0)
+                pf = relatorio.get('profit_factor', 0)
+                logger.info(f"[Backtest] Run {run_id[:8]} concluído | WR: {wr:.1f}% | PF: {pf:.3f} | {len(trades)} trades")
+                publicar_log(f"Backtest concluído | WR: {wr:.1f}% | PF: {pf:.3f} | {len(trades)} trades", level='info')
+
+            except Exception as exc:
+                logger.error(f"[Backtest] Erro no run {run_id}: {exc}")
+                atualizar_backtest_run(run_id, 'error', error_msg=str(exc))
+                publicar_log(f"Backtest erro: {exc}", level='error')
+            finally:
+                self._backtest_em_andamento = False
+
+        t = threading.Thread(target=_worker, daemon=True, name=f'bt-{run["id"][:8]}')
+        t.start()
 
     # ─────────────────────────────────────────────────────────────────────────
     # CICLO POR CANDLE

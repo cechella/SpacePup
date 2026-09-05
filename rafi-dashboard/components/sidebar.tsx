@@ -15,6 +15,7 @@ const adminNav: NavItem[] = [
   { label: 'Monitor Bot',  href: '/admin/monitor',   icon: Activity, badge: 'LIVE'      },
   { label: 'Gráfico RAFI', href: '/admin/chart',     icon: BarChart2                    },
   { label: 'IA / Fase 2',  href: '/admin/fase2',     icon: Brain, badge: 'BETA'         },
+  { label: 'Backtest',     href: '/admin/backtest',  icon: BarChart2                    },
   { label: 'Exportar ML',  href: '/admin/export',    icon: Download                     },
   { label: 'Estratégia',   href: '/admin/strategy',  icon: TrendingUp                   },
   { label: 'Clientes',     href: '/admin/clients',   icon: Users                        },

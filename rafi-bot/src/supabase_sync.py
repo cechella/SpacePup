@@ -542,6 +542,86 @@ def gravar_rafi_trade(
         return False
 
 
+def verificar_backtest_pendente() -> Optional[dict]:
+    """
+    Retorna o run de backtest mais antigo com status='pending', ou None.
+
+    Chamado pelo executor a cada ciclo para detectar solicitações vindas do admin.
+
+    Tabela rafi_backtest_runs — SQL para criar (executar uma vez no Supabase):
+      create table rafi_backtest_runs (
+        id uuid primary key default gen_random_uuid(),
+        created_at timestamptz default now(),
+        periodo text,
+        inicio date,
+        fim date,
+        capital real default 20.0,
+        profile text default 'simulator',
+        status text default 'pending',
+        config_hash text,
+        progress_pct integer default 0,
+        resultado jsonb,
+        trades_json jsonb,
+        error_msg text,
+        updated_at timestamptz default now()
+      );
+      alter table rafi_backtest_runs enable row level security;
+      create policy "anon_r"  on rafi_backtest_runs for select to anon using (true);
+      create policy "anon_i"  on rafi_backtest_runs for insert to anon with check (true);
+      create policy "anon_u"  on rafi_backtest_runs for update to anon using (true);
+    """
+    cliente = _get_cliente()
+    if cliente is None:
+        return None
+    try:
+        res = (
+            cliente.table('rafi_backtest_runs')
+            .select('id,periodo,inicio,fim,capital,profile')
+            .eq('status', 'pending')
+            .order('created_at')
+            .limit(1)
+            .execute()
+        )
+        return res.data[0] if res.data else None
+    except Exception as e:
+        logger.debug(f"[Supabase] rafi_backtest_runs não disponível: {e}")
+        return None
+
+
+def atualizar_backtest_run(
+    run_id:      str,
+    status:      str,
+    config_hash: Optional[str]  = None,
+    resultado:   Optional[dict] = None,
+    trades_json: Optional[list] = None,
+    error_msg:   Optional[str]  = None,
+    progress:    int            = 0,
+) -> bool:
+    """Atualiza status e resultado de um run de backtest na tabela rafi_backtest_runs."""
+    cliente = _get_cliente()
+    if cliente is None:
+        return False
+    patch: dict = {
+        'status':       status,
+        'progress_pct': progress,
+        'updated_at':   datetime.utcnow().isoformat(),
+    }
+    if config_hash is not None:
+        patch['config_hash'] = config_hash
+    if resultado is not None:
+        patch['resultado'] = resultado
+    if trades_json is not None:
+        patch['trades_json'] = trades_json
+    if error_msg is not None:
+        patch['error_msg'] = error_msg
+    try:
+        cliente.table('rafi_backtest_runs').update(patch).eq('id', run_id).execute()
+        return True
+    except Exception as e:
+        logger.error(f"[Supabase] Erro ao atualizar backtest run {run_id}: {e}")
+        return False
+
+
 def carregar_config_supabase(profile: str = 'live') -> Optional[dict]:
     """
     Carrega configurações do perfil indicado na tabela rafi_bot_config.
