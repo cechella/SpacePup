@@ -9,8 +9,8 @@ import { TradePanel, type ManualTrade } from '@/components/trade-panel'
 import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
 import { getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
-import { upsertTrade } from '@/lib/trades-db'
-import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine, History, ChevronDown, Trash2 } from 'lucide-react'
+import { upsertTrade, fetchTrades, fetchCandles, countCandles } from '@/lib/trades-db'
+import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine, History, ChevronDown, Trash2, Database } from 'lucide-react'
 import type { CandleData } from '@/lib/types'
 import { generateTradeSnapshot } from '@/lib/trade-snapshot'
 
@@ -80,6 +80,8 @@ export default function ChartPage() {
   const [csvHistory,   setCsvHistory]   = useState<CsvHistoryEntry[]>([])
   const [historyOpen,  setHistoryOpen]  = useState(false)
   const [activeCsvId,  setActiveCsvId]  = useState<string | null>(null)
+  const [sbLoading,     setSbLoading]     = useState(false)
+  const [sbCandleCount, setSbCandleCount] = useState<number | null>(null)
   const fileInputRef        = useRef<HTMLInputElement>(null)
   const historyPanelRef     = useRef<HTMLDivElement>(null)
   const snapshotCaptureRef  = useRef<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>(null)
@@ -185,7 +187,7 @@ export default function ChartPage() {
     if (activeCsvId === id) { setCsvData(null); setCsvError(null); setTrades([]); setActiveCsvId(null) }
   }, [activeCsvId])
 
-  // Carrega trades salvos do localStorage na inicialização
+  // Carrega trades: localStorage primeiro (imediato) depois Supabase sobrescreve
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY)
@@ -194,12 +196,48 @@ export default function ChartPage() {
         if (Array.isArray(parsed) && parsed.length > 0) setTrades(parsed)
       }
     } catch {}
+    // Supabase é fonte de verdade
+    fetchTrades()
+      .then(data => {
+        if (data.length > 0) {
+          setTrades(data as any)
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)) } catch {}
+        }
+      })
+      .catch(() => {})
+    // Verifica quantos candles existem no Supabase
+    countCandles().then(n => setSbCandleCount(n)).catch(() => {})
   }, [])
 
   // Salva trades no localStorage sempre que mudam
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(trades)) } catch {}
   }, [trades])
+
+  // Carrega candles do Supabase (tabela rafi_candles) — substitui CSV local
+  const loadCandlesFromSupabase = useCallback(async () => {
+    setSbLoading(true)
+    try {
+      const rows = await fetchCandles()
+      if (rows.length === 0) { setSbLoading(false); return }
+      const candles = rows as CandleData[]
+      candles.sort((a, b) => a.time - b.time)
+      const result: LoadResult = {
+        candles,
+        filename:  'Supabase · rafi_candles',
+        dateFrom:  fmtDate(candles[0].time),
+        dateTo:    fmtDate(candles[candles.length - 1].time),
+        timeframe: detectTimeframe(candles),
+        count:     candles.length,
+      }
+      setCsvData(result)
+      setCsvError(null)
+      saveToHistory(result)
+    } catch (err: any) {
+      setCsvError(err?.message ?? 'Erro ao carregar candles do Supabase')
+    }
+    setSbLoading(false)
+  }, [saveToHistory])
 
   // Carrega histórico de CSVs do localStorage na inicialização
   useEffect(() => {
@@ -489,14 +527,27 @@ export default function ChartPage() {
                     </button>
                   </span>
                 ) : (
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border border-[#30363d] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d] transition-all"
-                    title="Carregar dados históricos reais (CSV Dukascopy ou MT5)"
-                  >
-                    <FolderOpen size={10} />
-                    Carregar CSV
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border border-[#30363d] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d] transition-all"
+                      title="Carregar dados históricos reais (CSV Dukascopy ou MT5)"
+                    >
+                      <FolderOpen size={10} />
+                      Carregar CSV
+                    </button>
+                    {sbCandleCount != null && sbCandleCount > 0 && (
+                      <button
+                        onClick={loadCandlesFromSupabase}
+                        disabled={sbLoading}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border border-[#3b82f6]/50 text-[#3b82f6] hover:bg-[#3b82f6]/10 disabled:opacity-40 transition-all"
+                        title={`Carregar ${sbCandleCount.toLocaleString('pt-BR')} candles do Supabase`}
+                      >
+                        <Database size={10} />
+                        {sbLoading ? 'Carregando…' : `Supabase (${sbCandleCount.toLocaleString('pt-BR')})`}
+                      </button>
+                    )}
+                  </div>
                 )}
 
                 {/* Botão de histórico — aparece quando há entradas */}

@@ -94,3 +94,39 @@ export async function updateTradeResult(id: string, result: 'win' | 'loss'): Pro
     .eq('id', id)
   if (error) throw error
 }
+
+// ── Candles do Supabase (tabela rafi_candles) ─────────────────────────────────
+export interface CandleRow {
+  time:   number
+  open:   number
+  high:   number
+  low:    number
+  close:  number
+  volume?: number
+}
+
+export async function fetchCandles(): Promise<CandleRow[]> {
+  const db = createClient()
+  const { data, error } = await db
+    .from('rafi_candles')
+    .select('time,open,high,low,close,volume')
+    .order('time', { ascending: true })
+  if (error) throw error
+  return (data ?? []).map(r => ({
+    time:   Number(r.time),
+    open:   Number(r.open),
+    high:   Number(r.high),
+    low:    Number(r.low),
+    close:  Number(r.close),
+    volume: r.volume != null ? Number(r.volume) : undefined,
+  }))
+}
+
+export async function countCandles(): Promise<number> {
+  const db = createClient()
+  const { count, error } = await db
+    .from('rafi_candles')
+    .select('*', { count: 'exact', head: true })
+  if (error) return 0
+  return count ?? 0
+}
