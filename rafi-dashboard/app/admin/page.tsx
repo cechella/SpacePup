@@ -641,8 +641,15 @@ export default function AdminDashboard() {
   const winRate = decided > 0 ? Math.round(wins / decided * 100) : null
 
   const pnl = useMemo(() => trades.reduce((acc, t) => {
-    if (t.result === 'win')  return acc + rewardPips(t.entry, t.takeProfit, t.direction) * pipValueUSD(t.lot)
-    if (t.result === 'loss') return acc - riskPips(t.entry, t.stopLoss, t.direction)    * pipValueUSD(t.lot)
+    if (t.result === 'win') {
+      // Usa pnlUsd real do backtest quando disponível (evita recálculo aproximado)
+      if (t.pnlUsd != null) return acc + t.pnlUsd
+      return acc + rewardPips(t.entry, t.takeProfit, t.direction) * pipValueUSD(t.lot)
+    }
+    if (t.result === 'loss') {
+      if (t.pnlUsd != null) return acc + t.pnlUsd  // pnlUsd é negativo para losses
+      return acc - riskPips(t.entry, t.stopLoss, t.direction) * pipValueUSD(t.lot)
+    }
     return acc
   }, 0), [trades])
 

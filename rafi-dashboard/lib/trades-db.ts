@@ -18,6 +18,7 @@ export interface TradeRecord {
   rafiDir?: 'bull' | 'bear'
   bbWidth?: number
   snapshot?: string
+  pnlUsd?: number
 }
 
 function fromRow(row: Record<string, unknown>): TradeRecord {
@@ -36,6 +37,7 @@ function fromRow(row: Record<string, unknown>): TradeRecord {
     rafiDir:    (row.rafi_dir as TradeRecord['rafiDir']) ?? undefined,
     bbWidth:    row.bb_width != null ? Number(row.bb_width) : undefined,
     snapshot:   (row.snapshot as string) ?? undefined,
+    pnlUsd:     row.pnl_usd != null ? Number(row.pnl_usd) : undefined,
   }
 }
 
@@ -55,6 +57,7 @@ function toRow(t: TradeRecord) {
     rafi_dir:    t.rafiDir ?? null,
     bb_width:    t.bbWidth ?? null,
     snapshot:    t.snapshot ?? null,
+    pnl_usd:     t.pnlUsd ?? null,
     updated_at:  new Date().toISOString(),
   }
 }

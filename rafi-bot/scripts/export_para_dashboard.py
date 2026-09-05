@@ -125,6 +125,10 @@ def trade_para_dashboard(trade: dict, capital_entrada: float) -> dict:
     forca_raw = trade.get('forca_entrada')
     rafi_val  = round(float(forca_raw), 3) if forca_raw is not None and forca_raw == forca_raw else 0.0
 
+    # P&L real calculado pelo backtest (pip a pip, preço de saída real)
+    pnl_raw = trade.get('pnl_usd')
+    pnl_usd = round(float(pnl_raw), 4) if pnl_raw is not None else None
+
     return {
         'id'        : str(uuid.uuid4()),
         'direction' : direction,
@@ -138,6 +142,7 @@ def trade_para_dashboard(trade: dict, capital_entrada: float) -> dict:
         'result'    : result,
         'rafi'      : rafi_val,
         'rafiDir'   : 'bull' if direction == 'buy' else 'bear',
+        'pnlUsd'    : pnl_usd,
     }
 
 

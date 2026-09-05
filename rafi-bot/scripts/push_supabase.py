@@ -49,6 +49,7 @@ def _camel_to_row(t: dict) -> dict:
         'rafi_dir'   : t.get('rafiDir'),
         'bb_width'   : t.get('bbWidth'),
         'snapshot'   : t.get('snapshot'),
+        'pnl_usd'    : t.get('pnlUsd'),
         'updated_at' : datetime.now(timezone.utc).isoformat(),
     }
 
