@@ -160,6 +160,10 @@ def main() -> None:
                         help='Sobrescreve estrategia_modo do config.yaml (ex: rafi, rsi_rev)')
     parser.add_argument('--log',      default='INFO',
                         help='Nível de log: DEBUG, INFO, WARNING (padrão: INFO)')
+    parser.add_argument('--inicio',   default=None,
+                        help='Data inicial do backtest (YYYY-MM-DD). Ex: 2026-08-28')
+    parser.add_argument('--fim',      default=None,
+                        help='Data final do backtest (YYYY-MM-DD). Ex: 2026-09-04')
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -204,6 +208,16 @@ def main() -> None:
             sys.exit(1)
         logger.info(f"Carregando CSV: {args.m5}")
         bt = BacktestCSV.de_csv(config, args.m5, args.m5, capital=capital)
+
+    # ── Filtro de período (--inicio / --fim) ──────────────────────────────
+    if args.inicio or args.fim:
+        import pandas as pd
+        dt_inicio = pd.Timestamp(args.inicio, tz='UTC') if args.inicio else bt.df_m5.index.min()
+        dt_fim    = pd.Timestamp(args.fim,    tz='UTC') if args.fim    else bt.df_m5.index.max()
+        dt_fim    = dt_fim + pd.Timedelta(hours=23, minutes=59)
+        bt.df_m5  = bt.df_m5.loc[dt_inicio:dt_fim]
+        bt.df_m15 = bt.df_m15.loc[dt_inicio:dt_fim]
+        logger.info(f"Período filtrado: {dt_inicio.date()} → {dt_fim.date()} ({len(bt.df_m5):,} candles M5)")
 
     # ── Executar backtest ──────────────────────────────────────────────────
     logger.info(f"Executando backtest | Estratégia: {config.get('estrategia_modo', 'rafi')} | Capital: ${capital:.2f}")
