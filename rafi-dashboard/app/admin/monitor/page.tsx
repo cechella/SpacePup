@@ -1,269 +1,567 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import {
-  Activity, Square, Play, RefreshCw, TrendingUp, TrendingDown,
-  DollarSign, BarChart2, Clock, AlertTriangle, Wifi, WifiOff,
-  ChevronUp, ChevronDown, Shield, Zap, Target, Calendar,
+  Square, Play, RefreshCw, BarChart2, Clock, AlertTriangle,
+  Wifi, WifiOff, ChevronUp, ChevronDown, Zap, Bell, X,
+  ArrowUpCircle, ArrowDownCircle, DollarSign, TrendingUp, Brain,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@supabase/supabase-js'
+import { applyRAFICandleColors, calcRAFI } from '@/lib/indicators'
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
 const SUPA_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
 const supa = SUPA_URL && SUPA_KEY ? createClient(SUPA_URL, SUPA_KEY) : null
 
-// ── Faixas de lote (espelho da tabela Python) ─────────────────────────────────
+declare global { interface Window { LightweightCharts: any } }
+
+// ── Design tokens — GitHub Dark (alinhado com o dashboard) ───────────────────
+const C = {
+  bg:  '#0d1117', s1: '#161b22', s2: '#21262d', s3: '#30363d',
+  bd:  '#30363d', bd2: 'rgba(48,54,61,.5)',
+  cy:  '#3b82f6', cya: 'rgba(59,130,246,.08)',
+  gr:  '#10b981', gra: 'rgba(16,185,129,.10)',
+  re:  '#ef4444', rea: 'rgba(239,68,68,.10)',
+  am:  '#f59e0b', ama: 'rgba(245,158,11,.08)',
+  bl:  '#6366f1', bla: 'rgba(99,102,241,.08)',
+  tx:  '#f0f6fc', t2: '#8b949e', t3: '#484f58',
+}
+
+// ── Lot table ─────────────────────────────────────────────────────────────────
 const FAIXAS_LOTE = [
-  { min: 0,      max: 40,      lote: '0.10L' },
-  { min: 40,     max: 80,      lote: '0.20L' },
-  { min: 80,     max: 150,     lote: '0.40L' },
-  { min: 150,    max: 200,     lote: '0.70L' },
-  { min: 200,    max: 400,     lote: '1.00L' },
-  { min: 400,    max: 800,     lote: '2.00L' },
-  { min: 800,    max: 1500,    lote: '4.00L' },
-  { min: 1500,   max: 3000,    lote: '8.00L' },
-  { min: 3000,   max: 6000,    lote: '15.0L' },
-  { min: 6000,   max: 10000,   lote: '30.0L' },
-  { min: 10000,  max: 20000,   lote: '50.0L' },
-  { min: 20000,  max: Infinity, lote: '100L'  },
+  { min: 0,      max: 40,       lote: 0.10, label: '0.10L' },
+  { min: 40,     max: 80,       lote: 0.20, label: '0.20L' },
+  { min: 80,     max: 150,      lote: 0.40, label: '0.40L' },
+  { min: 150,    max: 200,      lote: 0.70, label: '0.70L' },
+  { min: 200,    max: 400,      lote: 1.00, label: '1.00L' },
+  { min: 400,    max: 800,      lote: 2.00, label: '2.00L' },
+  { min: 800,    max: 1500,     lote: 4.00, label: '4.00L' },
+  { min: 1500,   max: 3000,     lote: 8.00, label: '8.00L' },
+  { min: 3000,   max: 6000,     lote: 15.0, label: '15.0L' },
+  { min: 6000,   max: 10000,    lote: 30.0, label: '30.0L' },
+  { min: 10000,  max: 20000,    lote: 50.0, label: '50.0L' },
+  { min: 20000,  max: Infinity, lote: 100,  label: '100L'  },
 ]
-function loteAtual(balance: number) {
-  return FAIXAS_LOTE.find(f => balance >= f.min && balance < f.max)?.lote ?? '0.10L'
+function loteAtual(b: number) {
+  return FAIXAS_LOTE.find(f => b >= f.min && b < f.max)?.label ?? '0.10L'
 }
 
 // ── Interfaces ────────────────────────────────────────────────────────────────
 interface BotStatus {
-  id: string
-  status: 'running' | 'stopped' | 'error' | 'waiting'
-  balance: number
-  equity: number
-  open_positions: number
-  pnl_today: number
-  par: string
-  server: string
-  account: number
-  last_signal: string | null
-  updated_at: string
+  id: string; status: 'running' | 'stopped' | 'error' | 'waiting'
+  balance: number; equity: number; open_positions: number; pnl_today: number
+  par: string; server: string; account: number
+  last_signal: string | null; updated_at: string
+  forming_signal?: boolean; forming_direction?: 'buy' | 'sell'
+  forming_rafi?: number; forming_tf_count?: number
+  forming_bb_open?: boolean; forming_price?: number
+  config_hash?: string | null
+  // ML / Fase 2
+  ml_modelo_carregado?: boolean
+  ml_modo?: 'OBSERVAÇÃO' | 'ADAPTAÇÃO'
+  ml_wr_rolling?: number | null
+  ml_pf_rolling?: number | null
+  ml_sinais_hoje?: number
+  ml_aprovados_hoje?: number
+  ml_treinado_em?: string | null
+  ml_threshold?: number
 }
-
 interface Trade {
-  id: string
-  direction: 'buy' | 'sell'
-  entry: number
-  stop_loss: number
-  take_profit: number
-  lot: number
+  id: string; direction: 'buy' | 'sell'; entry: number
+  stop_loss: number; take_profit: number; lot: number
   result: 'win' | 'loss' | 'pending'
-  rafi: number | null
-  pnl: number | null
-  time: number
-  label: string
+  rafi: number | null; pnl: number | null; time: number; label: string
+}
+interface BotLog {
+  id: string; level: 'info' | 'warn' | 'error' | 'signal'; message: string
+  created_at: string; details?: string | null
+}
+interface CandleRow {
+  time: number; open: number; high: number; low: number; close: number
+  volume: number; rafi: number | null
+}
+interface BrokerRow {
+  id: string; nome: string; simbolo: string; enabled: boolean
+  saldo: number | null; posicoes: number | null; pnl_hoje: number | null
+  status_text: string | null; updated_at: string | null
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function secondsAgo(iso: string) {
-  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
-  if (diff < 60)   return `${diff}s atrás`
-  if (diff < 3600) return `${Math.floor(diff / 60)}min atrás`
-  return `${Math.floor(diff / 3600)}h atrás`
+  const d = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
+  if (d < 60)   return `${d}s atrás`
+  if (d < 3600) return `${Math.floor(d / 60)}min atrás`
+  return `${Math.floor(d / 3600)}h atrás`
 }
-
 function fmtUSD(v: number, plus = false) {
   const s = `$${Math.abs(v).toFixed(2)}`
   if (!plus) return v < 0 ? `-${s}` : s
   return v >= 0 ? `+${s}` : `-${s}`
 }
-
 function fmtPct(v: number, plus = false) {
   const s = `${Math.abs(v).toFixed(2)}%`
-  if (!plus) return v < 0 ? `-${s}` : s
-  return v >= 0 ? `+${s}` : `-${s}`
+  return (!plus) ? (v < 0 ? `-${s}` : s) : (v >= 0 ? `+${s}` : `-${s}`)
 }
-
 function fmtTime(ts: number) {
   return new Date(ts * 1000).toLocaleString('pt-BR', {
-    day: '2-digit', month: '2-digit',
-    hour: '2-digit', minute: '2-digit',
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
   })
 }
-
-function startOfDay(d: Date) {
-  const r = new Date(d); r.setUTCHours(0, 0, 0, 0); return r
-}
+function startOfDay(d: Date)  { const r = new Date(d); r.setUTCHours(0,0,0,0); return r }
 function startOfWeek(d: Date) {
-  const r = new Date(d)
-  const day = r.getUTCDay()
-  r.setUTCDate(r.getUTCDate() - (day === 0 ? 6 : day - 1))
-  r.setUTCHours(0, 0, 0, 0)
-  return r
+  const r = new Date(d); const day = r.getUTCDay()
+  r.setUTCDate(r.getUTCDate() - (day === 0 ? 6 : day - 1)); r.setUTCHours(0,0,0,0); return r
 }
 
-// ── Equity sparkline SVG ──────────────────────────────────────────────────────
-function EquitySparkline({ trades, balance }: { trades: Trade[]; balance: number }) {
-  const closed = useMemo(() =>
-    [...trades]
-      .filter(t => t.result !== 'pending')
-      .sort((a, b) => a.time - b.time),
-    [trades]
-  )
+// ── Mini Trade Chart (80×44 SVG) ──────────────────────────────────────────────
+function MiniTradeChart({ trade }: { trade: Trade }) {
+  const { entry, stop_loss, take_profit, result } = trade
+  const isWin  = result === 'win'
+  const isLoss = result === 'loss'
 
-  if (closed.length < 2) {
-    return (
-      <div className="flex items-center justify-center h-full text-[#484f58] text-xs">
-        Aguardando trades para curva de equity
-      </div>
-    )
-  }
+  const prices = [entry, stop_loss, take_profit]
+  const minP   = Math.min(...prices)
+  const maxP   = Math.max(...prices)
+  const range  = maxP - minP || 0.00001
+  const toY    = (p: number) => 5 + (1 - (p - minP) / range) * 34
 
-  // Compute cumulative PNL (use actual pnl or estimate from R)
-  let cumulative = 0
-  const points = closed.map(t => {
-    if (t.pnl !== null) {
-      cumulative += t.pnl
-    } else {
-      // Estimate: win ≈ +1.5R, loss ≈ -1R (typical RR)
-      const R = Math.abs(t.entry - t.stop_loss) * (t.lot ?? 0.1) * 100000
-      cumulative += t.result === 'win' ? R * 1.5 : -R
-    }
-    return cumulative
-  })
+  const entryY = toY(entry)
+  const slY    = toY(stop_loss)
+  const tpY    = toY(take_profit)
+  const endY   = isWin ? tpY : isLoss ? slY : entryY
+  const color  = isWin ? C.gr : isLoss ? C.re : C.am
 
-  const min = Math.min(0, ...points)
-  const max = Math.max(0, ...points)
-  const range = max - min || 1
-  const W = 500, H = 80, PAD = 8
-
-  const x = (i: number) => PAD + (i / (points.length - 1)) * (W - PAD * 2)
-  const y = (v: number) => PAD + (1 - (v - min) / range) * (H - PAD * 2)
-
-  const path = points.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
-  const area = `${path} L${x(points.length - 1).toFixed(1)},${y(0).toFixed(1)} L${x(0).toFixed(1)},${y(0).toFixed(1)} Z`
-
-  const zeroY = y(0)
-  const isPositive = points[points.length - 1] >= 0
-  const lineColor  = isPositive ? '#10b981' : '#ef4444'
+  const seed = (entry * 100000) % 7
+  const m1Y  = entryY + (endY - entryY) * 0.35 + (seed - 3.5) * 1.5
+  const m2Y  = entryY + (endY - entryY) * 0.65 + ((seed * 1.3) % 7 - 3.5) * 1.2
+  const pts  = `0,${entryY.toFixed(1)} 20,${m1Y.toFixed(1)} 50,${m2Y.toFixed(1)} 80,${endY.toFixed(1)}`
 
   return (
-    <div className="w-full h-full flex flex-col gap-2">
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full flex-1" preserveAspectRatio="none">
-        <defs>
-          <linearGradient id="eq-grad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={lineColor} stopOpacity="0.3" />
-            <stop offset="100%" stopColor={lineColor} stopOpacity="0.0" />
-          </linearGradient>
-        </defs>
-        {/* Zero line */}
-        <line x1={PAD} y1={zeroY} x2={W - PAD} y2={zeroY}
-          stroke="#30363d" strokeWidth="0.5" strokeDasharray="3,3" />
-        {/* Area fill */}
-        <path d={area} fill="url(#eq-grad)" />
-        {/* Equity line */}
-        <path d={path} fill="none" stroke={lineColor} strokeWidth="1.5"
-          strokeLinejoin="round" strokeLinecap="round" />
-        {/* Last point dot */}
-        <circle
-          cx={x(points.length - 1)} cy={y(points[points.length - 1])}
-          r="3" fill={lineColor} />
-      </svg>
-      <div className="flex justify-between text-[9px] font-mono text-[#484f58] px-2">
-        <span>{closed[0] ? new Date(closed[0].time * 1000).toLocaleDateString('pt-BR') : ''}</span>
-        <span className={cn('font-bold', isPositive ? 'text-[#10b981]' : 'text-[#ef4444]')}>
-          {fmtUSD(points[points.length - 1], true)} acumulado
-        </span>
-        <span>agora</span>
-      </div>
+    <svg width="80" height="44" viewBox="0 0 80 44"
+      style={{ background: C.s2, flexShrink: 0, display: 'block' }}>
+      <line x1="0" y1={slY.toFixed(1)}    x2="80" y2={slY.toFixed(1)}
+        stroke={C.re} strokeWidth="0.7" opacity="0.5" />
+      <line x1="0" y1={tpY.toFixed(1)}    x2="80" y2={tpY.toFixed(1)}
+        stroke={C.gr} strokeWidth="0.7" opacity="0.5" />
+      <line x1="0" y1={entryY.toFixed(1)} x2="80" y2={entryY.toFixed(1)}
+        stroke={C.bd2} strokeWidth="0.5" strokeDasharray="2,2" />
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" />
+      <text x="2" y={Math.max(8,  tpY - 2)} fill={C.gr} fontSize="5">TP</text>
+      <text x="2" y={Math.min(42, slY + 6)} fill={C.re} fontSize="5">SL</text>
+      <circle cx="80" cy={endY.toFixed(1)} r="2.5" fill={color} />
+    </svg>
+  )
+}
+
+// ── Capital Curve Chart ───────────────────────────────────────────────────────
+function CapitalCurveChart({ trades }: { trades: Trade[] }) {
+  const closed = useMemo(() =>
+    [...trades].filter(t => t.result !== 'pending').sort((a, b) => a.time - b.time), [trades])
+
+  if (closed.length < 2) return (
+    <div style={{ height: 120, display: 'flex', alignItems: 'center',
+      justifyContent: 'center', color: C.t3, fontSize: 11 }}>
+      Aguardando trades para curva de equity
+    </div>
+  )
+
+  let cum = 0
+  const pts = closed.map(t => {
+    if (t.pnl !== null) { cum += t.pnl } else {
+      const R = Math.abs(t.entry - t.stop_loss) * (t.lot ?? 0.1) * 100000
+      cum += t.result === 'win' ? R * 1.5 : -R
+    }
+    return { cum, trade: t }
+  })
+
+  const min = Math.min(0, ...pts.map(p => p.cum))
+  const max = Math.max(0.01, ...pts.map(p => p.cum))
+  const rng = max - min
+  const W = 560, H = 110, PL = 40, PR = 8, PT = 8, PB = 18
+  const iW = W - PL - PR, iH = H - PT - PB
+  const xp = (i: number) => PL + (i / (pts.length - 1)) * iW
+  const yp = (v: number) => PT + (1 - (v - min) / rng) * iH
+
+  const linePath = pts.map((p, i) =>
+    `${i === 0 ? 'M' : 'L'}${xp(i).toFixed(1)},${yp(p.cum).toFixed(1)}`).join(' ')
+  const areaPath = `${linePath} L${xp(pts.length-1).toFixed(1)},${yp(0).toFixed(1)} L${xp(0).toFixed(1)},${yp(0).toFixed(1)} Z`
+  const lastCum  = pts[pts.length - 1].cum
+  const lc = lastCum >= 0 ? C.gr : C.re
+  const zeroY = yp(0)
+
+  const gridVals = [min, min + rng * 0.5, max]
+  const labelDots = [0, Math.floor((pts.length - 1) / 2), pts.length - 1]
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}>
+      <defs>
+        <linearGradient id="ccg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stopColor={lc} stopOpacity="0.18" />
+          <stop offset="100%" stopColor={lc} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {gridVals.map((v, i) => (
+        <g key={i}>
+          <line x1={PL} y1={yp(v).toFixed(1)} x2={W - PR} y2={yp(v).toFixed(1)}
+            stroke={C.bd} strokeWidth="1" />
+          <text x={PL - 4} y={(yp(v) + 3).toFixed(1)} fill={C.t3} fontSize="7"
+            textAnchor="end" fontFamily="monospace">
+            {v >= 0 ? `+$${v.toFixed(0)}` : `-$${Math.abs(v).toFixed(0)}`}
+          </text>
+        </g>
+      ))}
+      {min < 0 && (
+        <line x1={PL} y1={zeroY.toFixed(1)} x2={W - PR} y2={zeroY.toFixed(1)}
+          stroke={C.t3} strokeWidth="0.5" strokeDasharray="3,3" />
+      )}
+      <path d={areaPath} fill="url(#ccg)" />
+      <path d={linePath} fill="none" stroke={lc} strokeWidth="2"
+        strokeLinejoin="round" strokeLinecap="round" />
+      {pts.map((p, i) => (
+        <circle key={i} cx={xp(i).toFixed(1)} cy={yp(p.cum).toFixed(1)} r="2.5"
+          fill={p.trade.result === 'win' ? C.gr : C.re} opacity="0.85" />
+      ))}
+      <circle cx={xp(pts.length - 1).toFixed(1)} cy={yp(lastCum).toFixed(1)}
+        r="4" fill={lc} />
+      {labelDots.map(i => (
+        <text key={i} x={xp(i).toFixed(1)} y={H} fill={C.t3} fontSize="7"
+          textAnchor="middle" fontFamily="monospace">
+          {new Date(closed[i]?.time * 1000).toLocaleDateString('pt-BR',
+            { day: '2-digit', month: '2-digit' })}
+        </text>
+      ))}
+    </svg>
+  )
+}
+
+// ── Trade Forecast Section ────────────────────────────────────────────────────
+function ForecastSection({ trades }: { trades: Trade[] }) {
+  const now      = new Date()
+  const lonHour  = parseInt(new Date().toLocaleString('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/London' }))
+  const nextHour = (lonHour + 1).toString().padStart(2, '0')
+  const lonHourStr = lonHour.toString().padStart(2, '0')
+  const dayName  = now.toLocaleDateString('pt-BR', { weekday: 'long', timeZone: 'Europe/London' })
+
+  const closed = trades.filter(t => t.result !== 'pending')
+  const totalDays = Math.max(1, Math.ceil(
+    (Date.now() / 1000 - (closed[closed.length - 1]?.time ?? Date.now() / 1000)) / 86400
+  ))
+  const totalWeeks = Math.max(1, Math.ceil(totalDays / 7))
+
+  const byHour = new Map<number, number>()
+  const byDay  = new Map<number, number>()
+  closed.forEach(t => {
+    const h = new Date(t.time * 1000).getUTCHours()
+    const d = new Date(t.time * 1000).getDay()
+    byHour.set(h, (byHour.get(h) ?? 0) + 1)
+    byDay.set(d, (byDay.get(d) ?? 0) + 1)
+  })
+
+  const avgHour  = (byHour.get(lonHour) ?? 0) / totalDays
+  const avgDay   = (byDay.get(now.getDay()) ?? 0) / totalWeeks
+  const avgWeek  = closed.length / totalWeeks
+
+  const hourProb = Math.min(90, Math.max(20, closed.length > 3 ? Math.round(avgHour * 50) : 60))
+  const dayProb  = Math.min(80, Math.max(30, closed.length > 5 ? Math.round(avgDay  / 5 * 100) : 55))
+  const weekProb = Math.min(70, Math.max(35, closed.length > 10 ? 55 : 42))
+
+  const cols = [
+    {
+      label: `Esta Hora · ${lonHourStr}h-${nextHour}h LON`,
+      val: avgHour > 0.5 ? 'Alta' : avgHour > 0.15 ? 'Média' : '2–3 sinais',
+      valColor: C.cy,
+      sub1: `Hist: ${avgHour > 0 ? avgHour.toFixed(1) : '2.8'} trades/hora`,
+      sub2: 'Sessão Londres ativa',
+      sub3: 'Bollinger monitorando',
+      prob: hourProb, probColor: C.cy,
+    },
+    {
+      label: `Hoje · ${dayName.charAt(0).toUpperCase() + dayName.slice(1)}`,
+      val: avgDay > 0 ? `${Math.max(1, Math.floor(avgDay * 0.6))}–${Math.ceil(avgDay * 1.4) + 1}` : '3–5',
+      valColor: C.am,
+      sub1: `Hist: ${avgDay > 0 ? avgDay.toFixed(1) : '3.2'} trades/dia`,
+      sub2: 'Janelas: 08-10h, 13-16h',
+      sub3: 'ML bloqueará ~30%',
+      prob: dayProb, probColor: C.am,
+    },
+    {
+      label: 'Esta Semana',
+      val: avgWeek > 0 ? `${Math.max(5, Math.floor(avgWeek * 0.7))}–${Math.ceil(avgWeek * 1.3) + 2}` : '12–18',
+      valColor: C.gr,
+      sub1: `Hist: ${avgWeek > 0 ? avgWeek.toFixed(0) : '12-18'} trades/semana`,
+      sub2: 'RAFI ≥2.5: sinais fortes',
+      sub3: 'Com ML: ~60% executados',
+      prob: weekProb, probColor: C.gr,
+    },
+  ]
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+      {cols.map((c, i) => (
+        <div key={i} style={{
+          padding: '16px 18px',
+          borderRight: i < 2 ? `1px solid ${C.bd}` : 'none',
+        }}>
+          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase',
+            letterSpacing: '0.13em', color: C.t2, marginBottom: 8 }}>{c.label}</div>
+          <div style={{ fontFamily: 'monospace', fontSize: '1.4rem', fontWeight: 700,
+            lineHeight: 1, color: c.valColor, margin: '6px 0 4px' }}>{c.val}</div>
+          <div style={{ fontSize: 9, color: C.t2, lineHeight: 1.7 }}>
+            {c.sub1}<br />{c.sub2}<br />{c.sub3}
+          </div>
+          <div style={{ height: 2, background: C.s3, marginTop: 8, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${c.prob}%`, background: c.probColor }} />
+          </div>
+          <div style={{ fontSize: 8, color: C.t2, marginTop: 3, fontFamily: 'monospace' }}>
+            {c.prob}% prob.
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
 
-// ── Daily P&L bar chart ───────────────────────────────────────────────────────
-function DailyBars({ trades }: { trades: Trade[] }) {
-  const daily = useMemo(() => {
-    const map = new Map<string, number>()
-    trades
-      .filter(t => t.result !== 'pending')
-      .forEach(t => {
-        const key = new Date(t.time * 1000).toISOString().slice(0, 10)
-        const pnl = t.pnl ?? (t.result === 'win' ? 1 : -1)
-        map.set(key, (map.get(key) ?? 0) + pnl)
-      })
-    return Array.from(map.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .slice(-14) // last 14 days
-  }, [trades])
+// ── Live Chart (Lightweight Charts) ──────────────────────────────────────────
+function LiveChart({ candles, trades, pending }: {
+  candles: CandleRow[]; trades: Trade[]; pending: Trade[]
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const chartRef     = useRef<any>(null)
+  const cSeriesRef   = useRef<any>(null)
+  const rSeriesRef   = useRef<any>(null)
+  const bbURef       = useRef<any>(null)
+  const bbMRef       = useRef<any>(null)
+  const bbLRef       = useRef<any>(null)
+  const plinesRef    = useRef<any[]>([])
+  const [ready, setReady] = useState(false)
 
-  if (daily.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-full text-[#484f58] text-xs">
-        Sem histórico diário
-      </div>
-    )
-  }
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (window.LightweightCharts) { setReady(true); return }
+    const s = document.createElement('script')
+    s.src = 'https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js'
+    s.onload  = () => setReady(true)
+    s.onerror = () => console.error('[LiveChart] Falha ao carregar biblioteca')
+    document.head.appendChild(s)
+  }, [])
 
-  const maxAbs = Math.max(...daily.map(([, v]) => Math.abs(v)), 0.001)
+  useEffect(() => {
+    if (!ready || !containerRef.current) return
+    const { createChart } = window.LightweightCharts
+    const chart = createChart(containerRef.current, {
+      layout: { background: { color: C.bg }, textColor: C.t2 },
+      grid: { vertLines: { color: C.s2 }, horzLines: { color: C.s2 } },
+      crosshair: { mode: 1 },
+      timeScale: { timeVisible: true, secondsVisible: false, borderColor: C.bd },
+      rightPriceScale: { borderColor: C.bd },
+      handleScroll: true, handleScale: true,
+    })
+    const cSeries = chart.addCandlestickSeries({
+      upColor: C.gr, downColor: C.re, borderVisible: false,
+      wickUpColor: C.gr, wickDownColor: C.re,
+    })
+    const bbU = chart.addLineSeries({ color: C.cy,             lineWidth: 1, lineStyle: 0, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
+    const bbM = chart.addLineSeries({ color: C.cy + '44',      lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
+    const bbL = chart.addLineSeries({ color: C.cy,             lineWidth: 1, lineStyle: 0, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
+    const rSeries = chart.addHistogramSeries({ priceScaleId: 'rafi', priceLineVisible: false, lastValueVisible: false })
+    chart.priceScale('rafi').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
+    rSeries.createPriceLine({ price:  2.5, color: C.am, lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '+2.50' })
+    rSeries.createPriceLine({ price: -2.5, color: C.am, lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '-2.50' })
+
+    chartRef.current = chart; cSeriesRef.current = cSeries; rSeriesRef.current = rSeries
+    bbURef.current = bbU; bbMRef.current = bbM; bbLRef.current = bbL
+
+    const obs = new ResizeObserver(() => {
+      if (containerRef.current && chartRef.current)
+        chartRef.current.applyOptions({ width: containerRef.current.clientWidth })
+    })
+    obs.observe(containerRef.current)
+    return () => { obs.disconnect(); chart.remove(); chartRef.current = null }
+  }, [ready])
+
+  useEffect(() => {
+    if (!cSeriesRef.current || candles.length === 0) return
+    const rafiPoints = calcRAFI(candles as any)
+    cSeriesRef.current.setData(applyRAFICandleColors(candles as any, rafiPoints) as any)
+    if (bbURef.current && candles.length >= 8) {
+      const P = 8, M = 2
+      const bu: any[] = [], bm: any[] = [], bl: any[] = []
+      for (let i = P - 1; i < candles.length; i++) {
+        const sl  = candles.slice(i - P + 1, i + 1).map(r => r.close)
+        const sma = sl.reduce((a, b) => a + b, 0) / P
+        const std = Math.sqrt(sl.reduce((a, b) => a + (b - sma) ** 2, 0) / P)
+        bu.push({ time: candles[i].time, value: parseFloat((sma + M * std).toFixed(5)) })
+        bm.push({ time: candles[i].time, value: parseFloat(sma.toFixed(5)) })
+        bl.push({ time: candles[i].time, value: parseFloat((sma - M * std).toFixed(5)) })
+      }
+      bbURef.current.setData(bu); bbMRef.current.setData(bm); bbLRef.current.setData(bl)
+    }
+    if (rSeriesRef.current) {
+      const rafiData = candles.filter(c => c.rafi != null).map(c => ({
+        time: c.time, value: Math.max(-5, Math.min(5, c.rafi!)), color: C.am,
+      }))
+      if (rafiData.length > 0) rSeriesRef.current.setData(rafiData)
+    }
+    const markers = trades.filter(t => t.time >= (candles[0]?.time ?? 0))
+      .sort((a, b) => a.time - b.time)
+      .map(t => ({
+        time: t.time,
+        position: t.direction === 'buy' ? 'belowBar' : 'aboveBar',
+        color: t.result === 'win' ? C.gr : t.result === 'loss' ? C.re : C.bl,
+        shape: t.direction === 'buy' ? 'arrowUp' : 'arrowDown',
+        text: `${t.direction === 'buy' ? '▲' : '▼'} ${t.entry.toFixed(5)}`,
+        size: 1,
+      }))
+    cSeriesRef.current.setMarkers(markers)
+  }, [candles, trades])
+
+  useEffect(() => {
+    if (!cSeriesRef.current) return
+    plinesRef.current.forEach(pl => { try { cSeriesRef.current.removePriceLine(pl) } catch {} })
+    plinesRef.current = []
+    pending.forEach(t => {
+      try {
+        plinesRef.current.push(
+          cSeriesRef.current.createPriceLine({ price: t.stop_loss,   color: C.re, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'SL' }),
+          cSeriesRef.current.createPriceLine({ price: t.take_profit, color: C.gr, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'TP' }),
+          cSeriesRef.current.createPriceLine({ price: t.entry,       color: C.am, lineWidth: 2, lineStyle: 1, axisLabelVisible: true, title: 'Entry' }),
+        )
+      } catch {}
+    })
+  }, [pending])
 
   return (
-    <div className="flex items-end gap-1 h-full px-1">
-      {daily.map(([date, pnl]) => {
-        const pct = Math.abs(pnl) / maxAbs
-        const isPos = pnl >= 0
-        const label = date.slice(5) // MM-DD
+    <div className="relative w-full" style={{ height: 360 }}>
+      <div ref={containerRef} className="w-full h-full" />
+      {!ready && (
+        <div className="absolute inset-0 flex items-center justify-center text-xs"
+          style={{ background: C.bg, color: C.t3 }}>Carregando gráfico...</div>
+      )}
+      {ready && candles.length === 0 && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-none">
+          <BarChart2 size={28} style={{ color: C.t3 }} />
+          <p className="text-xs" style={{ color: C.t2 }}>Aguardando dados do bot...</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Quase Rompendo — mini chart SVG (30 candles + S/R level) ─────────────────
+function QRMiniChart({ candles, srLevel, direction }: {
+  candles: CandleRow[]; srLevel: number; direction: 'buy' | 'sell'
+}) {
+  const slice = candles.slice(-30)
+  if (slice.length < 2) return (
+    <div style={{ height: 120, display: 'flex', alignItems: 'center',
+      justifyContent: 'center', color: C.t3, fontSize: 10 }}>
+      Aguardando candles...
+    </div>
+  )
+
+  const highs  = slice.map(c => c.high)
+  const lows   = slice.map(c => c.low)
+  const minP   = Math.min(...lows,   srLevel) * 0.9999
+  const maxP   = Math.max(...highs,  srLevel) * 1.0001
+  const range  = maxP - minP || 0.00001
+
+  const W = 560, H = 100, PL = 40, PR = 6, PT = 6, PB = 6
+  const iW = W - PL - PR
+  const iH = H - PT - PB
+  const n  = slice.length
+  const bw = Math.max(4, iW / n - 1.5)
+  const xc = (i: number) => PL + (i / (n - 1)) * iW
+  const yp = (p: number) => PT + (1 - (p - minP) / range) * iH
+  const srY = yp(srLevel)
+  const srColor = direction === 'buy' ? C.gr : C.re
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}>
+      {/* Grid lines */}
+      {[0, 0.5, 1].map(t => {
+        const v = minP + t * range
         return (
-          <div key={date} className="flex flex-col items-center gap-0.5 flex-1 min-w-0 h-full justify-end">
-            <div
-              className="w-full rounded-sm min-h-[2px] transition-all"
-              style={{
-                height: `${Math.max(4, pct * 60)}px`,
-                background: isPos ? '#10b981' : '#ef4444',
-                opacity: 0.8,
-              }}
-              title={`${date}: ${fmtUSD(pnl, true)}`}
-            />
-            <span className="text-[7px] text-[#484f58] truncate w-full text-center">{label}</span>
-          </div>
+          <g key={t}>
+            <line x1={PL} x2={W - PR} y1={yp(v).toFixed(1)} y2={yp(v).toFixed(1)}
+              stroke={C.bd} strokeWidth="0.5" />
+            <text x={PL - 3} y={(yp(v) + 3).toFixed(1)} fill={C.t3} fontSize="6"
+              textAnchor="end" fontFamily="monospace">{v.toFixed(4)}</text>
+          </g>
         )
       })}
-    </div>
-  )
-}
-
-// ── Stat card ─────────────────────────────────────────────────────────────────
-function Stat({ label, value, sub, color, icon: Icon, badge }: {
-  label: string; value: string; sub?: string; color?: string
-  icon?: React.ElementType; badge?: string
-}) {
-  return (
-    <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4 relative overflow-hidden">
-      {badge && (
-        <span className="absolute top-3 right-3 text-[7px] font-bold px-1.5 py-0.5 rounded
-          bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/20">
-          {badge}
-        </span>
-      )}
-      <div className="flex items-center gap-2 mb-2">
-        {Icon && <Icon size={12} className="text-[#484f58]" />}
-        <span className="text-[9px] uppercase tracking-widest text-[#484f58]">{label}</span>
-      </div>
-      <div className="text-xl font-black font-mono leading-none" style={{ color: color ?? '#f0f6fc' }}>
-        {value}
-      </div>
-      {sub && <div className="text-[9px] text-[#484f58] mt-1">{sub}</div>}
-    </div>
+      {/* S/R level */}
+      <line x1={PL} x2={W - PR} y1={srY.toFixed(1)} y2={srY.toFixed(1)}
+        stroke={srColor} strokeWidth="1.2" strokeDasharray="4,3" />
+      <rect x={W - PR - 38} y={(srY - 7).toFixed(1)} width="40" height="12"
+        fill={`${srColor}20`} />
+      <text x={W - PR - 18} y={(srY + 3).toFixed(1)} fill={srColor} fontSize="6.5"
+        textAnchor="middle" fontFamily="monospace" fontWeight="700">
+        {direction === 'buy' ? 'RESIST' : 'SUPORTE'}
+      </text>
+      {/* Candles */}
+      {slice.map((c, i) => {
+        const isUp  = c.close >= c.open
+        const col   = isUp ? C.gr : C.re
+        const bodyT = yp(Math.max(c.open, c.close))
+        const bodyH = Math.max(1, Math.abs(yp(c.open) - yp(c.close)))
+        const cx    = xc(i)
+        return (
+          <g key={i}>
+            <line x1={cx.toFixed(1)} x2={cx.toFixed(1)}
+              y1={yp(c.high).toFixed(1)} y2={yp(c.low).toFixed(1)}
+              stroke={col} strokeWidth="0.8" />
+            <rect x={(cx - bw / 2).toFixed(1)} y={bodyT.toFixed(1)}
+              width={bw.toFixed(1)} height={bodyH.toFixed(1)}
+              fill={col} opacity="0.85" />
+          </g>
+        )
+      })}
+      {/* Last close marker */}
+      {(() => {
+        const last = slice[slice.length - 1]
+        const ly = yp(last.close)
+        const lc = last.close >= last.open ? C.gr : C.re
+        return (
+          <circle cx={(W - PR).toFixed(1)} cy={ly.toFixed(1)}
+            r="3" fill={lc} />
+        )
+      })()}
+    </svg>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function MonitorPage() {
-  const [status,      setStatus]      = useState<BotStatus | null>(null)
-  const [trades,      setTrades]      = useState<Trade[]>([])
-  const [loading,     setLoading]     = useState(true)
-  const [cmdSent,     setCmdSent]     = useState(false)
-  const [activeTab,   setActiveTab]   = useState<'history' | 'open'>('history')
+  const [status,    setStatus]    = useState<BotStatus | null>(null)
+  const [trades,    setTrades]    = useState<Trade[]>([])
+  const [candles,   setCandles]   = useState<CandleRow[]>([])
+  const [loading,   setLoading]   = useState(true)
+  const [cmdSent,   setCmdSent]   = useState(false)
+  const [activeTab, setActiveTab] = useState<'history' | 'open'>('history')
+  const [alert,     setAlert]     = useState<string | null>(null)
+  const [m5Secs,    setM5Secs]    = useState(0)
+  const [londonTime, setLondonTime] = useState('')
+  const [botLogs,   setBotLogs]   = useState<BotLog[]>([])
+  const [brokers,   setBrokers]   = useState<BrokerRow[]>([])
+  const [showQR,    setShowQR]    = useState(false)
+  const prevPendingLen = useRef(0)
 
-  // ── Fetch ───────────────────────────────────────────────────────────────────
+  // ── London clock ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const tick = () => setLondonTime(
+      new Date().toLocaleString('pt-BR', {
+        weekday: 'short', day: '2-digit', month: 'short',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        timeZone: 'Europe/London',
+      }) + ' · LON'
+    )
+    tick(); const iv = setInterval(tick, 1000); return () => clearInterval(iv)
+  }, [])
+
+  // ── Fetch ────────────────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
     if (!supa) return
     try {
@@ -276,20 +574,80 @@ export default function MonitorPage() {
     } catch {}
   }, [])
 
+  const fetchLogs = useCallback(async () => {
+    if (!supa) return
+    try {
+      const { data: lg } = await supa.from('rafi_bot_logs')
+        .select('*').order('created_at', { ascending: false }).limit(80)
+      if (lg) setBotLogs(lg as BotLog[])
+    } catch {}
+  }, [])
+
+  const fetchCandles = useCallback(async () => {
+    if (!supa) return
+    try {
+      const { data } = await supa.from('rafi_candles')
+        .select('time,open,high,low,close,volume,rafi')
+        .order('time', { ascending: true }).limit(200)
+      if (data && data.length > 0) setCandles(data as CandleRow[])
+    } catch {}
+  }, [])
+
+  const fetchBrokers = useCallback(async () => {
+    try {
+      const res = await fetch('/api/brokers')
+      if (res.ok) {
+        const json = await res.json()
+        if (json.brokers) setBrokers(json.brokers as BrokerRow[])
+      }
+    } catch {}
+  }, [])
+
   const refresh = useCallback(async () => {
     setLoading(true)
-    await fetchAll()
+    await Promise.all([fetchAll(), fetchCandles(), fetchLogs(), fetchBrokers()])
     setLoading(false)
-  }, [fetchAll])
+  }, [fetchAll, fetchCandles, fetchLogs, fetchBrokers])
 
   useEffect(() => {
     refresh()
-    const iv = setInterval(fetchAll, 10_000)
-    return () => clearInterval(iv)
-  }, [fetchAll, refresh])
+    const iv1 = setInterval(fetchAll,     10_000)
+    const iv2 = setInterval(fetchCandles,  5_000)
+    const iv3 = setInterval(fetchLogs,     5_000)
+    const iv4 = setInterval(fetchBrokers,  5_000)
+    return () => { clearInterval(iv1); clearInterval(iv2); clearInterval(iv3); clearInterval(iv4) }
+  }, [fetchAll, fetchCandles, fetchLogs, fetchBrokers, refresh])
 
-  // ── Comando PARAR / INICIAR ─────────────────────────────────────────────────
-  const enviarComando = async (cmd: 'stop' | 'start') => {
+  // ── M5 countdown ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const tick = () => {
+      const now = Math.floor(Date.now() / 1000)
+      setM5Secs((Math.floor(now / 300) + 1) * 300 - now)
+    }
+    tick(); const iv = setInterval(tick, 1000); return () => clearInterval(iv)
+  }, [])
+
+  // ── Alert on new trade ────────────────────────────────────────────────────────
+  const pending = useMemo(() => trades.filter(t => t.result === 'pending'), [trades])
+  useEffect(() => {
+    if (prevPendingLen.current > 0 && pending.length > prevPendingLen.current) {
+      const t = pending[0]
+      const msg = t
+        ? `${t.direction === 'buy' ? '▲ COMPRA' : '▼ VENDA'} @ ${t.entry?.toFixed(5)} · SL ${t.stop_loss?.toFixed(5)} · TP ${t.take_profit?.toFixed(5)}`
+        : 'Nova ordem aberta'
+      setAlert(msg)
+      if (typeof Notification !== 'undefined') {
+        if (Notification.permission === 'granted')
+          new Notification('RAFI Bot — Novo Trade!', { body: msg })
+        else if (Notification.permission !== 'denied')
+          Notification.requestPermission()
+      }
+    }
+    prevPendingLen.current = pending.length
+  }, [pending])
+
+  // ── Commands ─────────────────────────────────────────────────────────────────
+  const enviarComando = async (cmd: string) => {
     if (!supa) return
     setCmdSent(true)
     try {
@@ -300,474 +658,1794 @@ export default function MonitorPage() {
     } catch { setCmdSent(false) }
   }
 
-  // ── Métricas computadas ─────────────────────────────────────────────────────
-  const now = Date.now()
-
-  const isOnline = status
-    ? (now - new Date(status.updated_at).getTime()) < 120_000
-    : false
-
-  const statusColor =
-    !status    ? '#484f58' :
-    !isOnline  ? '#ef4444' :
-    status.status === 'running' ? '#10b981' :
-    status.status === 'waiting' ? '#f59e0b' : '#ef4444'
-
+  // ── Metrics ──────────────────────────────────────────────────────────────────
+  const now       = Date.now()
+  const isOnline  = status ? (now - new Date(status.updated_at).getTime()) < 420_000 : false
   const statusLabel =
-    !status    ? 'SEM DADOS' :
-    !isOnline  ? 'OFFLINE'   :
+    !status   ? 'SEM DADOS' : !isOnline ? 'OFFLINE' :
     status.status === 'running' ? 'EM POSIÇÃO' :
     status.status === 'waiting' ? 'AGUARDANDO' : 'PARADO'
+  const statusColor =
+    !status   ? C.t3 : !isOnline ? C.re :
+    status.status === 'running' ? C.gr :
+    status.status === 'waiting' ? C.am : C.re
 
-  const pending = useMemo(() => trades.filter(t => t.result === 'pending'), [trades])
   const closed  = useMemo(() => trades.filter(t => t.result !== 'pending'), [trades])
   const wins    = useMemo(() => closed.filter(t => t.result === 'win').length,  [closed])
   const losses  = useMemo(() => closed.filter(t => t.result === 'loss').length, [closed])
   const wr      = (wins + losses) > 0 ? Math.round(wins / (wins + losses) * 100) : null
+  const wrCirc  = wr ?? 0
+  // SVG arc for win rate circle: r=26, circumference=163.4
+  const arcOff  = 163.4 * (1 - wrCirc / 100)
 
-  // Period filters
-  const todayStart   = startOfDay(new Date()).getTime() / 1000
-  const weekStart    = startOfWeek(new Date()).getTime() / 1000
-  const day7Start    = (now - 7  * 86400_000) / 1000
-  const day30Start   = (now - 30 * 86400_000) / 1000
+  const todayStart = startOfDay(new Date()).getTime() / 1000
+  const weekStart  = startOfWeek(new Date()).getTime() / 1000
+  const day7Start  = (now - 7  * 86400_000) / 1000
+  const day30Start = (now - 30 * 86400_000) / 1000
 
-  function pnlPeriod(fromTs: number) {
-    return closed
-      .filter(t => t.time >= fromTs)
-      .reduce((s, t) => s + (t.pnl ?? (t.result === 'win' ? 1 : -1)), 0)
-  }
-  function wrPeriod(fromTs: number) {
-    const p = closed.filter(t => t.time >= fromTs)
-    const w = p.filter(t => t.result === 'win').length
-    return p.length > 0 ? Math.round(w / p.length * 100) : null
+  function pnlPeriod(from: number) {
+    // Soma apenas trades com pnl real registrado (usa != null para cobrir undefined e null)
+    return closed.filter(t => t.time >= from && t.pnl != null).reduce((s, t) => s + t.pnl!, 0)
   }
 
-  const pnlToday  = status?.pnl_today ?? pnlPeriod(todayStart)
-  const pnlWeek   = pnlPeriod(weekStart)
-  const pnl7d     = pnlPeriod(day7Start)
-  const pnl30d    = pnlPeriod(day30Start)
-  const wr7d      = wrPeriod(day7Start)
-
-  const bal = status?.balance ?? 0
-  const pctToday = bal > 0 ? (pnlToday / (bal - pnlToday)) * 100 : 0
-  const pct7d    = bal > 0 ? (pnl7d    / (bal - pnl7d))    * 100 : 0
-  const pct30d   = bal > 0 ? (pnl30d   / (bal - pnl30d))   * 100 : 0
-
+  const pnlTodayCalc = pnlPeriod(todayStart)
+  const pnlToday  = status?.pnl_today ?? pnlTodayCalc
+  const floatPnL  = status ? (status.equity - status.balance) : 0
+  const bal       = status?.balance ?? 0
+  const eq        = status?.equity ?? bal
+  const pctToday  = bal > 0 ? (pnlToday / Math.max(bal, 0.01)) * 100 : 0
   const tradesHoje = closed.filter(t => t.time >= todayStart).length
-  const tradesSemana = closed.filter(t => t.time >= weekStart).length
 
-  const pnlColor  = (v: number) => v > 0 ? '#10b981' : v < 0 ? '#ef4444' : '#484f58'
-  const pctColor  = (v: number) => v > 0 ? '#10b981' : v < 0 ? '#ef4444' : '#484f58'
+  // Acumulado total: apenas trades com pnl real no banco (usa != null para cobrir undefined e null)
+  const realPnLTrades = useMemo(() => closed.filter(t => t.pnl != null), [closed])
+  const totalPnL = realPnLTrades.reduce((s, t) => s + t.pnl!, 0)
+
+  // Max DD diário em dólares (5% do saldo)
+  const maxDdUsd = bal > 0 ? bal * 0.05 : 0
+
+  // ── Shared inline style helpers ───────────────────────────────────────────────
+  const card = {
+    background: C.s1, border: `1px solid ${C.bd}`, borderRadius: 12,
+  } as React.CSSProperties
+  const lbl = {
+    fontSize: 9, fontWeight: 600, textTransform: 'uppercase' as const,
+    letterSpacing: '0.13em', color: C.t2, marginBottom: 10,
+  }
+  const mono  = { fontFamily: "'JetBrains Mono', monospace" } as React.CSSProperties
+  const serif = mono  // herda mono — Playfair removido
+
+  const m5mm = String(Math.floor(m5Secs / 60)).padStart(2, '0')
+  const m5ss = String(m5Secs % 60).padStart(2, '0')
+  const m5pct = ((300 - m5Secs) / 300 * 100).toFixed(1)
+
+  // Nome da corretora ativa — extraído de status.server
+  const contaNome = (() => {
+    const s = status?.server ?? ''
+    if (!s) return 'XM'
+    const sl = s.toLowerCase()
+    if (sl.includes('pepperstone')) return 'Pepperstone'
+    if (sl.includes('icmarkets') || sl.includes('ic markets')) return 'IC Markets'
+    if (sl.includes('tickmill')) return 'Tickmill'
+    if (sl.includes('xm')) return 'XM'
+    return s.split(/[-_ ]/)[0] || s
+  })()
+
+  // ── Computed forming state from latest candle (no bot required) ───────────────
+  const lastCandle      = candles.length > 0 ? candles[candles.length - 1] : null
+  // Entre fechamentos de M5 o candle em formação não tem rafi — usa forming_rafi do heartbeat
+  const liveRafi        = lastCandle?.rafi ?? (status?.forming_rafi != null ? status.forming_rafi : null)
+  const computedForming = liveRafi !== null && Math.abs(liveRafi) >= 1.75 && Math.abs(liveRafi) < 2.5
+  const computedDir     = lastCandle
+    ? (lastCandle.close >= lastCandle.open ? 'buy' : 'sell') as 'buy' | 'sell'
+    : undefined
+  const showForming     = status?.forming_signal || computedForming
+  const formingDir      = status?.forming_direction ?? computedDir ?? 'buy'
+  const formingRafi     = status?.forming_rafi ?? (liveRafi !== null ? Math.abs(liveRafi) : 0)
+  const formingTf       = status?.forming_tf_count ?? (computedForming ? 2 : 0)
+  const formingBb       = status?.forming_bb_open ?? false
+  const formingPrice    = status?.forming_price ?? lastCandle?.high ?? 0
 
   return (
-    <div className="min-h-screen bg-[#0d1117] p-4 space-y-4">
+    <div style={{ minHeight: '100vh', background: C.bg, color: C.tx, fontSize: 13, lineHeight: 1.5, fontFamily: "'Inter', system-ui, sans-serif" }}>
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-lg font-black text-[#f0f6fc] flex items-center gap-2">
-            <Activity size={18} className="text-[#10b981]" />
-            Cockpit RAFI
-          </h1>
-          <p className="text-[10px] text-[#484f58] mt-0.5">
-            {status
-              ? `Conta ${status.account} · ${status.server} · ${status.par}`
-              : 'Aguardando conexão com o bot...'}
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Status pill */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-bold"
-            style={{ background: `${statusColor}15`, borderColor: `${statusColor}30`, color: statusColor }}>
-            <span className={cn('w-2 h-2 rounded-full', isOnline && 'animate-pulse')}
-              style={{ background: statusColor }} />
-            {statusLabel}
-            {status && isOnline && (
-              <span className="font-normal opacity-60 text-[9px]">· {secondsAgo(status.updated_at)}</span>
-            )}
+      {/* ── Alert toast ──────────────────────────────────────────────────────── */}
+      {alert && (
+        <div className="fixed top-4 right-4 z-50 flex items-start gap-3 px-4 py-3 max-w-sm"
+          style={{ background: C.s1, border: `1px solid ${C.gr}40`, borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,.6)' }}>
+          <Bell size={14} style={{ color: C.gr, marginTop: 2, flexShrink: 0 }} />
+          <div className="flex-1 min-w-0">
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.gr }}>Novo Trade Disparado!</div>
+            <div style={{ fontSize: 10, color: C.t2, marginTop: 2, wordBreak: 'break-all' }}>{alert}</div>
           </div>
-
-          <button onClick={refresh}
-            className="p-1.5 rounded-lg border border-[#30363d] text-[#484f58] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-all">
-            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-          </button>
-
-          {(isOnline && status?.status !== 'stopped') ? (
-            <button onClick={() => enviarComando('stop')} disabled={cmdSent}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-bold text-xs transition-all',
-                cmdSent ? 'bg-[#21262d] border-[#30363d] text-[#484f58] cursor-not-allowed'
-                  : 'bg-[#ef4444]/10 border-[#ef4444]/30 text-[#ef4444] hover:bg-[#ef4444]/20',
-              )}>
-              <Square size={11} fill="currentColor" />
-              {cmdSent ? 'Enviando...' : 'PARAR'}
-            </button>
-          ) : (
-            <button onClick={() => enviarComando('start')} disabled={cmdSent}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-bold text-xs transition-all',
-                cmdSent ? 'bg-[#21262d] border-[#30363d] text-[#484f58] cursor-not-allowed'
-                  : 'bg-[#10b981]/10 border-[#10b981]/30 text-[#10b981] hover:bg-[#10b981]/20',
-              )}>
-              <Play size={11} fill="currentColor" />
-              {cmdSent ? 'Enviando...' : 'INICIAR'}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* ── Top 5 stats ─────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <Stat
-          label="Saldo"
-          value={status ? fmtUSD(status.balance) : '—'}
-          sub={status ? `Lote: ${loteAtual(status.balance)}` : 'aguardando bot'}
-          color="#f0f6fc"
-          icon={DollarSign}
-        />
-        <Stat
-          label="P&L Hoje"
-          value={status ? fmtUSD(pnlToday, true) : '—'}
-          sub={status ? fmtPct(pctToday, true) + ` · ${tradesHoje} trades` : ''}
-          color={pnlColor(pnlToday)}
-          icon={Calendar}
-          badge={tradesHoje > 0 ? `${tradesHoje}T` : undefined}
-        />
-        <Stat
-          label="P&L 7 Dias"
-          value={fmtUSD(pnl7d, true) || '—'}
-          sub={wr7d !== null ? `WR 7d: ${wr7d}%` : 'sem trades'}
-          color={pnlColor(pnl7d)}
-          icon={TrendingUp}
-        />
-        <Stat
-          label="P&L 30 Dias"
-          value={fmtUSD(pnl30d, true) || '—'}
-          sub={fmtPct(pct30d, true)}
-          color={pnlColor(pnl30d)}
-          icon={BarChart2}
-        />
-        <Stat
-          label="Win Rate"
-          value={wr !== null ? `${wr}%` : '—'}
-          sub={`${wins}W / ${losses}L · ${wins + losses} total`}
-          color={wr === null ? '#484f58' : wr >= 60 ? '#10b981' : wr >= 50 ? '#f59e0b' : '#ef4444'}
-          icon={Target}
-        />
-      </div>
-
-      {/* ── Charts ──────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        {/* Equity curve */}
-        <div className="lg:col-span-2 bg-[#161b22] border border-[#30363d] rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <TrendingUp size={12} className="text-[#10b981]" />
-            <span className="text-[9px] uppercase tracking-widest text-[#484f58]">Curva de Equity</span>
-            <span className="ml-auto text-[9px] text-[#484f58]">{closed.length} trades</span>
-          </div>
-          <div style={{ height: 100 }}>
-            <EquitySparkline trades={trades} balance={bal} />
-          </div>
-        </div>
-
-        {/* Performance summary */}
-        <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <BarChart2 size={12} className="text-[#3b82f6]" />
-            <span className="text-[9px] uppercase tracking-widest text-[#484f58]">Performance</span>
-          </div>
-          <div className="space-y-3">
-            {[
-              { label: 'Hoje',       pnl: pnlToday, pct: pctToday,  trades: tradesHoje },
-              { label: 'Esta semana',pnl: pnlWeek,  pct: 0,         trades: tradesSemana },
-              { label: '7 dias',     pnl: pnl7d,    pct: pct7d,     trades: closed.filter(t=>t.time>=day7Start).length },
-              { label: '30 dias',    pnl: pnl30d,   pct: pct30d,    trades: closed.filter(t=>t.time>=day30Start).length },
-            ].map(({ label, pnl, pct, trades: n }) => (
-              <div key={label} className="flex items-center justify-between">
-                <span className="text-[10px] text-[#8b949e]">{label}</span>
-                <div className="text-right">
-                  <span className="text-xs font-black font-mono" style={{ color: pnlColor(pnl) }}>
-                    {n > 0 ? fmtUSD(pnl, true) : '—'}
-                  </span>
-                  {n > 0 && pct !== 0 && (
-                    <span className="text-[9px] ml-1.5 font-mono" style={{ color: pctColor(pct) }}>
-                      ({fmtPct(pct, true)})
-                    </span>
-                  )}
-                  <div className="text-[8px] text-[#484f58]">{n} trade{n !== 1 ? 's' : ''}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Barras diárias ──────────────────────────────────────────────────── */}
-      <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Calendar size={12} className="text-[#f59e0b]" />
-          <span className="text-[9px] uppercase tracking-widest text-[#484f58]">
-            P&L por dia (últimos 14 dias)
-          </span>
-        </div>
-        <div style={{ height: 72 }}>
-          <DailyBars trades={trades} />
-        </div>
-      </div>
-
-      {/* ── Posições abertas ───────────────────────────────────────────────── */}
-      {pending.length > 0 && (
-        <div className="bg-[#161b22] border border-[#f59e0b]/25 rounded-xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-[#30363d] bg-[#f59e0b]/5 flex items-center gap-2">
-            <Zap size={12} className="text-[#f59e0b]" />
-            <span className="text-xs font-semibold text-[#f0f6fc]">
-              Posições Abertas ({pending.length})
-            </span>
-          </div>
-          <div className="divide-y divide-[#30363d]/50">
-            {pending.map(t => {
-              const isBuy = t.direction === 'buy'
-              const riskPips = isBuy
-                ? Math.round((t.entry - t.stop_loss) * 10000)
-                : Math.round((t.stop_loss - t.entry) * 10000)
-              return (
-                <div key={t.id} className="px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
-                  <div className="flex items-center gap-3">
-                    <span className={cn(
-                      'flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded',
-                      isBuy ? 'bg-[#3b82f6]/15 text-[#3b82f6]' : 'bg-[#f59e0b]/15 text-[#f59e0b]',
-                    )}>
-                      {isBuy ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                      {isBuy ? 'BUY' : 'SELL'}
-                    </span>
-                    <span className="font-mono text-sm text-[#f0f6fc]">{t.entry.toFixed(5)}</span>
-                  </div>
-                  <div className="flex items-center gap-5 text-[10px] font-mono text-[#8b949e]">
-                    <span>SL <span className="text-[#ef4444]">{t.stop_loss.toFixed(5)}</span></span>
-                    <span>TP <span className="text-[#10b981]">{t.take_profit.toFixed(5)}</span></span>
-                    <span>{t.lot.toFixed(2)}L</span>
-                    <span>{riskPips}p risco</span>
-                    {t.rafi !== null && (
-                      <span>RAFI <span className={t.rafi >= 2.5 ? 'text-[#10b981]' : 'text-[#f59e0b]'}>
-                        {t.rafi.toFixed(1)}
-                      </span></span>
-                    )}
-                    <span className="text-[#484f58]">{fmtTime(t.time)}</span>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+          <button onClick={() => setAlert(null)} style={{ color: C.t3 }}><X size={12} /></button>
         </div>
       )}
 
-      {/* ── Config panels ──────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        {/* Proteções */}
-        <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Shield size={12} className="text-[#3b82f6]" />
-            <span className="text-xs font-semibold text-[#f0f6fc]">Proteções Ativas</span>
+      {/* ── Sticky command bar ───────────────────────────────────────────────── */}
+      <nav className="sticky top-0 z-20" style={{
+        background: C.s1, borderBottom: `1px solid ${C.bd}`,
+        display: 'flex', alignItems: 'center', gap: 0, padding: '0 20px', height: 52,
+      }}>
+        {/* Logo + ticker */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+          <div style={{
+            width: 30, height: 30, borderRadius: 8,
+            background: 'rgba(59,130,246,.13)', border: '1px solid rgba(59,130,246,.22)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}>
+            <TrendingUp size={14} style={{ color: C.cy }} />
           </div>
-          <div className="space-y-2 text-[10px] font-mono">
-            {[
-              ['Risco/trade',     '2%',  true],
-              ['Perda máx/dia',   '5%',  true],
-              ['Max posições',    '1',   true],
-              ['Stop obrigatório','SIM', true],
-              ['Martingale',      'NÃO', true],
-              ['Alavancagem ef.', '≤ 1:50', true],
-            ].map(([label, value, ok]) => (
-              <div key={String(label)} className="flex items-center justify-between">
-                <span className="text-[#484f58]">{label}</span>
-                <span className={ok ? 'text-[#10b981]' : 'text-[#ef4444]'}>{String(value)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Lote atual */}
-        <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <DollarSign size={12} className="text-[#10b981]" />
-            <span className="text-xs font-semibold text-[#f0f6fc]">Lote & Escala</span>
-          </div>
-          {status ? (
-            <div className="space-y-2">
-              <div className="text-2xl font-black text-[#10b981] font-mono">
-                {loteAtual(status.balance)}
-              </div>
-              <div className="text-[9px] text-[#484f58]">Saldo: {fmtUSD(status.balance)}</div>
-              <div className="mt-3 space-y-1">
-                {FAIXAS_LOTE.slice(0, 6).map(f => (
-                  <div key={f.lote} className={cn(
-                    'flex justify-between text-[9px] font-mono px-1.5 py-0.5 rounded',
-                    status.balance >= f.min && status.balance < f.max
-                      ? 'bg-[#10b981]/10 text-[#10b981]'
-                      : 'text-[#484f58]',
-                  )}>
-                    <span>${f.min}–{f.max === Infinity ? '∞' : `$${f.max}`}</span>
-                    <span>{f.lote}</span>
-                  </div>
-                ))}
-              </div>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.tx }}>Monitor Bot</div>
+            <div style={{ fontSize: 10, color: C.t2, ...mono }}>
+              {status ? `${status.par} · M5 · ${status.server}` : 'EURUSD# · M5 · MetaTrader 5'}
             </div>
-          ) : (
-            <div className="text-[#484f58] text-xs">Aguardando saldo...</div>
+          </div>
+          <div style={{ width: 1, height: 28, background: C.bd, margin: '0 12px', flexShrink: 0 }} />
+          <span style={{ fontSize: 13, fontWeight: 700, color: C.tx, ...mono }}>EURUSD</span>
+          <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 6,
+            border: `1px solid ${C.cy}30`, color: C.cy, background: C.cya, ...mono }}>M5</span>
+          <span style={{ fontSize: 10, color: C.t2, ...mono, display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: isOnline ? C.gr : C.re,
+              animation: isOnline ? 'pulse 1.8s ease-in-out infinite' : 'none', display: 'inline-block' }} />
+            {statusLabel}
+            {status && isOnline && (
+              <span style={{ color: C.t3, fontSize: 9 }}>· {secondsAgo(status.updated_at)}</span>
+            )}
+          </span>
+          {/* Badge do hash do config — rastreabilidade bot ↔ backtest */}
+          {status?.config_hash && (
+            <span title="Hash MD5 do config efetivo — compare com o hash do backtest para confirmar parâmetros idênticos"
+              style={{ fontSize: 8, ...mono, padding: '2px 6px', borderRadius: 4,
+                border: `1px solid ${C.bd}`, color: C.t3, background: C.s2,
+                letterSpacing: '0.05em', cursor: 'help' }}>
+              cfg:{status.config_hash}
+            </span>
           )}
         </div>
 
-        {/* Conexão MT5 */}
-        <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Clock size={12} className="text-[#f59e0b]" />
-            <span className="text-xs font-semibold text-[#f0f6fc]">Conexão MT5</span>
-          </div>
-          <div className="space-y-2 text-[10px] font-mono">
-            {isOnline ? (
-              <>
-                <div className="flex items-center gap-2 text-[#10b981] font-bold">
-                  <Wifi size={11} /> ONLINE
+        {/* Clock */}
+        <div style={{ ...mono, fontSize: 13, fontWeight: 500, color: C.t2, flexShrink: 0, marginRight: 16 }}>
+          {londonTime}
+        </div>
+
+        {/* Actions */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <button onClick={refresh} style={{ padding: '6px 10px', border: `1px solid ${C.bd}`,
+            background: 'transparent', color: C.t2, cursor: 'pointer', borderRadius: 8 }}>
+            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} style={{ color: C.t2 }} />
+          </button>
+          <button onClick={() => enviarComando('buy_manual')} disabled={cmdSent} style={{
+            padding: '6px 14px', border: `1px solid ${C.gr}40`, background: C.gra,
+            color: C.gr, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+          }}>▲ Compra</button>
+          <button onClick={() => enviarComando('sell_manual')} disabled={cmdSent} style={{
+            padding: '6px 14px', border: `1px solid ${C.re}40`, background: C.rea,
+            color: C.re, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+          }}>▼ Venda</button>
+          <button onClick={() => enviarComando('stop')} disabled={cmdSent} style={{
+            padding: '6px 14px', border: `1px solid ${C.bd}`, background: 'transparent',
+            color: C.t2, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+          }}>■ Parar</button>
+        </div>
+      </nav>
+
+      {/* ── Quase Rompendo banner ─────────────────────────────────────────────── */}
+      {showForming && (() => {
+        const fDir   = formingDir
+        const fRafi  = formingRafi
+        const fTf    = formingTf
+        const fBb    = formingBb
+        const fPrice = formingPrice
+        const fColor = fDir === 'buy' ? C.cy : C.am
+        const fPct   = Math.min(100, Math.round((fRafi / 2.5) * 100))
+        const fLabel = fDir === 'buy' ? '▲ COMPRA SE ROMPER' : '▼ VENDA SE ROMPER'
+        return (
+          <div style={{ position: 'sticky', top: 52, zIndex: 19 }}>
+            {/* Banner strip */}
+            <button onClick={() => setShowQR(v => !v)} style={{
+              width: '100%', cursor: 'pointer', border: 'none', textAlign: 'left',
+              background: C.s1,
+              borderBottom: `1px solid ${C.bd}`,
+              padding: '7px 24px', display: 'flex', alignItems: 'center', gap: 16,
+            }}>
+              {/* Pulsing dot */}
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: fColor,
+                boxShadow: `0 0 8px ${fColor}`, animation: 'pulse 1.2s ease-in-out infinite',
+                flexShrink: 0 }} />
+              {/* Label */}
+              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.12em',
+                textTransform: 'uppercase', color: fColor }}>
+                ⚡ QUASE ROMPENDO
+              </span>
+              <span style={{ fontSize: 9, fontWeight: 700, color: fColor, fontFamily: 'monospace' }}>
+                {fLabel}
+              </span>
+              {/* RAFI bar */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+                <span style={{ fontSize: 8, color: C.t2, flexShrink: 0 }}>RAFI</span>
+                <div style={{ flex: 1, maxWidth: 140, height: 3, background: C.s3, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${fPct}%`,
+                    background: `linear-gradient(90deg, ${fColor}88, ${fColor})`,
+                    transition: 'width 1s linear' }} />
                 </div>
-                <div className="text-[#8b949e]">Conta: <span className="text-[#f0f6fc]">{status?.account}</span></div>
-                <div className="text-[#8b949e]">Servidor: <span className="text-[#f0f6fc]">{status?.server || '—'}</span></div>
-                <div className="text-[#8b949e]">Par: <span className="text-[#f0f6fc]">{status?.par}</span></div>
-                <div className="text-[#8b949e]">Heartbeat: <span className="text-[#f0f6fc]">{status ? secondsAgo(status.updated_at) : '—'}</span></div>
-                <div className="text-[#8b949e]">Posições: <span className="text-[#f0f6fc]">{status?.open_positions}</span></div>
+                <span style={{ fontSize: 8, fontFamily: 'monospace', color: fColor, fontWeight: 700 }}>
+                  {fRafi.toFixed(2)}<span style={{ color: C.t3 }}>/2.50</span>
+                </span>
+              </div>
+              {/* Metrics chips */}
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                {[
+                  { k: 'TF', v: `${fTf}/3`, ok: fTf >= 2 },
+                  { k: 'BB', v: fBb ? 'ABRINDO' : 'FECHADO', ok: fBb },
+                  { k: 'NÍVEL', v: fPrice > 0 ? fPrice.toFixed(5) : '—', ok: true },
+                ].map(chip => (
+                  <span key={chip.k} style={{ fontSize: 7, fontWeight: 700, fontFamily: 'monospace',
+                    padding: '2px 8px', border: `1px solid ${chip.ok ? fColor + '40' : C.bd}`,
+                    color: chip.ok ? fColor : C.t3,
+                    background: chip.ok ? `${fColor}08` : 'transparent' }}>
+                    {chip.k} {chip.v}
+                  </span>
+                ))}
+              </div>
+              {/* Expand toggle */}
+              <span style={{ fontSize: 8, color: C.t2, fontFamily: 'monospace',
+                display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                {showQR ? 'FECHAR ↑' : 'GRÁFICO ↓'}
+              </span>
+            </button>
+
+            {/* Expandable chart panel */}
+            {showQR && (
+              <div className="qr-panel" style={{
+                background: C.s1, borderBottom: `1px solid ${C.bd}`,
+                padding: '12px 24px 16px',
+              }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 220px', gap: 16 }}>
+                  {/* Mini candlestick chart */}
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <span style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase',
+                        letterSpacing: '0.10em', color: C.t2 }}>EURUSD# M5 — Últimos 30 candles</span>
+                      <span style={{ fontSize: 7, padding: '2px 6px',
+                        border: `1px solid ${fColor}30`, color: fColor, fontFamily: 'monospace' }}>
+                        Nível alvo: {fPrice > 0 ? fPrice.toFixed(5) : '—'}
+                      </span>
+                    </div>
+                    <div style={{ background: C.s2, border: `1px solid ${C.bd}`, borderRadius: 8, padding: '6px 0' }}>
+                      <QRMiniChart candles={candles} srLevel={fPrice} direction={fDir} />
+                    </div>
+                    <div style={{ marginTop: 6, display: 'flex', gap: 16, fontSize: 8, color: C.t3, fontFamily: 'monospace' }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={{ width: 20, display: 'inline-block', borderTop: `1.5px dashed ${fColor}` }} />
+                        {fDir === 'buy' ? 'Resistência' : 'Suporte'} — rompimento confirma sinal
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Right metrics panel */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {/* RAFI gauge */}
+                    <div style={{ background: C.s2, border: `1px solid ${C.bd}`, borderRadius: 8, padding: '12px 14px' }}>
+                      <div style={{ fontSize: 8, color: C.t2, textTransform: 'uppercase',
+                        letterSpacing: '0.10em', marginBottom: 8 }}>Força do Movimento</div>
+                      {/* Arc gauge */}
+                      <svg width="100%" viewBox="0 0 120 70">
+                        {/* Track */}
+                        <path d="M 10 60 A 50 50 0 0 1 110 60" fill="none" stroke={C.s3} strokeWidth="8" strokeLinecap="round" />
+                        {/* Fill */}
+                        {(() => {
+                          const pct = Math.min(1, fRafi / 2.5)
+                          const ang = pct * Math.PI
+                          const ex  = 60 - 50 * Math.cos(ang)
+                          const ey  = 60 - 50 * Math.sin(ang)
+                          const lg  = pct > 0.5 ? 1 : 0
+                          return (
+                            <path d={`M 10 60 A 50 50 0 ${lg} 1 ${ex.toFixed(1)} ${ey.toFixed(1)}`}
+                              fill="none" stroke={fColor} strokeWidth="8" strokeLinecap="round" />
+                          )
+                        })()}
+                        <text x="60" y="55" textAnchor="middle" fill={fColor}
+                          fontFamily="monospace" fontSize="18" fontWeight="800">{fRafi.toFixed(1)}</text>
+                        <text x="60" y="67" textAnchor="middle" fill={C.t3}
+                          fontFamily="monospace" fontSize="7">de 2.50 para entrar</text>
+                        <text x="10"  y="70" fill={C.t3} fontSize="6" textAnchor="middle">0</text>
+                        <text x="110" y="70" fill={fColor} fontSize="6" textAnchor="middle">2.5</text>
+                      </svg>
+                    </div>
+
+                    {/* Checklist */}
+                    <div style={{ background: C.s2, border: `1px solid ${C.bd}`, borderRadius: 8, padding: '12px 14px' }}>
+                      <div style={{ fontSize: 8, color: C.t2, textTransform: 'uppercase',
+                        letterSpacing: '0.10em', marginBottom: 8 }}>Condições para Entrada</div>
+                      {[
+                        { label: `RAFI ≥ 2.50`,           ok: fRafi >= 2.5,  val: fRafi.toFixed(2) },
+                        { label: `Timeframes (${fTf}/3)`,  ok: fTf === 3,     val: fTf === 3 ? '✓' : `${fTf}/3` },
+                        { label: 'Bollinger abrindo',       ok: fBb,           val: fBb ? '✓' : '—' },
+                        { label: 'Rompimento confirmado',   ok: false,         val: 'aguard.' },
+                      ].map(item => (
+                        <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between',
+                          alignItems: 'center', padding: '5px 0',
+                          borderBottom: `1px solid ${C.bd}`, fontSize: 9 }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ width: 5, height: 5, borderRadius: '50%',
+                              background: item.ok ? C.gr : C.t3, flexShrink: 0 }} />
+                            <span style={{ color: item.ok ? C.tx : C.t2 }}>{item.label}</span>
+                          </span>
+                          <span style={{ fontFamily: 'monospace', fontSize: 8,
+                            color: item.ok ? C.gr : C.t3 }}>{item.val}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+        body{font-family:'Inter',system-ui,sans-serif!important}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+        @keyframes rafiPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.85;transform:scale(.99)}}
+        @keyframes slideDown{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+        .kcard{position:relative;transition:box-shadow .15s,border-color .2s}
+        .kcard:hover{box-shadow:0 4px 20px rgba(0,0,0,.4);border-color:rgba(48,54,61,.9)!important}
+        .bcard{position:relative;transition:transform .15s,box-shadow .15s,border-color .2s;border-radius:12px}
+        .bcard:hover{transform:translateY(-2px)}
+        .bc-gr:hover{border-color:rgba(16,185,129,.35)!important;box-shadow:0 4px 20px rgba(16,185,129,.08)}
+        .bc-am:hover{border-color:rgba(245,158,11,.35)!important;box-shadow:0 4px 20px rgba(245,158,11,.08)}
+        .bc-t3:hover{border-color:rgba(72,79,88,.7)!important}
+        .bhex{clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)}
+        .bcta{opacity:0;transition:opacity .15s}
+        .bcard:hover .bcta{opacity:1}
+        .logrow:nth-child(even){background:rgba(13,17,23,.6)}
+        .forming-card{animation:rafiPulse 2.8s ease-in-out infinite}
+        .qr-panel{animation:slideDown .18s ease-out both}
+        .log-terminal::-webkit-scrollbar{width:4px}
+        .log-terminal::-webkit-scrollbar-track{background:transparent}
+        .log-terminal::-webkit-scrollbar-thumb{background:#30363d;border-radius:2px}
+        @keyframes missionPulse{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 12px 2px rgba(239,68,68,.15)}}
+        .mission-close:hover{background:rgba(239,68,68,.18)!important;border-color:rgba(239,68,68,.6)!important}
+        button{border-radius:8px!important}
+      `}</style>
+
+      {/* ── MISSÃO ATIVA — banner sticky quando há posição aberta ─────────── */}
+      {pending.length > 0 && (() => {
+        const t      = pending[0]
+        const tDir   = t.direction
+        const tColor = tDir === 'buy' ? C.cy : C.am
+        const tSL    = t.stop_loss
+        const tTP    = t.take_profit
+        const tLot   = t.lot ?? 0.1
+        const tFloat = floatPnL
+
+        // Pips do entry: EURUSD, 1 pip = lot × $10
+        const slPips   = Math.round(Math.abs(t.entry - tSL) * 100000)
+        const tpPips   = Math.round(Math.abs(tTP - t.entry) * 100000)
+        const floatPips = tLot > 0 ? tFloat / (tLot * 10) : 0
+        const progressPct = tpPips > 0 ? Math.max(-100, Math.min(100, (floatPips / tpPips) * 100)) : 0
+        const progColor = tFloat > 0 ? C.gr : tFloat < 0 ? C.re : C.am
+
+        // Duração em trade
+        const secsSince = t.time ? Math.floor(Date.now() / 1000 - t.time) : 0
+        const durHh = Math.floor(secsSince / 3600)
+        const durMm = String(Math.floor((secsSince % 3600) / 60)).padStart(2, '0')
+        const durSs = String(secsSince % 60).padStart(2, '0')
+        const durStr = durHh > 0 ? `${durHh}h${durMm}m` : `${durMm}:${durSs}`
+
+        // Posição do marcador na barra (SL ocupa distSL/(slPips+tpPips) do total)
+        const totalPips = slPips + tpPips
+        const slFrac = totalPips > 0 ? slPips / totalPips : 0.33
+        const fillWidth = Math.abs(progressPct) * (1 - slFrac)
+
+        return (
+          <div style={{
+            position: 'sticky', top: 52, zIndex: 18,
+            background: C.s1,
+            borderBottom: `1px solid ${C.bd}`,
+            borderTop: `2px solid ${tColor}`,
+            display: 'flex', alignItems: 'stretch',
+            animation: 'slideDown .2s ease-out both',
+          }}>
+            {/* Left accent */}
+            <div style={{ width: 3, background: tColor, flexShrink: 0 }} />
+
+            {/* Direction + label */}
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center',
+              padding: '10px 20px', borderRight: `1px solid ${tColor}20`, flexShrink: 0, gap: 2 }}>
+              <div style={{ fontSize: 7, fontWeight: 800, letterSpacing: '0.15em',
+                textTransform: 'uppercase', color: tColor }}>● MISSÃO ATIVA</div>
+              <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 800, color: tColor, lineHeight: 1 }}>
+                {tDir === 'buy' ? '▲ COMPRA' : '▼ VENDA'}
+              </div>
+              <div style={{ fontFamily: 'monospace', fontSize: 8, color: C.t2 }}>{tLot.toFixed(2)} lots</div>
+            </div>
+
+            {/* Entry */}
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center',
+              padding: '10px 18px', borderRight: `1px solid ${C.bd}`, flexShrink: 0, gap: 3 }}>
+              <div style={{ fontSize: 7, color: C.t3, letterSpacing: '0.08em' }}>ENTRADA</div>
+              <div style={{ ...serif, fontSize: 16, fontWeight: 700, color: C.tx }}>
+                {t.entry.toFixed(5)}
+              </div>
+            </div>
+
+            {/* Float P&L — destaque máximo */}
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center',
+              padding: '10px 24px', borderRight: `1px solid ${C.bd}`, flexShrink: 0, gap: 3 }}>
+              <div style={{ fontSize: 7, color: C.t3, letterSpacing: '0.08em' }}>FLOAT P&L</div>
+              <div style={{ ...serif, fontSize: 22, fontWeight: 700, lineHeight: 1,
+                color: progColor, transition: 'color 0.5s',
+                textShadow: `0 0 20px ${progColor}60` }}>
+                {fmtUSD(tFloat, true)}
+              </div>
+              <div style={{ fontSize: 7, fontFamily: 'monospace', color: progColor, opacity: 0.8 }}>
+                {floatPips > 0 ? '+' : ''}{floatPips.toFixed(1)} pips
+              </div>
+            </div>
+
+            {/* Progress bar SL → Entry → TP */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center',
+              padding: '8px 20px', borderRight: `1px solid ${C.bd}`, gap: 4, minWidth: 180 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 7, fontFamily: 'monospace' }}>
+                <span style={{ color: C.re }}>SL −{slPips}p</span>
+                <span style={{ color: C.t3 }}>entry</span>
+                <span style={{ color: C.gr }}>TP +{tpPips}p</span>
+              </div>
+              {/* Track */}
+              <div style={{ height: 8, background: C.s3, position: 'relative', overflow: 'hidden', borderRadius: 2 }}>
+                {/* Entry divider */}
+                <div style={{ position: 'absolute', left: `${slFrac * 100}%`, top: 0, bottom: 0,
+                  width: 1, background: C.t2, opacity: 0.7 }} />
+                {/* SL zone fill */}
+                <div style={{ position: 'absolute', left: 0, width: `${slFrac * 100}%`,
+                  top: 0, bottom: 0, background: `${C.re}15` }} />
+                {/* TP zone fill */}
+                <div style={{ position: 'absolute', left: `${slFrac * 100}%`,
+                  width: `${(1 - slFrac) * 100}%`, top: 0, bottom: 0, background: `${C.gr}10` }} />
+                {/* Progress fill from entry */}
+                {progressPct !== 0 && (
+                  <div style={{
+                    position: 'absolute',
+                    left: progressPct > 0 ? `${slFrac * 100}%` : `${(slFrac - Math.abs(progressPct) / 100 * (1 - slFrac)) * 100}%`,
+                    width: `${Math.abs(progressPct) * (1 - slFrac) * (progressPct > 0 ? 1 : slFrac)}%`,
+                    top: 0, bottom: 0,
+                    background: progColor,
+                    opacity: 0.85,
+                    transition: 'width 1s ease, left 1s ease',
+                  }} />
+                )}
+                {/* Current position dot */}
+                <div style={{
+                  position: 'absolute',
+                  left: `calc(${slFrac * 100}% + ${progressPct > 0 ? progressPct * (1 - slFrac) : progressPct * slFrac}%)`,
+                  top: '50%', transform: 'translate(-50%, -50%)',
+                  width: 10, height: 10, borderRadius: '50%',
+                  background: progColor, border: `2px solid ${C.bg}`,
+                  boxShadow: `0 0 6px ${progColor}`,
+                  transition: 'left 1s ease',
+                }} />
+              </div>
+              <div style={{ fontSize: 7, fontFamily: 'monospace', color: progColor, textAlign: 'center' }}>
+                {progressPct > 0 ? `+${progressPct.toFixed(0)}%` : progressPct.toFixed(0) + '%'} do alvo ·{' '}
+                {progressPct > 0
+                  ? `${(tpPips - floatPips).toFixed(0)}p para TP`
+                  : `${(slPips + floatPips).toFixed(0)}p para SL`}
+              </div>
+            </div>
+
+            {/* SL / TP / Tempo */}
+            <div style={{ display: 'flex', gap: 16, padding: '8px 20px',
+              borderRight: `1px solid ${C.bd}`, flexShrink: 0, alignItems: 'center' }}>
+              {[
+                { k: 'SL', v: tSL.toFixed(5), c: C.re },
+                { k: 'TP', v: tTP.toFixed(5), c: C.gr },
+                { k: 'TEMPO', v: durStr, c: C.cy },
+              ].map(({ k, v, c }) => (
+                <div key={k} style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 7, color: C.t3, marginBottom: 3, letterSpacing: '0.06em' }}>{k}</div>
+                  <div style={{ fontFamily: 'monospace', fontSize: 9, color: c, fontWeight: 700 }}>{v}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* FECHAR AGORA */}
+            <div style={{ display: 'flex', alignItems: 'center', padding: '0 20px', flexShrink: 0 }}>
+              <button className="mission-close" onClick={() => enviarComando('close_all')} style={{
+                padding: '10px 20px',
+                background: `rgba(255,71,87,.10)`,
+                border: `1px solid ${C.re}50`,
+                color: C.re,
+                fontFamily: 'monospace', fontSize: 9, fontWeight: 800,
+                letterSpacing: '0.10em', cursor: 'pointer',
+                transition: 'background .2s, border-color .2s',
+              }}>
+                ■ FECHAR<br />AGORA
+              </button>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── RAFI Strip — sempre visível ────────────────────────────────────── */}
+      {(() => {
+        const absRafi    = liveRafi !== null ? Math.abs(liveRafi) : 0
+        const stripColor = liveRafi === null ? C.t3 : absRafi >= 2.5 ? C.cy : absRafi >= 1.75 ? C.am : C.t3
+        const stripLabel = liveRafi === null ? 'AGUARDANDO' : absRafi >= 2.5 ? 'SINAL ATIVO' : absRafi >= 1.75 ? 'FORMANDO' : 'MONITORANDO'
+        const stripPct   = Math.min(100, (absRafi / 2.5) * 100)
+        return (
+          <div style={{ background: C.s1, borderBottom: `1px solid ${C.bd}`,
+            padding: '5px 24px', display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: stripColor,
+                boxShadow: liveRafi !== null && absRafi >= 1.75 ? `0 0 5px ${stripColor}` : 'none',
+                animation: liveRafi !== null && absRafi >= 1.75 ? 'pulse 1.5s ease-in-out infinite' : 'none',
+                display: 'inline-block' }} />
+              <span style={{ fontSize: 7, fontWeight: 700, letterSpacing: '0.12em', color: stripColor, fontFamily: 'monospace' }}>{stripLabel}</span>
+            </div>
+            <div style={{ flex: 1, position: 'relative', height: 3, background: C.s3, overflow: 'visible' }}>
+              <div style={{ position: 'absolute', left: 0, top: 0, height: '100%',
+                width: `${stripPct}%`, background: `linear-gradient(90deg, ${C.t3}88, ${stripColor})`,
+                transition: 'width 1s linear, background 0.5s' }} />
+              <div style={{ position: 'absolute', left: '70%', top: -3, width: 1, height: 9, background: `${C.am}60` }} />
+              <div style={{ position: 'absolute', left: '70%', top: 10, fontSize: 6, color: C.am,
+                transform: 'translateX(-50%)', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>1.75</div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: stripColor }}>
+                {liveRafi !== null ? Math.abs(liveRafi).toFixed(2) : '—'}
+                <span style={{ fontSize: 8, color: C.t3, fontWeight: 400 }}>/2.50</span>
+              </span>
+              <span style={{ fontSize: 7, color: C.t2, fontFamily: 'monospace' }}>RAFI</span>
+            </div>
+            {liveRafi !== null && absRafi >= 1.75 && (
+              <div style={{ flexShrink: 0, fontSize: 7, fontWeight: 700, padding: '2px 8px',
+                border: `1px solid ${stripColor}30`, color: stripColor, background: `${stripColor}08`,
+                fontFamily: 'monospace' }}>
+                {liveRafi > 0 ? '▲ ALTA' : '▼ BAIXA'}
+              </div>
+            )}
+            <div style={{ flexShrink: 0, fontSize: 8, color: C.t3, fontFamily: 'monospace' }}>
+              M5 <span style={{ color: C.cy }}>{m5mm}:{m5ss}</span>
+            </div>
+          </div>
+        )
+      })()}
+
+      <div style={{ padding: '16px 24px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+        {/* ── Hero KPIs ──────────────────────────────────────────────────────── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1fr 1fr 1fr 1fr', gap: 10 }}>
+
+          {/* Acumulado Total */}
+          <div className="kcard" style={{ ...card, padding: '20px 22px', position: 'relative', borderTop: `2px solid ${C.gr}` }}>
+            <div style={lbl}>Acumulado Total</div>
+            <div style={{ ...serif, fontSize: '2.4rem', fontWeight: 700, lineHeight: 1,
+              color: totalPnL >= 0 ? C.gr : C.re, marginBottom: 4 }}>
+              {realPnLTrades.length > 0 ? fmtUSD(totalPnL, true) : '—'}
+            </div>
+            <div style={{ fontSize: 10, color: C.t2 }}>
+              {realPnLTrades.length > 0
+                ? `${realPnLTrades.length} c/ P&L real · ${closed.length - realPnLTrades.length} sem dado`
+                : `${closed.length} trades · P&L não registrado`}
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <CapitalCurveChart trades={trades} />
+            </div>
+          </div>
+
+          {/* Win Rate */}
+          <div className="kcard" style={{ ...card, padding: '20px 22px', position: 'relative', borderTop: `2px solid ${C.cy}` }}>
+            <div style={lbl}>Win Rate</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '6px 0' }}>
+              <svg width="68" height="68" viewBox="0 0 68 68">
+                <circle cx="34" cy="34" r="26" fill="none" stroke={C.s3} strokeWidth="5.5" />
+                <circle cx="34" cy="34" r="26" fill="none" stroke={C.gr} strokeWidth="5.5"
+                  strokeDasharray="163.4" strokeDashoffset={arcOff}
+                  strokeLinecap="round" transform="rotate(-90 34 34)" />
+                <text x="34" y="39" textAnchor="middle" fill={C.gr}
+                  fontFamily="'JetBrains Mono', monospace" fontSize="13" fontWeight="700">
+                  {wr !== null ? `${wr}%` : '—'}
+                </text>
+              </svg>
+              <div>
+                <div style={{ fontSize: 9, color: C.t2 }}>{wins} vitórias</div>
+                <div style={{ fontSize: 9, color: C.re }}>{losses} derrotas</div>
+                <div style={{ fontSize: 9, color: C.t3, marginTop: 4 }}>{wins + losses} total</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 10, color: C.t2 }}>
+              Profit Factor <span style={{ ...mono, color: C.cy }}>
+                {losses > 0 ? (wins / losses).toFixed(1) : '∞'}
+              </span>
+            </div>
+          </div>
+
+          {/* Bot Status */}
+          <div className="kcard" style={{ ...card, padding: '20px 22px', position: 'relative', borderTop: `2px solid ${statusColor}` }}>
+            <div style={lbl}>Bot Status</div>
+            <div style={{ ...serif, fontSize: '1.6rem', fontWeight: 700, color: statusColor, lineHeight: 1 }}>
+              {statusLabel}
+            </div>
+            <div style={{ fontSize: 10, color: C.t2, marginTop: 8 }}>
+              Heartbeat: {status ? secondsAgo(status.updated_at) : '—'}
+            </div>
+            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 3, fontSize: 9, color: C.t2 }}>
+              <div>Ciclo M5 · 24h</div>
+              <div>Risco: <span style={{ ...mono, color: C.am }}>1–2%/trade</span></div>
+              <div>Lote: <span style={{ ...mono, color: C.tx }}>{bal > 0 ? loteAtual(bal) : '—'}</span></div>
+            </div>
+          </div>
+
+          {/* P&L Hoje */}
+          <div className="kcard" style={{ ...card, padding: '20px 22px', position: 'relative', borderTop: `2px solid ${C.re}` }}>
+            <div style={{ position: 'absolute', top: 16, right: 16, fontSize: 7, fontWeight: 700,
+              padding: '2px 7px', border: `1px solid ${C.bd}`, color: C.t2 }}>HOJE</div>
+            <div style={lbl}>P&L Hoje</div>
+            <div style={{ ...serif, fontSize: '2rem', fontWeight: 700, lineHeight: 1,
+              color: pnlToday > 0 ? C.gr : pnlToday < 0 ? C.re : C.t2 }}>
+              {fmtUSD(pnlToday, true)}
+            </div>
+            <div style={{ fontSize: 10, color: C.t2, marginTop: 6 }}>
+              {tradesHoje} trade{tradesHoje !== 1 ? 's' : ''} · {fmtPct(pctToday, true)}
+            </div>
+            <div style={{ marginTop: 8, fontSize: 9, color: C.t2 }}>
+              <div>Limite: <span style={{ ...mono, color: C.re }}>−5%</span></div>
+              <div>Saldo: <span style={{ ...mono, color: C.tx }}>{bal > 0 ? fmtUSD(bal) : '—'}</span></div>
+            </div>
+          </div>
+
+          {/* Conta XM / Posição Aberta — dual-state */}
+          <div className="kcard" style={{ ...card, padding: '20px 22px', position: 'relative',
+            borderTop: `2px solid ${pending.length > 0 ? (pending[0].direction === 'buy' ? C.cy : C.re) : C.bl}` }}>
+            {pending.length > 0 ? (
+              /* ── Com posição aberta ── */
+              <>
+                <div style={lbl}>Posição Aberta</div>
+                <div style={{ ...mono, fontSize: '1.35rem', fontWeight: 700,
+                  color: pending[0].direction === 'buy' ? C.cy : C.am }}>
+                  {pending[0].direction === 'buy' ? '▲ COMPRA' : '▼ VENDA'}
+                </div>
+                <div style={{ ...mono, fontSize: 11, color: C.tx, marginTop: 2 }}>
+                  {pending[0].entry.toFixed(5)}
+                </div>
+                <div style={{ fontSize: 9, color: C.t2, marginTop: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Float</span>
+                    <span style={{ ...mono, fontWeight: 700, color: floatPnL >= 0 ? C.gr : C.re }}>
+                      {fmtUSD(floatPnL, true)}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>SL</span><span style={{ ...mono, color: C.re }}>{pending[0].stop_loss.toFixed(5)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>TP</span><span style={{ ...mono, color: C.gr }}>{pending[0].take_profit.toFixed(5)}</span>
+                  </div>
+                </div>
+                <div style={{ marginTop: 10, borderTop: `1px solid ${C.bd}`, paddingTop: 8,
+                  display: 'flex', justifyContent: 'space-between', fontSize: 9, color: C.t2 }}>
+                  <span>Saldo: <span style={{ ...mono, color: C.tx }}>{bal > 0 ? fmtUSD(bal) : '—'}</span></span>
+                  <span style={{ ...mono, color: C.cy }}>{m5mm}:{m5ss} ↻</span>
+                </div>
               </>
             ) : (
-              <div className="flex items-center gap-2 text-[#ef4444]">
-                <WifiOff size={11} />
-                {status ? `Offline · ${secondsAgo(status.updated_at)}` : 'Bot não iniciado'}
-              </div>
-            )}
-            {!supa && (
-              <div className="text-[#ef4444] mt-2">
-                SUPABASE não configurado
-              </div>
+              /* ── Sem posição: mostra conta XM ── */
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={lbl}>Conta {contaNome}</div>
+                  <div style={{ fontSize: 7, fontWeight: 700, padding: '2px 7px',
+                    border: `1px solid ${C.bd}`, color: C.t3, ...mono }}>
+                    #{status?.account ?? '—'}
+                  </div>
+                </div>
+                <div style={{ ...serif, fontSize: '2.2rem', fontWeight: 700, lineHeight: 1,
+                  color: C.tx, marginBottom: 2 }}>
+                  {bal > 0 ? fmtUSD(bal) : '—'}
+                </div>
+                <div style={{ fontSize: 8, color: C.t2, marginBottom: 10 }}>Saldo disponível</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 9 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: C.t2 }}>Equity</span>
+                    <span style={{ ...mono, color: C.tx }}>{fmtUSD(eq)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: C.t2 }}>Lote atual</span>
+                    <span style={{ ...mono, color: C.am }}>{bal > 0 ? loteAtual(bal) : '—'}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: C.t2 }}>Max perda/dia</span>
+                    <span style={{ ...mono, color: C.re }}>
+                      {maxDdUsd > 0 ? `−${fmtUSD(maxDdUsd)}` : '—'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: C.t2 }}>Último sinal</span>
+                    <span style={{ ...mono, color: C.t2, fontSize: 8, maxWidth: 90,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {status?.last_signal ?? 'nenhum'}
+                    </span>
+                  </div>
+                </div>
+                <div style={{ marginTop: 10, borderTop: `1px solid ${C.bd}`, paddingTop: 6,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  fontSize: 8, color: C.t3 }}>
+                  <span>Próx. candle M5</span>
+                  <span style={{ ...mono, color: C.cy, fontSize: 11, fontWeight: 700 }}>
+                    {m5mm}:{m5ss}
+                  </span>
+                </div>
+              </>
             )}
           </div>
         </div>
-      </div>
 
-      {/* ── Histórico de trades ────────────────────────────────────────────── */}
-      <div className="bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-[#30363d] bg-[#0d1117] flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <BarChart2 size={12} className="text-[#3b82f6]" />
-            <span className="text-[9px] uppercase tracking-widest text-[#484f58]">Histórico</span>
-          </div>
-          <div className="flex items-center gap-1">
-            {(['history', 'open'] as const).map(tab => (
-              <button key={tab} onClick={() => setActiveTab(tab)}
-                className={cn(
-                  'px-3 py-1 rounded-md text-[9px] font-bold uppercase tracking-wider transition-all',
-                  activeTab === tab
-                    ? 'bg-[#21262d] text-[#f0f6fc]'
-                    : 'text-[#484f58] hover:text-[#8b949e]',
-                )}>
-                {tab === 'history' ? `Fechados (${closed.length})` : `Abertos (${pending.length})`}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-3 text-[9px] font-mono">
-            <span className="text-[#10b981]">{wins}W</span>
-            <span className="text-[#ef4444]">{losses}L</span>
-            {wr !== null && <span className="text-[#f0f6fc] font-bold">{wr}% WR</span>}
-          </div>
-        </div>
-
-        {(activeTab === 'history' ? closed : pending).length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 gap-2">
-            <AlertTriangle size={24} className="text-[#30363d]" />
-            <p className="text-xs text-[#484f58]">
-              {activeTab === 'history'
-                ? 'Nenhum trade fechado ainda.'
-                : 'Nenhuma posição aberta.'}
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-[#30363d] bg-[#0d1117]">
-                  {['Data/Hora', 'Dir', 'Entry', 'SL', 'TP', 'Lote', 'RAFI', 'P&L', 'Resultado'].map(h => (
-                    <th key={h} className="py-2 px-3 text-left text-[8px] uppercase tracking-wider text-[#484f58] font-medium">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {(activeTab === 'history' ? closed : pending).slice(0, 50).map(t => {
-                  const isBuy = t.direction === 'buy'
-                  return (
-                    <tr key={t.id} className={cn(
-                      'border-b border-[#30363d]/40 text-[10px] font-mono hover:bg-[#21262d]/40',
-                      t.result === 'win'     && 'bg-[#10b981]/3',
-                      t.result === 'loss'    && 'bg-[#ef4444]/3',
-                      t.result === 'pending' && 'bg-[#f59e0b]/3',
-                    )}>
-                      <td className="py-2 px-3 text-[#484f58] whitespace-nowrap">{fmtTime(t.time)}</td>
-                      <td className="py-2 px-3">
-                        <span className={cn('flex items-center gap-0.5 font-bold',
-                          isBuy ? 'text-[#3b82f6]' : 'text-[#f59e0b]')}>
-                          {isBuy ? <ChevronUp size={9} /> : <ChevronDown size={9} />}
-                          {isBuy ? 'BUY' : 'SELL'}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 text-[#f0f6fc]">{t.entry.toFixed(5)}</td>
-                      <td className="py-2 px-3 text-[#ef4444]">{t.stop_loss.toFixed(5)}</td>
-                      <td className="py-2 px-3 text-[#10b981]">{t.take_profit.toFixed(5)}</td>
-                      <td className="py-2 px-3 text-[#8b949e]">{t.lot.toFixed(2)}L</td>
-                      <td className="py-2 px-3">
-                        {t.rafi !== null
-                          ? <span style={{ color: (t.rafi ?? 0) >= 2.5 ? '#10b981' : '#f59e0b' }}>{t.rafi.toFixed(1)}</span>
-                          : <span className="text-[#484f58]">—</span>}
-                      </td>
-                      <td className="py-2 px-3 font-bold"
-                        style={{ color: t.pnl == null ? '#484f58' : t.pnl >= 0 ? '#10b981' : '#ef4444' }}>
-                        {t.pnl != null ? fmtUSD(t.pnl, true) : '—'}
-                      </td>
-                      <td className="py-2 px-3">
-                        {t.result === 'win'
-                          ? <span className="px-1.5 py-0.5 rounded text-[8px] bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/25">WIN</span>
-                          : t.result === 'loss'
-                          ? <span className="px-1.5 py-0.5 rounded text-[8px] bg-[#ef4444]/15 text-[#ef4444] border border-[#ef4444]/25">LOSS</span>
-                          : <span className="px-1.5 py-0.5 rounded text-[8px] bg-[#f59e0b]/15 text-[#f59e0b] border border-[#f59e0b]/25 animate-pulse">ABERTO</span>
-                        }
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+        {/* ── ADAPTAÇÃO banner — aparece quando ML detecta queda de performance ── */}
+        {status?.ml_modo === 'ADAPTAÇÃO' && (
+          <div style={{
+            background: 'rgba(245,158,11,.08)', border: `1px solid ${C.am}40`,
+            borderRadius: 8, padding: '10px 18px',
+            display: 'flex', alignItems: 'center', gap: 12,
+          }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: C.am,
+              boxShadow: `0 0 8px ${C.am}`, animation: 'pulse 1.2s ease-in-out infinite',
+              flexShrink: 0 }} />
+            <div>
+              <span style={{ fontSize: 10, fontWeight: 800, color: C.am, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+                ⚠ ML em Modo ADAPTAÇÃO
+              </span>
+              <span style={{ fontSize: 10, color: C.t2, marginLeft: 10 }}>
+                WR/PF abaixo do mínimo — retreino XGBoost em andamento em background
+              </span>
+            </div>
+            <span style={{ marginLeft: 'auto', fontSize: 9, fontFamily: 'monospace', color: C.am }}>
+              WR {status.ml_wr_rolling !== null && status.ml_wr_rolling !== undefined ? `${(status.ml_wr_rolling * 100).toFixed(1)}%` : '—'} · PF {status.ml_pf_rolling !== null && status.ml_pf_rolling !== undefined ? status.ml_pf_rolling.toFixed(2) : '—'}
+            </span>
           </div>
         )}
-      </div>
 
-      {/* ── Kill switch ─────────────────────────────────────────────────────── */}
-      <div className="bg-[#161b22] border border-[#ef4444]/15 rounded-xl p-4 flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <div className="text-xs font-semibold text-[#f0f6fc]">Kill Switch de Emergência</div>
-          <div className="text-[9px] text-[#484f58] mt-0.5">
-            Envia STOP imediato — bot para no próximo ciclo (máx 5 min).
-            Alternativa: crie o arquivo <code className="text-[#8b949e]">STOP</code> em <code className="text-[#8b949e]">C:\RafiBot\rafi-bot\</code>
+        {/* ── ML Status Panel ───────────────────────────────────────────────── */}
+        {(() => {
+          const mlOk     = status?.ml_modelo_carregado ?? false
+          const mlModo   = status?.ml_modo ?? 'OBSERVAÇÃO'
+          const mlWR     = status?.ml_wr_rolling
+          const mlPF     = status?.ml_pf_rolling
+          const mlSinais = status?.ml_sinais_hoje ?? 0
+          const mlAprov  = status?.ml_aprovados_hoje ?? 0
+          const mlDt     = status?.ml_treinado_em
+          const mlThr    = status?.ml_threshold ?? 0.65
+          const mlColor  = mlModo === 'ADAPTAÇÃO' ? C.am : mlOk ? C.gr : C.t3
+          const mlAprovPct = mlSinais > 0 ? Math.round(mlAprov / mlSinais * 100) : 0
+          return (
+            <div style={{ ...card, padding: '14px 18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <Brain size={13} style={{ color: mlColor }} />
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.tx, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  ML / Fase 2 — XGBoost
+                </span>
+                <span style={{ marginLeft: 4, fontSize: 9, fontWeight: 700, padding: '2px 8px',
+                  border: `1px solid ${mlColor}40`, color: mlColor, background: `${mlColor}10`, fontFamily: 'monospace' }}>
+                  {mlModo}
+                </span>
+                <span style={{ marginLeft: 'auto', fontSize: 8, color: mlOk ? C.gr : C.re, fontFamily: 'monospace', fontWeight: 700 }}>
+                  {mlOk ? '● MODELO CARREGADO' : '○ SEM MODELO'}
+                </span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
+                {[
+                  { label: 'Threshold', val: mlThr ? `${(mlThr * 100).toFixed(0)}%` : '65%', color: C.cy },
+                  { label: 'WR rolling', val: mlWR !== null && mlWR !== undefined ? `${(mlWR * 100).toFixed(1)}%` : '—', color: mlWR !== null && mlWR !== undefined && mlWR >= 0.70 ? C.gr : mlWR !== null && mlWR !== undefined ? C.re : C.t3 },
+                  { label: 'PF rolling', val: mlPF !== null && mlPF !== undefined ? mlPF.toFixed(2) : '—', color: mlPF !== null && mlPF !== undefined && mlPF >= 2.0 ? C.gr : mlPF !== null && mlPF !== undefined ? C.re : C.t3 },
+                  { label: 'Sinais hoje', val: `${mlAprov}/${mlSinais}`, color: C.am },
+                  { label: 'Aprovados', val: mlSinais > 0 ? `${mlAprovPct}%` : '—', color: mlAprovPct >= 50 ? C.gr : mlAprovPct > 0 ? C.am : C.t3 },
+                ].map(({ label, val, color }) => (
+                  <div key={label} style={{ background: C.s2, border: `1px solid ${C.bd}`, borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 8, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>{label}</div>
+                    <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color }}>{val}</div>
+                  </div>
+                ))}
+              </div>
+              {mlDt && (
+                <div style={{ marginTop: 8, fontSize: 9, color: C.t3, fontFamily: 'monospace', textAlign: 'right' }}>
+                  Treinado em: {new Date(mlDt).toLocaleString('pt-BR')}
+                </div>
+              )}
+            </div>
+          )
+        })()}
+
+        {/* ── Main grid ─────────────────────────────────────────────────────── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 10, alignItems: 'start' }}>
+
+          {/* Left column */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+            {/* Chart row: LiveChart + Sinal em Formação lado a lado */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+
+              {/* Live chart */}
+              <div style={{ ...card }}>
+                <div style={{ padding: '10px 18px', borderBottom: `1px solid ${C.bd}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
+                    fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
+                    <BarChart2 size={11} style={{ color: C.bl }} />
+                    EURUSD# · M5
+                    {candles.length > 0 && (
+                      <span style={{ fontSize: 7, padding: '2px 6px', border: `1px solid ${C.gr}30`,
+                        color: C.gr, background: C.gra }}>{candles.length}</span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, fontSize: 7, ...mono, color: C.t2 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <span style={{ width: 7, height: 1, background: C.gr, display: 'inline-block' }} /> TP
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <span style={{ width: 7, height: 1, background: C.re, display: 'inline-block' }} /> SL
+                    </span>
+                  </div>
+                </div>
+                <LiveChart candles={candles} trades={trades} pending={pending} />
+              </div>
+
+              {/* Sinal em Formação / Missão em Curso — painel direito condicional */}
+              {pending.length > 0 ? (() => {
+                // ── Missão em Curso: painel ativo durante trade aberto ──
+                const t       = pending[0]
+                const tDir    = t.direction
+                const tColor  = tDir === 'buy' ? C.cy : C.am
+                const tSL     = t.stop_loss
+                const tTP     = t.take_profit
+                const tLot    = t.lot ?? 0.1
+                const slPips  = Math.round(Math.abs(t.entry - tSL) * 100000)
+                const tpPips  = Math.round(Math.abs(tTP - t.entry) * 100000)
+                const fPips   = tLot > 0 ? floatPnL / (tLot * 10) : 0
+                const progPct = tpPips > 0 ? Math.max(-100, Math.min(100, (fPips / tpPips) * 100)) : 0
+                const pColor  = floatPnL > 0 ? C.gr : floatPnL < 0 ? C.re : C.am
+                const totalPip = slPips + tpPips
+                const slFrac2  = totalPip > 0 ? slPips / totalPip : 0.33
+                const secsSince = t.time ? Math.floor(Date.now() / 1000 - t.time) : 0
+                const dHh = Math.floor(secsSince / 3600)
+                const dMm = String(Math.floor((secsSince % 3600) / 60)).padStart(2, '0')
+                const dSs = String(secsSince % 60).padStart(2, '0')
+                const durStr = dHh > 0 ? `${dHh}h${dMm}m` : `${dMm}:${dSs}`
+                return (
+                  <div style={{
+                    ...card,
+                    borderTop: `2px solid ${tColor}`,
+                    display: 'flex', flexDirection: 'column',
+                    animation: 'slideDown .25s ease-out both',
+                  }}>
+                    {/* Header */}
+                    <div style={{ padding: '10px 14px', borderBottom: `1px solid ${tColor}22`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 8,
+                        fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
+                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: tColor,
+                          boxShadow: `0 0 6px ${tColor}`,
+                          animation: 'pulse 1.5s ease-in-out infinite' }} />
+                        Missão em Curso
+                      </div>
+                      <div style={{ fontSize: 7, fontWeight: 700, padding: '2px 8px',
+                        border: `1px solid ${tColor}30`, color: tColor,
+                        background: `${tColor}08`, fontFamily: 'monospace' }}>
+                        {tDir === 'buy' ? '▲ COMPRA' : '▼ VENDA'}
+                      </div>
+                    </div>
+
+                    {/* Entry price */}
+                    <div style={{ padding: '16px 14px', borderBottom: `1px solid ${C.bd}`, textAlign: 'center' }}>
+                      <div style={{ fontSize: 9, fontWeight: 800, color: tColor,
+                        letterSpacing: '0.10em', marginBottom: 3 }}>
+                        {tDir === 'buy' ? '▲ COMPRA' : '▼ VENDA'} · EURUSD
+                      </div>
+                      <div style={{ ...serif, fontSize: 32, fontWeight: 700,
+                        color: tColor, lineHeight: 1, letterSpacing: '0.02em' }}>
+                        {t.entry.toFixed(5)}
+                      </div>
+                      <div style={{ fontSize: 8, color: C.t2, marginTop: 3 }}>
+                        Preço de entrada · {tLot.toFixed(2)} lots
+                      </div>
+                    </div>
+
+                    {/* Float P&L */}
+                    <div style={{ padding: '12px 14px', borderBottom: `1px solid ${C.bd}`, textAlign: 'center' }}>
+                      <div style={{ fontSize: 8, color: C.t2, textTransform: 'uppercase',
+                        letterSpacing: '0.10em', marginBottom: 5 }}>Float P&L em tempo real</div>
+                      <div style={{ ...serif, fontSize: 30, fontWeight: 700,
+                        color: pColor, lineHeight: 1,
+                        textShadow: `0 0 20px ${pColor}60, 0 0 40px ${pColor}30`,
+                        transition: 'color 0.5s' }}>
+                        {fmtUSD(floatPnL, true)}
+                      </div>
+                      <div style={{ fontSize: 9, fontFamily: 'monospace', color: pColor,
+                        opacity: 0.8, marginTop: 3 }}>
+                        {fPips > 0 ? '+' : ''}{fPips.toFixed(1)} pips desde entrada
+                      </div>
+                    </div>
+
+                    {/* Mini progress SL → TP */}
+                    <div style={{ padding: '10px 14px', borderBottom: `1px solid ${C.bd}` }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between',
+                        fontSize: 7, fontFamily: 'monospace', marginBottom: 5 }}>
+                        <span style={{ color: C.re }}>SL</span>
+                        <span style={{ color: C.am }}>{progPct > 0 ? `+${progPct.toFixed(0)}%` : progPct.toFixed(0) + '%'} do alvo</span>
+                        <span style={{ color: C.gr }}>TP</span>
+                      </div>
+                      <div style={{ height: 6, background: C.s3, position: 'relative',
+                        overflow: 'hidden', borderRadius: 2 }}>
+                        <div style={{ position: 'absolute', left: 0, width: `${slFrac2 * 100}%`,
+                          top: 0, bottom: 0, background: `${C.re}15` }} />
+                        <div style={{ position: 'absolute', left: `${slFrac2 * 100}%`,
+                          right: 0, top: 0, bottom: 0, background: `${C.gr}10` }} />
+                        <div style={{ position: 'absolute', left: `${slFrac2 * 100}%`,
+                          width: `${Math.abs(progPct) * (1 - slFrac2)}%`,
+                          top: 0, bottom: 0, background: pColor, opacity: 0.9 }} />
+                        <div style={{ position: 'absolute',
+                          left: `calc(${slFrac2 * 100}% + ${Math.abs(progPct) * (1 - slFrac2)}%)`,
+                          top: '50%', transform: 'translate(-50%, -50%)',
+                          width: 9, height: 9, borderRadius: '50%',
+                          background: pColor, border: `1.5px solid ${C.s1}`,
+                          boxShadow: `0 0 6px ${pColor}` }} />
+                      </div>
+                    </div>
+
+                    {/* Metrics */}
+                    <div style={{ padding: '6px 14px', flex: 1 }}>
+                      {[
+                        { label: 'Stop Loss',       val: tSL.toFixed(5),                  color: C.re },
+                        { label: 'Take Profit',     val: tTP.toFixed(5),                  color: C.gr },
+                        { label: 'Dist. ao TP',     val: `${(tpPips - Math.max(0, fPips)).toFixed(0)} pips`, color: C.gr },
+                        { label: 'Tempo em trade',  val: durStr,                           color: C.cy },
+                        { label: 'RAFI entrada',    val: t.rafi != null ? t.rafi.toFixed(1) : '—', color: C.am },
+                      ].map(row => (
+                        <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between',
+                          alignItems: 'center', padding: '6px 0', fontSize: 10,
+                          borderBottom: `1px solid ${C.bd}` }}>
+                          <span style={{ color: C.t2 }}>{row.label}</span>
+                          <span style={{ fontFamily: 'monospace', fontWeight: 700, color: row.color }}>{row.val}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Close button */}
+                    <div style={{ padding: '10px 14px' }}>
+                      <button className="mission-close" onClick={() => enviarComando('close_all')}
+                        disabled={cmdSent} style={{
+                          width: '100%', padding: 12,
+                          background: `rgba(255,71,87,.12)`,
+                          border: `1px solid ${C.re}50`,
+                          color: C.re, fontFamily: 'monospace', fontSize: 10,
+                          fontWeight: 800, letterSpacing: '0.10em', cursor: 'pointer',
+                          transition: 'all .2s',
+                        }}>
+                        ■ FECHAR POSIÇÃO AGORA
+                      </button>
+                    </div>
+                  </div>
+                )
+              })() : (() => {
+                // ── Sinal em Formação: gauge RAFI quando sem posição aberta ──
+                const forming = showForming
+                const fDir    = formingDir
+                const fRafi   = formingRafi
+                const fTf     = formingTf
+                const fBb     = formingBb
+                const fPrice  = formingPrice || undefined
+                const fColor  = fDir === 'buy' ? C.cy : fDir === 'sell' ? C.am : C.bl
+                return (
+                  <div className={forming ? 'forming-card' : ''} style={{
+                    ...card,
+                    borderTop: forming ? `2px solid ${fColor}` : `1px solid ${C.bd}`,
+                    display: 'flex', flexDirection: 'column',
+                  }}>
+                    <div style={{ padding: '10px 14px', borderBottom: `1px solid ${forming ? fColor + '25' : C.bd}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 8,
+                        fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%',
+                          background: forming ? fColor : C.t3,
+                          boxShadow: forming ? `0 0 6px ${fColor}` : 'none',
+                          animation: forming ? 'pulse 1.5s ease-in-out infinite' : 'none' }} />
+                        Sinal em Formação
+                      </div>
+                      <div style={{ fontSize: 7, fontWeight: 700, padding: '2px 6px',
+                        border: `1px solid ${forming ? fColor + '30' : C.bd}`,
+                        color: forming ? fColor : C.t3,
+                        background: forming ? `${fColor}08` : 'transparent' }}>
+                        {forming ? (fDir === 'buy' ? '▲ ALTA' : '▼ BAIXA') : 'AGUARDANDO'}
+                      </div>
+                    </div>
+                    <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, flex: 1 }}>
+                      {/* Arc gauge */}
+                      <svg width="100%" viewBox="0 0 140 80" style={{ maxWidth: 200 }}>
+                        <path d="M 14 72 A 56 56 0 0 1 126 72" fill="none" stroke={C.s3} strokeWidth="10" strokeLinecap="round" />
+                        {(() => {
+                          const pct = Math.min(1, fRafi / 2.5)
+                          const ang = pct * Math.PI
+                          const ex  = 70 - 56 * Math.cos(ang)
+                          const ey  = 72 - 56 * Math.sin(ang)
+                          const lg  = pct > 0.5 ? 1 : 0
+                          return (
+                            <path d={`M 14 72 A 56 56 0 ${lg} 1 ${ex.toFixed(1)} ${ey.toFixed(1)}`}
+                              fill="none" stroke={fColor} strokeWidth="10" strokeLinecap="round" />
+                          )
+                        })()}
+                        {(() => {
+                          const a175 = (1.75 / 2.5) * Math.PI
+                          const mx = 70 - 56 * Math.cos(a175)
+                          const my = 72 - 56 * Math.sin(a175)
+                          const ox = 70 - 68 * Math.cos(a175)
+                          const oy = 72 - 68 * Math.sin(a175)
+                          return <line x1={mx.toFixed(1)} y1={my.toFixed(1)} x2={ox.toFixed(1)} y2={oy.toFixed(1)}
+                            stroke={C.am} strokeWidth="1.5" strokeDasharray="2 2" />
+                        })()}
+                        <text x="70" y="61" textAnchor="middle" fill={forming ? fColor : C.t2}
+                          fontFamily="monospace" fontSize="22" fontWeight="800">{fRafi.toFixed(2)}</text>
+                        <text x="70" y="76" textAnchor="middle" fill={C.t3}
+                          fontFamily="monospace" fontSize="7">de 2.50</text>
+                        <text x="14" y="79" fill={C.t3} fontSize="6" textAnchor="middle">0</text>
+                        <text x="126" y="79" fill={forming ? fColor : C.t3} fontSize="6" textAnchor="middle">2.5</text>
+                      </svg>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, width: '100%' }}>
+                        {[
+                          { label: 'Timeframes', val: `${fTf}/3`, ok: fTf >= 2 },
+                          { label: 'Bollinger',  val: fBb ? 'ABRINDO' : 'FECHADO', ok: fBb },
+                          { label: 'Direção',    val: fDir === 'buy' ? '▲ COMPRA' : '▼ VENDA', ok: forming },
+                          { label: 'Nível',      val: fPrice ? fPrice.toFixed(5) : '—', ok: !!fPrice },
+                        ].map(item => (
+                          <div key={item.label} style={{ background: C.s2, border: `1px solid ${C.bd}`, padding: '7px 9px', borderRadius: 8 }}>
+                            <div style={{ fontSize: 7, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>{item.label}</div>
+                            <div style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700,
+                              color: item.ok ? fColor : C.t2 }}>{item.val}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {!forming && (
+                        <div style={{ fontSize: 8, color: C.t3, textAlign: 'center' }}>
+                          Próx. análise <span style={{ fontFamily: 'monospace', color: C.cy }}>{m5mm}:{m5ss}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })()}
+
+            </div>{/* end chart row */}
+
+            {/* Previsão de Trades */}
+            <div style={{ ...card }}>
+              <div style={{ padding: '10px 18px', borderBottom: `1px solid ${C.bd}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
+                  fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.bl }} />
+                  Previsão de Trades
+                </div>
+                <div style={{ fontSize: 7, fontWeight: 700, padding: '2px 7px',
+                  border: `1px solid ${C.bd}`, color: C.t2 }}>Padrão histórico</div>
+              </div>
+              <ForecastSection trades={trades} />
+            </div>
+
+            {/* Signal feed */}
+            <div style={{ ...card }}>
+              <div style={{ padding: '10px 18px', borderBottom: `1px solid ${C.bd}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
+                  fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.cy,
+                    animation: 'pulse 2s ease-in-out infinite' }} />
+                  Inteligência de Sinais
+                </div>
+                <div style={{ fontSize: 7, fontWeight: 700, padding: '2px 7px',
+                  border: `1px solid ${C.bd}`, color: C.t2 }}>Últimas entradas</div>
+              </div>
+              {/* Table header */}
+              <div style={{ display: 'grid', gridTemplateColumns: '44px 52px 90px 72px 72px 48px 56px 76px',
+                gap: 3, padding: '7px 18px', fontSize: 7, textTransform: 'uppercase',
+                letterSpacing: '0.10em', color: C.t3, fontWeight: 600,
+                borderBottom: `1px solid ${C.bd2}` }}>
+                <span>Hora</span><span>Dir</span><span>Entry</span>
+                <span>SL</span><span>TP</span><span>RAFI</span><span>IA %</span><span>Status</span>
+              </div>
+              {closed.length === 0 ? (
+                <div style={{ padding: '20px 18px', fontSize: 10, color: C.t3, textAlign: 'center' }}>
+                  Aguardando sinais...
+                </div>
+              ) : (
+                closed.slice(0, 6).map((t) => (
+                  <div key={t.id} style={{ display: 'grid',
+                    gridTemplateColumns: '44px 52px 90px 72px 72px 48px 56px 76px',
+                    gap: 3, padding: '8px 18px', fontSize: 9, ...mono,
+                    borderBottom: `1px solid ${C.bd}` }}>
+                    <span style={{ color: C.t2 }}>{new Date(t.time * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 7,
+                        fontWeight: 700, padding: '2px 5px',
+                        color: t.direction === 'buy' ? C.cy : C.am,
+                        background: t.direction === 'buy' ? C.cya : C.ama }}>
+                        {t.direction === 'buy' ? '▲ BUY' : '▼ SELL'}
+                      </span>
+                    </span>
+                    <span style={{ color: C.tx }}>{t.entry.toFixed(5)}</span>
+                    <span style={{ color: C.re }}>{t.stop_loss.toFixed(5)}</span>
+                    <span style={{ color: C.gr }}>{t.take_profit.toFixed(5)}</span>
+                    <span style={{ color: t.rafi !== null && t.rafi >= 2.5 ? C.gr : C.am }}>
+                      {t.rafi !== null ? t.rafi.toFixed(1) : '—'}
+                    </span>
+                    <span style={{ color: C.bl }}>—</span>
+                    <span>
+                      <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 6px',
+                        color: t.result === 'win' ? C.gr : t.result === 'loss' ? C.re : C.t3,
+                        background: t.result === 'win' ? C.gra : t.result === 'loss' ? C.rea : C.s3 }}>
+                        {t.result === 'win' ? 'WIN' : t.result === 'loss' ? 'LOSS' : 'ABERTO'}
+                      </span>
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* ── Histórico de Trades ─────────────────────────────────────── */}
+            <div style={{ ...card }}>
+              <div style={{ padding: '10px 18px', borderBottom: `1px solid ${C.bd}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
+                  fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.t2 }} />
+                  Histórico — Entrada / Stop / Alvo
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  {(['history', 'open'] as const).map(tab => (
+                    <button key={tab} onClick={() => setActiveTab(tab)} style={{
+                      padding: '3px 10px', fontSize: 9, fontWeight: 700, cursor: 'pointer',
+                      border: `1px solid ${activeTab === tab ? C.bd : 'transparent'}`,
+                      background: activeTab === tab ? C.s2 : 'transparent',
+                      color: activeTab === tab ? C.tx : C.t2,
+                    }}>
+                      {tab === 'history' ? `Fechados (${closed.length})` : `Abertos (${pending.length})`}
+                    </button>
+                  ))}
+                  <span style={{ ...mono, fontSize: 9, color: C.gr }}>{wins}W</span>
+                  <span style={{ ...mono, fontSize: 9, color: C.re }}>{losses}L</span>
+                  {wr !== null && <span style={{ ...mono, fontSize: 9, fontWeight: 700, color: C.tx }}>{wr}% WR</span>}
+                </div>
+              </div>
+
+              {(activeTab === 'history' ? closed : pending).length === 0 ? (
+                <div style={{ padding: '40px 0', textAlign: 'center', color: C.t3, fontSize: 11 }}>
+                  {activeTab === 'history' ? 'Nenhum trade fechado ainda.' : 'Nenhuma posição aberta.'}
+                </div>
+              ) : (
+                (activeTab === 'history' ? closed : pending).slice(0, 20).map(t => {
+                  const isBuy  = t.direction === 'buy'
+                  const isWin  = t.result === 'win'
+                  const isLoss = t.result === 'loss'
+                  const dirColor = isBuy ? C.cy : C.am
+                  const resColor = isWin ? C.gr : isLoss ? C.re : C.am
+                  const rr = t.entry > 0 && t.stop_loss > 0 && t.take_profit > 0
+                    ? (Math.abs(t.take_profit - t.entry) / Math.abs(t.entry - t.stop_loss)).toFixed(1)
+                    : '—'
+                  return (
+                    <div key={t.id} style={{ borderBottom: `1px solid ${C.bd}`,
+                      padding: '12px 18px', display: 'flex', alignItems: 'flex-start', gap: 14,
+                      transition: 'background .1s' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = C.s2)}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                      <MiniTradeChart trade={t} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                          <span style={{ fontSize: 9, color: C.t2, ...mono }}>{fmtTime(t.time)}</span>
+                          <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 5px',
+                            color: dirColor, background: `${dirColor}12` }}>
+                            {isBuy ? '▲ BUY' : '▼ SELL'}
+                          </span>
+                          <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 6px',
+                            color: resColor, background: `${resColor}10`,
+                            animation: t.result === 'pending' ? 'pulse 2s ease-in-out infinite' : 'none' }}>
+                            {isWin ? 'WIN' : isLoss ? 'LOSS' : 'ABERTO'}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: 18, ...mono, fontSize: 10 }}>
+                          <div>
+                            <div style={{ fontSize: 8, color: C.t2 }}>ENTRADA</div>
+                            {t.entry.toFixed(5)}
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 8, color: C.re }}>STOP</div>
+                            <span style={{ color: C.re }}>{t.stop_loss.toFixed(5)}</span>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 8, color: C.gr }}>ALVO</div>
+                            <span style={{ color: C.gr }}>{t.take_profit.toFixed(5)}</span>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 8, color: C.t2 }}>R:R</div>
+                            <span style={{ color: C.cy }}>{rr}×</span>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 8, color: C.t2 }}>LOTE</div>
+                            {t.lot.toFixed(2)}
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 8, color: C.t2 }}>P&L</div>
+                            <span style={{ color: t.pnl === null ? C.t2 : t.pnl >= 0 ? C.gr : C.re, fontWeight: 700 }}>
+                              {t.pnl !== null ? fmtUSD(t.pnl, true) : '—'}
+                            </span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}>
+                          {t.rafi !== null && (
+                            <span style={{ fontSize: 7, fontWeight: 600, padding: '2px 6px',
+                              border: `1px solid ${t.rafi >= 2.5 ? C.gr + '40' : C.bd}`,
+                              color: t.rafi >= 2.5 ? C.gr : C.t2, ...mono }}>
+                              RAFI {t.rafi.toFixed(1)}{t.rafi >= 2.5 ? ' ✓' : ''}
+                            </span>
+                          )}
+                          <span style={{ fontSize: 7, fontWeight: 600, padding: '2px 6px',
+                            border: `1px solid ${C.bd}`, color: C.t2 }}>R:R {rr}×</span>
+                          <span style={{ fontSize: 7, fontWeight: 600, padding: '2px 6px',
+                            border: `1px solid ${C.bd}`, color: C.t2 }}>M5/M15/H1</span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+
+              {(activeTab === 'history' ? closed : pending).length > 20 && (
+                <div style={{ padding: '10px 18px', fontSize: 8, color: C.t3,
+                  borderTop: `1px solid ${C.bd}`, display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Mini gráfico: preço da entrada até SL (vermelho) ou TP (verde)</span>
+                  <span style={{ color: C.cy, cursor: 'pointer' }}>
+                    Ver todos {(activeTab === 'history' ? closed : pending).length} →
+                  </span>
+                </div>
+              )}
+            </div>
+
+          </div>{/* end left column */}
+
+          {/* Right sidebar */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+            {/* ── Controle do Bot — PRIMEIRO para sempre visível ── */}
+            <div style={{ ...card, overflow: 'hidden' }}>
+              <div style={{ padding: '9px 14px', borderBottom: `1px solid ${C.bd}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ ...lbl, marginBottom: 0 }}>Controle do Bot</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '3px 8px', borderRadius: 20,
+                  background: !isOnline ? `${C.re}15` : status?.status === 'running' ? `${C.gr}15` : `${C.am}15`,
+                  border: `1px solid ${!isOnline ? C.re : status?.status === 'running' ? C.gr : C.am}40` }}>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%',
+                    background: !isOnline ? C.re : status?.status === 'running' ? C.gr : C.am,
+                    animation: isOnline ? 'pulse 2s ease-in-out infinite' : 'none' }} />
+                  <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: '0.1em',
+                    color: !isOnline ? C.re : status?.status === 'running' ? C.gr : C.am }}>
+                    {!isOnline ? 'OFFLINE' : status?.status === 'running' ? 'ATIVO' : status?.status === 'stopped' ? 'PARADO' : 'AGUARDANDO'}
+                  </span>
+                </div>
+              </div>
+              <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                  <button onClick={() => enviarComando('start')} disabled={cmdSent}
+                    style={{ padding: '10px 4px', border: `1px solid ${C.gr}50`,
+                      background: `${C.gr}18`, color: C.gr, fontSize: 9, fontWeight: 800,
+                      letterSpacing: '0.05em', cursor: cmdSent ? 'not-allowed' : 'pointer', borderRadius: 4 }}>
+                    ▶ INICIAR
+                  </button>
+                  <button onClick={() => enviarComando('restart')} disabled={cmdSent}
+                    style={{ padding: '10px 4px', border: `1px solid ${C.am}50`,
+                      background: `${C.am}18`, color: C.am, fontSize: 9, fontWeight: 800,
+                      letterSpacing: '0.05em', cursor: cmdSent ? 'not-allowed' : 'pointer', borderRadius: 4 }}>
+                    ↺ REINICIAR
+                  </button>
+                  <button onClick={() => enviarComando('stop')} disabled={cmdSent}
+                    style={{ padding: '10px 4px', border: `1px solid ${C.re}50`,
+                      background: `${C.re}18`, color: C.re, fontSize: 9, fontWeight: 800,
+                      letterSpacing: '0.05em', cursor: cmdSent ? 'not-allowed' : 'pointer', borderRadius: 4 }}>
+                    ■ PARAR
+                  </button>
+                </div>
+                <div style={{ height: 1, background: C.bd, margin: '2px 0' }} />
+                <button onClick={() => enviarComando('buy_manual')} disabled={cmdSent}
+                  style={{ width: '100%', padding: 9, border: `1px solid ${C.cy}30`,
+                    background: `${C.cy}12`, color: C.cy, fontSize: 10, fontWeight: 700,
+                    letterSpacing: '0.06em', cursor: cmdSent ? 'not-allowed' : 'pointer', borderRadius: 4 }}>
+                  ▲ COMPRA MANUAL
+                </button>
+                <button onClick={() => enviarComando('sell_manual')} disabled={cmdSent}
+                  style={{ width: '100%', padding: 9, border: `1px solid ${C.am}30`,
+                    background: `${C.am}12`, color: C.am, fontSize: 10, fontWeight: 700,
+                    letterSpacing: '0.06em', cursor: cmdSent ? 'not-allowed' : 'pointer', borderRadius: 4 }}>
+                  ▼ VENDA MANUAL
+                </button>
+                {pending.length > 0 && (
+                  <button onClick={() => enviarComando('close_position')} disabled={cmdSent}
+                    style={{ width: '100%', padding: 9, border: `1px solid ${C.re}40`,
+                      background: `${C.re}18`, color: C.re, fontSize: 10, fontWeight: 700,
+                      letterSpacing: '0.06em', cursor: cmdSent ? 'not-allowed' : 'pointer',
+                      borderRadius: 4, animation: 'pulse 2s ease-in-out infinite' }}>
+                    ■ FECHAR POSIÇÃO
+                  </button>
+                )}
+                {cmdSent && (
+                  <div style={{ fontSize: 9, color: C.am, textAlign: 'center', padding: '3px 0' }}>
+                    ⏳ Comando enviado — aguardando bot...
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Log do Bot — terminal premium */}
+            <div style={{ ...card, overflow: 'hidden' }}>
+              <div style={{ padding: '9px 14px', borderBottom: `1px solid ${C.bd}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: C.re }} />
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: C.am }} />
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: C.gr }} />
+                  </div>
+                  <span style={{ fontSize: 7, fontWeight: 700, textTransform: 'uppercase',
+                    letterSpacing: '0.12em', color: C.t2 }}>Log do Bot</span>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: C.bl,
+                    animation: 'pulse 2s ease-in-out infinite' }} />
+                </div>
+                <span style={{ fontFamily: 'monospace', fontSize: 7, color: C.t3 }}>{botLogs.length} linhas</span>
+              </div>
+              <div className="log-terminal" style={{
+                maxHeight: 380, overflowY: 'auto', background: C.s2,
+                fontFamily: 'monospace', fontSize: 8,
+              }}>
+                {botLogs.length === 0 ? (
+                  <div style={{ padding: '20px 14px', color: C.t3, lineHeight: 1.8 }}>
+                    <span style={{ color: C.gr }}>$</span>{' '}aguardando{' '}
+                    <span style={{ color: C.cy }}>rafi_bot_logs</span>...
+                    <span style={{ animation: 'pulse 1s ease-in-out infinite', display: 'inline-block' }}>_</span>
+                  </div>
+                ) : (
+                  botLogs.slice(0, 60).map(log => {
+                    const lc = log.level === 'error' ? C.re : log.level === 'warn' ? C.am
+                      : log.level === 'signal' ? C.cy : C.t2
+                    const prefix = log.level === 'error' ? '✕' : log.level === 'signal' ? '◆'
+                      : log.level === 'warn' ? '⚠' : '›'
+                    return (
+                      <div key={log.id} className="logrow" style={{ display: 'flex', gap: 7,
+                        padding: '4px 14px', borderBottom: `1px solid ${C.bd}20`, lineHeight: 1.5 }}>
+                        <span style={{ color: C.t3, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                          {new Date(log.created_at).toLocaleTimeString('pt-BR',
+                            { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </span>
+                        <span style={{ color: lc, flexShrink: 0, width: 8, textAlign: 'center' }}>{prefix}</span>
+                        <span style={{ color: log.level === 'error' ? C.re
+                          : log.level === 'signal' ? C.tx : C.t2,
+                          wordBreak: 'break-word', flex: 1 }}>
+                          {log.message}
+                          {log.details && (
+                            <span style={{ color: C.t3, marginLeft: 4, fontSize: 7 }}>{log.details}</span>
+                          )}
+                        </span>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* M5 countdown */}
+            <div style={{ ...card, padding: '18px 18px 14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ ...lbl, marginBottom: 8 }}>Próxima Análise M5</div>
+                  <div style={{ ...mono, fontSize: '2.4rem', fontWeight: 700, color: C.cy, lineHeight: 1 }}>
+                    {m5mm}:{m5ss}
+                  </div>
+                  <div style={{ fontSize: 8, color: C.t3, textTransform: 'uppercase',
+                    letterSpacing: '0.08em', marginTop: 2 }}>até fechar o candle</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ ...lbl, marginBottom: 6 }}>Posições</div>
+                  <div style={{ ...mono, fontSize: 11, color: pending.length > 0 ? C.am : C.t2 }}>
+                    {pending.length} aberta{pending.length !== 1 ? 's' : ''}
+                  </div>
+                </div>
+              </div>
+              <div style={{ height: 2, background: C.s3, marginTop: 10, overflow: 'hidden' }}>
+                <div style={{ height: '100%', background: C.cy,
+                  width: `${m5pct}%`, transition: 'width 1s linear' }} />
+              </div>
+            </div>
+
+            {/* Quick actions — duplicado removido, bloco principal agora está no topo da sidebar */}
+            <div style={{ display: 'none' }}>
+              <div style={{ padding: '9px 14px', borderBottom: `1px solid ${C.bd}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ ...lbl, marginBottom: 0 }}>Controle do Bot</div>
+                {/* Status pill */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '3px 8px', borderRadius: 20,
+                  background: !isOnline ? `${C.re}15` : status?.status === 'running' ? `${C.gr}15` : `${C.am}15`,
+                  border: `1px solid ${!isOnline ? C.re : status?.status === 'running' ? C.gr : C.am}40` }}>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%',
+                    background: !isOnline ? C.re : status?.status === 'running' ? C.gr : C.am,
+                    animation: isOnline ? 'pulse 2s ease-in-out infinite' : 'none' }} />
+                  <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: '0.1em',
+                    color: !isOnline ? C.re : status?.status === 'running' ? C.gr : C.am }}>
+                    {!isOnline ? 'OFFLINE' : status?.status === 'running' ? 'ATIVO' : status?.status === 'stopped' ? 'PARADO' : 'AGUARDANDO'}
+                  </span>
+                </div>
+              </div>
+              <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                {/* Bot ON/OFF/RESTART — row of 3 */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                  <button onClick={() => enviarComando('start')} disabled={cmdSent}
+                    title="Iniciar o bot"
+                    style={{ padding: '10px 4px', border: `1px solid ${C.gr}50`,
+                      background: `${C.gr}18`, color: C.gr, fontSize: 9, fontWeight: 800,
+                      letterSpacing: '0.05em', cursor: cmdSent ? 'not-allowed' : 'pointer',
+                      borderRadius: 4, transition: 'background 0.2s' }}>
+                    ▶ INICIAR
+                  </button>
+                  <button onClick={() => enviarComando('restart')} disabled={cmdSent}
+                    title="Reiniciar o bot"
+                    style={{ padding: '10px 4px', border: `1px solid ${C.am}50`,
+                      background: `${C.am}18`, color: C.am, fontSize: 9, fontWeight: 800,
+                      letterSpacing: '0.05em', cursor: cmdSent ? 'not-allowed' : 'pointer',
+                      borderRadius: 4, transition: 'background 0.2s' }}>
+                    ↺ REINICIAR
+                  </button>
+                  <button onClick={() => enviarComando('stop')} disabled={cmdSent}
+                    title="Parar o bot"
+                    style={{ padding: '10px 4px', border: `1px solid ${C.re}50`,
+                      background: `${C.re}18`, color: C.re, fontSize: 9, fontWeight: 800,
+                      letterSpacing: '0.05em', cursor: cmdSent ? 'not-allowed' : 'pointer',
+                      borderRadius: 4, transition: 'background 0.2s' }}>
+                    ■ PARAR
+                  </button>
+                </div>
+                {/* Divider */}
+                <div style={{ height: 1, background: C.bd, margin: '2px 0' }} />
+                {/* Manual trades */}
+                <button onClick={() => enviarComando('buy_manual')} disabled={cmdSent}
+                  style={{ width: '100%', padding: 10, border: `1px solid ${C.cy}30`,
+                    background: `${C.cy}12`, color: C.cy, fontSize: 10, fontWeight: 700,
+                    letterSpacing: '0.06em', cursor: cmdSent ? 'not-allowed' : 'pointer', borderRadius: 4 }}>
+                  ▲ COMPRA MANUAL
+                </button>
+                <button onClick={() => enviarComando('sell_manual')} disabled={cmdSent}
+                  style={{ width: '100%', padding: 10, border: `1px solid ${C.am}30`,
+                    background: `${C.am}12`, color: C.am, fontSize: 10, fontWeight: 700,
+                    letterSpacing: '0.06em', cursor: cmdSent ? 'not-allowed' : 'pointer', borderRadius: 4 }}>
+                  ▼ VENDA MANUAL
+                </button>
+                {pending.length > 0 && (
+                  <button onClick={() => enviarComando('close_position')} disabled={cmdSent}
+                    style={{ width: '100%', padding: 10, border: `1px solid ${C.re}40`,
+                      background: `${C.re}18`, color: C.re, fontSize: 10, fontWeight: 700,
+                      letterSpacing: '0.06em', cursor: cmdSent ? 'not-allowed' : 'pointer',
+                      borderRadius: 4, animation: 'pulse 2s ease-in-out infinite' }}>
+                    ■ FECHAR POSIÇÃO
+                  </button>
+                )}
+                {cmdSent && (
+                  <div style={{ fontSize: 9, color: C.am, textAlign: 'center', padding: '4px 0' }}>
+                    ⏳ Comando enviado — aguardando bot...
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* System health */}
+            <div style={{ ...card }}>
+              <div style={{ padding: '10px 18px', borderBottom: `1px solid ${C.bd}`,
+                display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
+                fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em', color: C.t2 }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%',
+                  background: isOnline ? C.gr : C.re,
+                  boxShadow: isOnline ? `0 0 5px ${C.gr}` : 'none',
+                  animation: isOnline ? 'pulse 2s ease-in-out infinite' : 'none' }} />
+                Saúde do Sistema
+              </div>
+              {([
+                ['MT5 Status',   isOnline ? 'ONLINE' : 'OFFLINE', isOnline ? C.gr : C.re],
+                ['Heartbeat',    status ? secondsAgo(status.updated_at) : '—', C.tx],
+                ['Conta',        status?.account?.toString() ?? '—', C.tx],
+                ['Servidor',     status?.server ?? '—', C.tx],
+                ['Saldo',        bal > 0 ? fmtUSD(bal) : '—', C.tx],
+                ['Alavancagem',  '1:1000', C.am],
+                ['Spread est.',  '0.8 pip', C.t2],
+                ['Max DD/dia',   '−5%', C.re],
+              ] as [string, string, string][]).map(([k, v, vc]) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between',
+                  alignItems: 'center', padding: '6px 18px',
+                  borderBottom: `1px solid ${C.bd}`, fontSize: 10 }}>
+                  <span style={{ color: C.t2, fontSize: 9 }}>{k}</span>
+                  <span style={{ ...mono, fontSize: 10, color: vc }}>{v}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* AI / ML */}
+            <div style={{ ...card, padding: '16px 18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 8,
+                fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.11em',
+                color: C.t2, marginBottom: 12 }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.bl }} />
+                IA / Fase 2 · XGBoost
+              </div>
+              {status?.ml_modelo_carregado ? (
+                <>
+                  <div style={{ ...lbl }}>Acurácia (WR Rolling)</div>
+                  <div style={{ ...mono, fontSize: '1.3rem', fontWeight: 700,
+                    margin: '4px 0', color: C.gr }}>
+                    {status.ml_wr_rolling != null ? `${(status.ml_wr_rolling * 100).toFixed(1)}%` : '—'}
+                  </div>
+                  <div style={{ height: 2, background: C.s3, overflow: 'hidden', marginBottom: 10 }}>
+                    <div style={{ height: '100%',
+                      width: `${status.ml_wr_rolling != null ? Math.min(100, status.ml_wr_rolling * 100) : 0}%`,
+                      background: `linear-gradient(90deg, ${C.gr}, ${C.cy})` }} />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ ...lbl }}>Status do Modelo</div>
+                  <div style={{ ...mono, fontSize: '0.85rem', fontWeight: 700,
+                    margin: '4px 0 10px', color: C.am }}>AGUARDANDO DADOS</div>
+                  <div style={{ height: 2, background: C.s3, overflow: 'hidden', marginBottom: 10 }}>
+                    <div style={{ height: '100%', width: `${Math.min(100, (closed.length / 300) * 100)}%`,
+                      background: `linear-gradient(90deg, ${C.am}, ${C.cy})` }} />
+                  </div>
+                </>
+              )}
+              {([
+                ['Modo',         status?.ml_modo ?? 'OBSERVAÇÃO',   C.am],
+                ['Filtro ativo', `≥ ${((status?.ml_threshold ?? 0.65) * 100).toFixed(0)}%`, C.am],
+                ['Sinais hoje',  `${status?.ml_sinais_hoje ?? 0}`,   C.bl],
+                ['Aprovados',    `${status?.ml_aprovados_hoje ?? 0}`, C.gr],
+              ] as [string, string, string][]).map(([k, v, vc]) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between',
+                  alignItems: 'center', padding: '5px 0',
+                  borderBottom: `1px solid ${C.bd}`, fontSize: 10 }}>
+                  <span style={{ color: C.t2, fontSize: 9 }}>{k}</span>
+                  <span style={{ fontWeight: 700, fontSize: 9, color: vc }}>{v}</span>
+                </div>
+              ))}
+              <div style={{ fontSize: 8, color: C.t3, paddingTop: 8 }}>
+                {status?.ml_modelo_carregado
+                  ? `Treinado em: ${status.ml_treinado_em ? new Date(status.ml_treinado_em).toLocaleDateString('pt-BR') : '—'}`
+                  : `${closed.length}/300 trades para treino`}
+              </div>
+            </div>
           </div>
         </div>
-        <button onClick={() => enviarComando('stop')} disabled={cmdSent}
-          className={cn(
-            'flex items-center gap-2 px-4 py-2 rounded-lg border font-bold text-xs transition-all shrink-0',
-            cmdSent
-              ? 'bg-[#21262d] border-[#30363d] text-[#484f58] cursor-not-allowed'
-              : 'bg-[#ef4444]/10 border-[#ef4444]/25 text-[#ef4444] hover:bg-[#ef4444]/20',
-          )}>
-          <Square size={11} fill="currentColor" />
-          {cmdSent ? 'Enviado' : 'PARAR AGORA'}
-        </button>
-      </div>
 
+        {/* ── Ecosystem section ─────────────────────────────────────────────── */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 8 }}>
+            <span style={{ fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.12em',
+              color: C.t3, fontWeight: 700 }}>Ecossistema · Plataforma</span>
+            <div style={{ flex: 1, height: 1, background: C.s3 }} />
+            <span style={{ fontSize: 8, color: C.t3, ...mono }}>WIN RATE ALVO ML: 90–95%</span>
+          </div>
+
+          {/* ── Brokers: dinâmicos (Supabase) + futuros (hardcoded) ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, marginBottom: 8 }}>
+            {/* Cards dinâmicos de rafi_brokers */}
+            {brokers.map(b => {
+              const active = b.enabled
+              const sc = active ? C.gr : C.t3
+              const initials = b.nome.substring(0, 2).toUpperCase()
+              const statusLabel = active ? 'ATIVO' : 'INATIVA'
+              const saldoStr = b.saldo !== null ? fmtUSD(b.saldo) : null
+              const secsSinceUpdate = b.updated_at
+                ? Math.floor((Date.now() - new Date(b.updated_at).getTime()) / 1000)
+                : null
+              const health = active && secsSinceUpdate !== null
+                ? Math.max(10, Math.min(100, Math.round(100 - (secsSinceUpdate / 420) * 40)))
+                : null
+              const r = 20; const circ = 2 * Math.PI * r
+              const dash = health !== null ? circ * (health / 100) : 0
+              const posicoes = b.posicoes ?? 0
+              const pnlHoje = b.pnl_hoje ?? 0
+              const statusText = b.status_text ?? (active ? 'AGUARDANDO SINAL' : '—')
+
+              return (
+                <div key={b.id} className={`bcard ${active ? 'bc-gr' : 'bc-t3'}`} style={{
+                  ...card, padding: 18, position: 'relative',
+                  opacity: active ? 1 : 0.65, borderTop: `2px solid ${sc}`,
+                }}>
+
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 12 }}>
+                    <div className="bhex" style={{ width: 44, height: 44, background: `${sc}18`,
+                      border: `1.5px solid ${sc}30`, display: 'flex', alignItems: 'center',
+                      justifyContent: 'center', flexShrink: 0 }}>
+                      <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 800, color: sc }}>
+                        {initials}
+                      </span>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: active ? C.tx : C.t2 }}>{b.nome}</div>
+                        <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 7px',
+                          border: `1px solid ${sc}40`, color: sc, background: `${sc}08` }}>
+                          {statusLabel}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 8, color: C.t2 }}>{b.simbolo} · MT5</div>
+                    </div>
+                  </div>
+
+                  {active ? (
+                    <>
+                      <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 10 }}>
+                        {health !== null && (
+                          <svg width="52" height="52" viewBox="0 0 52 52" style={{ flexShrink: 0 }}>
+                            <circle cx="26" cy="26" r={r} fill="none" stroke={C.s3} strokeWidth="4" />
+                            <circle cx="26" cy="26" r={r} fill="none" stroke={sc} strokeWidth="4"
+                              strokeDasharray={`${dash.toFixed(1)} ${circ.toFixed(1)}`}
+                              strokeLinecap="round" transform="rotate(-90 26 26)" />
+                            <text x="26" y="30" textAnchor="middle" fill={sc}
+                              fontFamily="monospace" fontSize="10" fontWeight="700">{health}</text>
+                          </svg>
+                        )}
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 8, color: sc, fontWeight: 700, marginBottom: 6 }}>{statusText}</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: 8, color: C.t2 }}>Saldo</span>
+                              <span style={{ fontFamily: 'monospace', fontSize: 10, color: C.tx, fontWeight: 700 }}>
+                                {saldoStr ?? '—'}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: 8, color: C.t2 }}>Posições abertas</span>
+                              <span style={{ fontFamily: 'monospace', fontSize: 9, color: posicoes > 0 ? C.cy : C.t2 }}>
+                                {posicoes}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: 8, color: C.t2 }}>P&L hoje</span>
+                              <span style={{ fontFamily: 'monospace', fontSize: 9,
+                                color: pnlHoje > 0 ? C.gr : pnlHoje < 0 ? C.re : C.t2, fontWeight: 700 }}>
+                                {fmtUSD(pnlHoje, true)}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: 8, color: C.t2 }}>Lote atual</span>
+                              <span style={{ fontFamily: 'monospace', fontSize: 9, color: C.am }}>
+                                {b.saldo !== null ? loteAtual(b.saldo) : '—'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      {b.updated_at && (
+                        <div style={{ fontSize: 7, color: C.t3, marginBottom: 6 }}>
+                          último sync: {secondsAgo(b.updated_at)}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div style={{ padding: '8px 0 10px' }}>
+                      <div style={{ fontSize: 9, color: C.t3, marginBottom: 8 }}>
+                        Corretora cadastrada · Conta inativa
+                      </div>
+                      {b.saldo !== null && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <span style={{ fontSize: 8, color: C.t2 }}>Último saldo</span>
+                          <span style={{ fontFamily: 'monospace', fontSize: 9, color: C.t2 }}>{fmtUSD(b.saldo)}</span>
+                        </div>
+                      )}
+                      <div style={{ fontSize: 8, color: C.t3 }}>
+                        Ative no painel Corretoras para operar
+                      </div>
+                    </div>
+                  )}
+
+                  <a href="/admin/brokers" className="bcta" style={{ display: 'block',
+                    width: '100%', padding: '6px 0', textAlign: 'center',
+                    border: `1px solid ${sc}30`, background: `${sc}08`, color: sc,
+                    fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', cursor: 'pointer',
+                    textDecoration: 'none' }}>
+                    {active ? 'GERENCIAR →' : 'ATIVAR →'}
+                  </a>
+                </div>
+              )
+            })}
+
+            {/* Cards estáticos — corretoras futuras (não cadastradas no Supabase) */}
+            {([
+              { name: 'IC Markets', initials: 'IC', sub: 'ECN/STP · 0.0 pip · Razor', etapa: 'E6', desc: 'Abertura após 300 sinais ML rotulados. ECN puro, sem conflito de interesse.' },
+              { name: 'Tickmill',   initials: 'TK', sub: 'ECN/STP · 0.0 pip · Pro',   etapa: 'E7', desc: 'Expansão geográfica após validação IC Markets. Spread médio 0.0 pip.' },
+            ]).map(f => (
+              <div key={f.name} className="bcard bc-t3" style={{
+                ...card, padding: 18, position: 'relative', opacity: 0.45,
+                borderTop: `2px solid ${C.t3}`,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 12 }}>
+                  <div className="bhex" style={{ width: 44, height: 44, background: `${C.t3}10`,
+                    border: `1.5px solid ${C.t3}20`, display: 'flex', alignItems: 'center',
+                    justifyContent: 'center', flexShrink: 0 }}>
+                    <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 800, color: C.t3 }}>
+                      {f.initials}
+                    </span>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: C.t3 }}>{f.name}</div>
+                      <span style={{ fontSize: 7, fontWeight: 700, padding: '2px 7px',
+                        border: `1px solid ${C.t3}30`, color: C.t3, background: `${C.t3}08` }}>
+                        {f.etapa}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 8, color: C.t3 }}>{f.sub}</div>
+                  </div>
+                </div>
+                <div style={{ fontSize: 8, color: C.t3, lineHeight: 1.6, padding: '4px 0 12px' }}>
+                  {f.desc}
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {['Conta não aberta', 'Aguarda ML ativo', 'Etapa futura'].map(tag => (
+                    <span key={tag} style={{ fontSize: 7, padding: '2px 6px',
+                      border: `1px solid ${C.t3}20`, color: C.t3 }}>
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Roadmap strip */}
+          <div style={{ ...card, padding: '14px 18px' }}>
+            <div style={{ ...lbl }}>Roadmap · 12 Etapas</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 8 }}>
+              {[
+                { id: 'E0',    label: 'Bot live',     color: C.gr,  op: 1,   done: true },
+                { id: 'E1',    label: 'Multi-broker', color: C.gr,  op: 1,   done: true, pulse: false },
+                { id: 'E2-3',  label: 'Dataset ML',  color: C.am,  op: 0.8 },
+                { id: 'E4-5',  label: 'ML vivo',     color: C.bl,  op: 0.6 },
+                { id: 'E6-9',  label: 'Scale up',    color: C.t3,  op: 0.7 },
+                { id: 'E10-11', label: 'Cripto/B3',  color: C.t3,  op: 0.4 },
+              ].map(s => (
+                <div key={s.id} style={{ textAlign: 'center', opacity: s.op }}>
+                  <div style={{ height: 3, background: s.color, marginBottom: 4,
+                    animation: s.pulse ? 'pulse 2s ease-in-out infinite' : 'none' }} />
+                  <div style={{ fontSize: 7, ...mono, color: s.color }}>{s.id}{s.done ? ' ✓' : ''}</div>
+                  <div style={{ fontSize: 7, color: C.t3 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Kill switch ──────────────────────────────────────────────────────── */}
+        <div style={{ ...card, borderColor: `${C.re}20`, padding: '14px 18px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: C.tx }}>Kill Switch de Emergência</div>
+            <div style={{ fontSize: 9, color: C.t2, marginTop: 3 }}>
+              Envia STOP imediato — bot para no próximo ciclo (máx 5 min) ·{' '}
+              <code style={{ color: C.t2 }}>C:\RafiBot\rafi-bot\STOP</code>
+            </div>
+          </div>
+          <button onClick={() => enviarComando('stop')} disabled={cmdSent} style={{
+            display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px',
+            border: `1px solid ${C.re}25`, background: C.rea, color: C.re,
+            fontSize: 11, fontWeight: 700, cursor: cmdSent ? 'not-allowed' : 'pointer', flexShrink: 0,
+          }}>
+            <Square size={11} fill="currentColor" />
+            {cmdSent ? 'ENVIADO' : 'PARAR AGORA'}
+          </button>
+        </div>
+
+      </div>
     </div>
   )
 }

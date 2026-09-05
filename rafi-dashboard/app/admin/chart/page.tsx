@@ -9,8 +9,9 @@ import { TradePanel, type ManualTrade } from '@/components/trade-panel'
 import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
 import { getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
-import { upsertTrade } from '@/lib/trades-db'
-import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine } from 'lucide-react'
+import { upsertTrade, fetchTrades, fetchCandles, countCandles } from '@/lib/trades-db'
+import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine, History, ChevronDown, Trash2, Database } from 'lucide-react'
+import type { CandleData } from '@/lib/types'
 import { generateTradeSnapshot } from '@/lib/trade-snapshot'
 
 const RAFIChart = dynamic(
@@ -50,7 +51,21 @@ function makeOCO(price: number, lot: number, time?: number): OCOState {
   }
 }
 
-const STORAGE_KEY = 'rafi-trade-log'
+const STORAGE_KEY     = 'rafi-trade-log'
+const CSV_HISTORY_KEY = 'rafi-csv-history'
+const MAX_CSV_HISTORY = 5
+
+interface CsvHistoryEntry {
+  id:          string
+  filename:    string
+  dateFrom:    string
+  dateTo:      string
+  timeframe:   string
+  count:       number
+  loadedAt:    number
+  candles:     CandleData[]
+  scanResult?: { trades: number; wins: number; pnl: number }
+}
 
 export default function ChartPage() {
   const [trades,       setTrades]       = useState<ManualTrade[]>([])
@@ -62,8 +77,37 @@ export default function ChartPage() {
   const [csvData,      setCsvData]      = useState<LoadResult | null>(null)
   const [csvError,     setCsvError]     = useState<string | null>(null)
   const [panMode,      setPanMode]      = useState(false)   // true = navegar; false = colocar OCO
+  const [csvHistory,   setCsvHistory]   = useState<CsvHistoryEntry[]>([])
+  const [historyOpen,  setHistoryOpen]  = useState(false)
+  const [activeCsvId,  setActiveCsvId]  = useState<string | null>(null)
+  const [sbLoading,     setSbLoading]     = useState(false)
+  const [sbCandleCount, setSbCandleCount] = useState<number | null>(null)
   const fileInputRef        = useRef<HTMLInputElement>(null)
+  const historyPanelRef     = useRef<HTMLDivElement>(null)
   const snapshotCaptureRef  = useRef<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>(null)
+
+  // Salva um LoadResult no histórico de CSVs (localStorage, máx MAX_CSV_HISTORY)
+  const saveToHistory = useCallback((result: LoadResult) => {
+    const entry: CsvHistoryEntry = {
+      id:        `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      filename:  result.filename,
+      dateFrom:  result.dateFrom,
+      dateTo:    result.dateTo,
+      timeframe: result.timeframe,
+      count:     result.count,
+      loadedAt:  Date.now(),
+      candles:   result.candles,
+    }
+    setCsvHistory(prev => {
+      // Evita duplicatas pelo mesmo filename+período
+      const filtered = prev.filter(h => !(h.filename === entry.filename && h.dateFrom === entry.dateFrom && h.dateTo === entry.dateTo))
+      const next = [entry, ...filtered].slice(0, MAX_CSV_HISTORY)
+      try { localStorage.setItem(CSV_HISTORY_KEY, JSON.stringify(next)) } catch {}
+      return next
+    })
+    setActiveCsvId(entry.id)
+    return entry.id
+  }, [])
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
@@ -80,29 +124,28 @@ export default function ChartPage() {
       }))
     ).then(results => {
       try {
+        let result: LoadResult
         if (results.length === 1) {
-          // Arquivo único — comportamento original
-          const result = parseCSV(results[0].text, results[0].name)
-          setCsvData(result)
+          result = parseCSV(results[0].text, results[0].name)
         } else {
           // Múltiplos arquivos — mescla e ordena por tempo
-          // Arquivos vazios (ex: sábado) são ignorados silenciosamente
           const allCandles = results.flatMap(r => {
             try { return parseCSV(r.text, r.name).candles } catch { return [] }
           })
           allCandles.sort((a, b) => a.time - b.time)
-          // Remove duplicatas exatas de timestamp
           const deduped = allCandles.filter((c, i) => i === 0 || c.time !== allCandles[i - 1].time)
           if (deduped.length === 0) throw new Error('Nenhum candle válido nos arquivos selecionados')
-          setCsvData({
+          result = {
             candles:   deduped,
-            filename:  `${results.length} arquivos`,
+            filename:  results.map(r => r.name).join(', '),
             dateFrom:  fmtDate(deduped[0].time),
             dateTo:    fmtDate(deduped[deduped.length - 1].time),
             timeframe: detectTimeframe(deduped),
             count:     deduped.length,
-          })
+          }
         }
+        setCsvData(result)
+        saveToHistory(result)
         setTrades([])
       } catch (err: any) {
         setCsvError(err?.message ?? 'Erro desconhecido')
@@ -112,13 +155,39 @@ export default function ChartPage() {
       setCsvError(err?.message ?? 'Erro ao ler arquivos')
     })
     e.target.value = ''
-  }, [])
+  }, [saveToHistory])
 
   const clearCSV = useCallback(() => {
-    setCsvData(null); setCsvError(null); setTrades([])
+    setCsvData(null); setCsvError(null); setTrades([]); setActiveCsvId(null)
   }, [])
 
-  // Carrega trades salvos do localStorage na inicialização
+  // Restaura um CSV do histórico sem precisar recarregar o arquivo
+  const loadFromHistory = useCallback((entry: CsvHistoryEntry) => {
+    setCsvData({
+      candles:   entry.candles,
+      filename:  entry.filename,
+      dateFrom:  entry.dateFrom,
+      dateTo:    entry.dateTo,
+      timeframe: entry.timeframe,
+      count:     entry.count,
+    })
+    setCsvError(null)
+    setTrades([])
+    setActiveCsvId(entry.id)
+    setHistoryOpen(false)
+  }, [])
+
+  // Remove uma entrada do histórico
+  const deleteFromHistory = useCallback((id: string) => {
+    setCsvHistory(prev => {
+      const next = prev.filter(h => h.id !== id)
+      try { localStorage.setItem(CSV_HISTORY_KEY, JSON.stringify(next)) } catch {}
+      return next
+    })
+    if (activeCsvId === id) { setCsvData(null); setCsvError(null); setTrades([]); setActiveCsvId(null) }
+  }, [activeCsvId])
+
+  // Carrega trades: localStorage primeiro (imediato) depois Supabase sobrescreve
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY)
@@ -127,12 +196,71 @@ export default function ChartPage() {
         if (Array.isArray(parsed) && parsed.length > 0) setTrades(parsed)
       }
     } catch {}
+    // Supabase é fonte de verdade
+    fetchTrades()
+      .then(data => {
+        if (data.length > 0) {
+          setTrades(data as any)
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)) } catch {}
+        }
+      })
+      .catch(() => {})
+    // Verifica quantos candles existem no Supabase
+    countCandles().then(n => setSbCandleCount(n)).catch(() => {})
   }, [])
 
   // Salva trades no localStorage sempre que mudam
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(trades)) } catch {}
   }, [trades])
+
+  // Carrega candles do Supabase (tabela rafi_candles) — substitui CSV local
+  const loadCandlesFromSupabase = useCallback(async () => {
+    setSbLoading(true)
+    try {
+      const rows = await fetchCandles()
+      if (rows.length === 0) { setSbLoading(false); return }
+      const candles = rows as CandleData[]
+      candles.sort((a, b) => a.time - b.time)
+      const result: LoadResult = {
+        candles,
+        filename:  'Supabase · rafi_candles',
+        dateFrom:  fmtDate(candles[0].time),
+        dateTo:    fmtDate(candles[candles.length - 1].time),
+        timeframe: detectTimeframe(candles),
+        count:     candles.length,
+      }
+      setCsvData(result)
+      setCsvError(null)
+      saveToHistory(result)
+    } catch (err: any) {
+      setCsvError(err?.message ?? 'Erro ao carregar candles do Supabase')
+    }
+    setSbLoading(false)
+  }, [saveToHistory])
+
+  // Carrega histórico de CSVs do localStorage na inicialização
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(CSV_HISTORY_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (Array.isArray(parsed)) setCsvHistory(parsed)
+      }
+    } catch {}
+  }, [])
+
+  // Fecha o painel de histórico ao clicar fora
+  useEffect(() => {
+    if (!historyOpen) return
+    const handler = (e: MouseEvent) => {
+      if (historyPanelRef.current && !historyPanelRef.current.contains(e.target as Node)) {
+        setHistoryOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [historyOpen])
 
   const candles  = useMemo(
     () => csvData?.candles ?? generateDemoData(tf),
@@ -280,7 +408,34 @@ export default function ChartPage() {
         }) ?? undefined,
       })
     })
-  }, [csvData, tf, handleAdd])
+
+    // Salva resultado do scan no histórico do CSV ativo
+    if (activeCsvId) {
+      const wins  = found.filter(s => {
+        const idx = scanCandles.findIndex(c => c.time === s.time)
+        for (let j = idx + 1; j < scanCandles.length; j++) {
+          const c = scanCandles[j]
+          if (s.direction === 'buy') {
+            if (c.low  <= s.stopLoss)   return false
+            if (c.high >= s.takeProfit) return true
+          } else {
+            if (c.high >= s.stopLoss)   return false
+            if (c.low  <= s.takeProfit) return true
+          }
+        }
+        return false
+      }).length
+      const finalPnl = capital - BASE_CAPITAL
+      setCsvHistory(prev => {
+        const next = prev.map(h => h.id === activeCsvId
+          ? { ...h, scanResult: { trades: found.length, wins, pnl: finalPnl } }
+          : h
+        )
+        try { localStorage.setItem(CSV_HISTORY_KEY, JSON.stringify(next)) } catch {}
+        return next
+      })
+    }
+  }, [csvData, tf, handleAdd, activeCsvId])
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -360,25 +515,133 @@ export default function ChartPage() {
                 ))}
               </div>
 
-              {/* Botão Carregar CSV */}
-              {csvData ? (
-                <span className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#22c55e]/10 border border-[#22c55e]/30 text-[#22c55e] text-[10px] font-semibold">
-                  <FolderOpen size={10} />
-                  {csvData.timeframe} · {csvData.count.toLocaleString('pt-BR')} candles
-                  <button onClick={clearCSV} className="hover:text-red-400 transition-colors ml-0.5" title="Remover dados">
-                    <XIcon size={10} />
+              {/* Botão Carregar CSV + Histórico */}
+              <div className="relative flex items-center gap-1" ref={historyPanelRef}>
+                {csvData ? (
+                  <span className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#22c55e]/10 border border-[#22c55e]/30 text-[#22c55e] text-[10px] font-semibold">
+                    <FolderOpen size={10} />
+                    {csvData.filename.length > 28 ? csvData.filename.slice(0, 26) + '…' : csvData.filename}
+                    · {csvData.count.toLocaleString('pt-BR')} candles
+                    <button onClick={clearCSV} className="hover:text-red-400 transition-colors ml-0.5" title="Remover dados">
+                      <XIcon size={10} />
+                    </button>
+                  </span>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border border-[#30363d] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d] transition-all"
+                      title="Carregar dados históricos reais (CSV Dukascopy ou MT5)"
+                    >
+                      <FolderOpen size={10} />
+                      Carregar CSV
+                    </button>
+                    {sbCandleCount != null && sbCandleCount > 0 && (
+                      <button
+                        onClick={loadCandlesFromSupabase}
+                        disabled={sbLoading}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border border-[#3b82f6]/50 text-[#3b82f6] hover:bg-[#3b82f6]/10 disabled:opacity-40 transition-all"
+                        title={`Carregar ${sbCandleCount.toLocaleString('pt-BR')} candles do Supabase`}
+                      >
+                        <Database size={10} />
+                        {sbLoading ? 'Carregando…' : `Supabase (${sbCandleCount.toLocaleString('pt-BR')})`}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Botão de histórico — aparece quando há entradas */}
+                {csvHistory.length > 0 && (
+                  <button
+                    onClick={() => setHistoryOpen(o => !o)}
+                    className={cn(
+                      'flex items-center gap-0.5 px-1.5 py-1 rounded-md text-[11px] font-semibold border transition-all',
+                      historyOpen
+                        ? 'border-[#3b82f6]/50 bg-[#3b82f6]/10 text-[#3b82f6]'
+                        : 'border-[#30363d] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
+                    )}
+                    title={`${csvHistory.length} CSV${csvHistory.length > 1 ? 's' : ''} no histórico`}
+                  >
+                    <History size={10} />
+                    <span className="text-[9px]">{csvHistory.length}</span>
+                    <ChevronDown size={9} className={cn('transition-transform', historyOpen && 'rotate-180')} />
                   </button>
-                </span>
-              ) : (
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border border-[#30363d] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d] transition-all"
-                  title="Carregar dados históricos reais (CSV Dukascopy ou MT5)"
-                >
-                  <FolderOpen size={10} />
-                  Carregar CSV
-                </button>
-              )}
+                )}
+
+                {/* Painel do histórico */}
+                {historyOpen && (
+                  <div className="absolute top-full left-0 mt-1 z-50 w-[340px] bg-[#161b22] border border-[#30363d] rounded-lg shadow-2xl overflow-hidden">
+                    <div className="px-3 py-2 border-b border-[#30363d] flex items-center justify-between">
+                      <span className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider flex items-center gap-1.5">
+                        <History size={9} /> Histórico de CSVs
+                      </span>
+                      <span className="text-[9px] text-[#484f58]">máx. {MAX_CSV_HISTORY} · clique para restaurar</span>
+                    </div>
+                    <div className="divide-y divide-[#21262d]">
+                      {csvHistory.map(entry => {
+                        const isActive = entry.id === activeCsvId
+                        const hasScan  = !!entry.scanResult
+                        const sr       = entry.scanResult
+                        const wr       = sr ? ((sr.wins / sr.trades) * 100).toFixed(1) : null
+                        const pnlPos   = sr ? sr.pnl >= 0 : null
+                        return (
+                          <div
+                            key={entry.id}
+                            className={cn(
+                              'flex items-start gap-2 px-3 py-2 cursor-pointer hover:bg-[#21262d] transition-colors group',
+                              isActive && 'bg-[#22c55e]/5 border-l-2 border-[#22c55e]',
+                            )}
+                            onClick={() => loadFromHistory(entry)}
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className={cn(
+                                  'text-[9px] font-bold px-1 py-0.5 rounded',
+                                  isActive ? 'bg-[#22c55e]/20 text-[#22c55e]' : 'bg-[#30363d] text-[#8b949e]',
+                                )}>
+                                  {entry.timeframe}
+                                </span>
+                                <span className="text-[10px] font-medium text-[#f0f6fc] truncate max-w-[140px]" title={entry.filename}>
+                                  {entry.filename.length > 24 ? entry.filename.slice(0, 22) + '…' : entry.filename}
+                                </span>
+                                <span className="text-[9px] text-[#484f58] font-mono">{entry.count.toLocaleString('pt-BR')} ·</span>
+                              </div>
+                              <div className="text-[9px] text-[#484f58] mt-0.5">
+                                {entry.dateFrom} → {entry.dateTo}
+                                {isActive && <span className="ml-1.5 text-[#22c55e] font-semibold">● ativo</span>}
+                              </div>
+                              {hasScan && sr && wr && (
+                                <div className={cn(
+                                  'text-[9px] mt-0.5 font-mono font-semibold',
+                                  pnlPos ? 'text-[#22c55e]' : 'text-[#ef4444]',
+                                )}>
+                                  AutoScan: {sr.trades}t · {wr}% WR · {pnlPos ? '+' : ''}{sr.pnl.toFixed(2)} USD
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              onClick={ev => { ev.stopPropagation(); deleteFromHistory(entry.id) }}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity text-[#484f58] hover:text-[#ef4444] mt-0.5 shrink-0"
+                              title="Remover do histórico"
+                            >
+                              <Trash2 size={10} />
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    <div className="px-3 py-2 border-t border-[#30363d]">
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[10px] font-semibold border border-[#30363d] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d] transition-all"
+                      >
+                        <FolderOpen size={10} />
+                        Carregar novo CSV…
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
               {csvError && (
                 <span className="text-[#ef4444] text-[9px] max-w-[180px] truncate" title={csvError}>
                   ⚠ {csvError}

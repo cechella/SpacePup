@@ -20,11 +20,14 @@ Variáveis de ambiente (obrigatórias para sincronização com dashboard):
 Kill switch: pressione Ctrl+C ou crie o arquivo STOP na pasta raiz.
 """
 
+import hashlib
+import json
 import os
 import sys
 import time
 import logging
 import argparse
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -42,11 +45,23 @@ from .indicators   import (
     rompimento_ocorreu,
 )
 from .risk_manager import lote_por_faixa
+from .ml.predictor import filtrar_sinal, MonitorPerformance, modelo_info
 from .supabase_sync import (
     sincronizar_trade,
     atualizar_resultado,
     publicar_heartbeat,
     verificar_comando_parar,
+    publicar_candle,
+    publicar_candles_batch,
+    verificar_comando_avancado,
+    publicar_log,
+    carregar_config_supabase,
+    carregar_broker_ativo,
+    publicar_status_broker,
+    gravar_rafi_trade,
+    verificar_backtest_pendente,
+    atualizar_backtest_run,
+    publicar_config_hash_startup,
 )
 
 # ── Configuração de logging ───────────────────────────────────────────────────
@@ -70,6 +85,44 @@ def carregar_config(caminho: str = 'config.yaml') -> dict:
     """Carrega e retorna o arquivo de configuração YAML."""
     with open(caminho, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
+
+
+def calcular_hash_config(cfg: dict) -> str:
+    """
+    Retorna hash MD5 de 8 chars do config efetivo (pós-overrides do Supabase).
+
+    Permite verificar no dashboard se o bot ao vivo usa os mesmos parâmetros
+    do backtest que gerou os resultados históricos.
+    """
+    # Serializa exatamente os campos salvos no Supabase pelo dashboard
+    # (deve ser idêntico a CAMPOS_CONFIG em rafi-dashboard/app/api/config/route.ts)
+    CHAVES = [
+        'estrategia_modo', 'forca_limiar', 'rafi_periodo', 'sr_lookback',
+        'swing_stop_lookback', 'ma_rapida', 'ma_lenta', 'ma_threshold',
+        'bb_filtro_ativo', 'bb_limiar_estreita', 'bb_periodo', 'bb_desvios',
+        'ratio_risco_retorno', 'max_trades_simultaneos',
+        'autoscan_min_breakout', 'autoscan_min_gap_candles',
+        'autoscan_stop_offset', 'bb_squeeze_expansao_min',
+    ]
+    snapshot = {k: cfg.get(k) for k in CHAVES}
+
+    def _val(v: object) -> str:
+        """Serializa um valor exatamente como JSON.stringify do JavaScript.
+        Python serializa float 0.00005 como '5e-05'; JS serializa como '0.00005'.
+        O format :.10f + rstrip garante compatibilidade para todos os valores do config."""
+        if v is None:            return 'null'
+        if isinstance(v, bool):  return 'true' if v else 'false'
+        if isinstance(v, int):   return str(v)
+        if isinstance(v, float): return f'{v:.10f}'.rstrip('0').rstrip('.')
+        if isinstance(v, str):   return json.dumps(v, ensure_ascii=False)
+        return json.dumps(v, ensure_ascii=False)
+
+    partes = ','.join(
+        f'{json.dumps(k, ensure_ascii=False)}:{_val(snapshot[k])}'
+        for k in sorted(snapshot)
+    )
+    serializado = '{' + partes + '}'
+    return hashlib.md5(serializado.encode()).hexdigest()[:8]
 
 
 def aguardar_fechamento_candle(tf_segundos: int = 300) -> None:
@@ -112,7 +165,98 @@ class RafiBot:
         self._conta_account = 0
         self._conta_server  = ''
 
-        logger.info(f"RafiBot iniciado | Par: {self.par} | Capital: ${self.capital:.2f}")
+        # Timestamp (Unix) do último sinal emitido em modo autoscan — controla gap mínimo
+        self._autoscan_ultimo_ts: int = 0
+
+        # Sobrescreve config.yaml com valores salvos no dashboard (/admin/config)
+        cfg_supa = carregar_config_supabase(profile='live')
+        if cfg_supa:
+            MAPA = {
+                # Modo da estratégia — OBRIGATÓRIO para trocar entre rafi/autoscan pelo dashboard
+                'estrategia_modo': 'estrategia_modo',
+                # Parâmetros do modo RAFI
+                'forca_limiar': 'forca_limiar', 'rafi_periodo': 'rafi_periodo',
+                'sr_lookback': 'sr_lookback', 'swing_stop_lookback': 'swing_stop_lookback',
+                'ma_rapida': 'ma_rapida', 'ma_lenta': 'ma_lenta', 'ma_threshold': 'ma_threshold',
+                'bb_filtro_ativo': 'bb_filtro_ativo', 'bb_limiar_estreita': 'bb_limiar_estreita',
+                'bb_periodo': 'bb_periodo', 'bb_desvios': 'bb_desvios',
+                # Parâmetros exclusivos do modo Autoscan (réplica do browser)
+                'autoscan_min_breakout':    'autoscan_min_breakout',    # pip mínimo além do S/R
+                'autoscan_min_gap_candles': 'autoscan_min_gap_candles', # gap entre sinais
+                'autoscan_stop_offset':     'autoscan_stop_offset',     # buffer do stop (pip)
+                'autoscan_sr_lookback':     'autoscan_sr_lookback',     # S/R lookback autoscan (10)
+                'bb_squeeze_expansao_min':  'bb_squeeze_expansao_min',  # expansão mín. da BB
+                # Gestão de risco — comuns a todos os modos
+                'risco_por_trade': 'risco_por_trade', 'ratio_risco_retorno': 'ratio_risco_retorno',
+                'max_trades_simultaneos': 'max_trades_simultaneos',
+                'risco_maximo_diario': 'risco_maximo_diario',
+            }
+            for chave_supa, chave_cfg in MAPA.items():
+                if chave_supa in cfg_supa and cfg_supa[chave_supa] is not None:
+                    self.cfg[chave_cfg] = cfg_supa[chave_supa]
+            logger.info("Config carregada do Supabase (dashboard /admin/config)")
+
+        # Broker ativo: lê do Supabase qual corretora está habilitada
+        # --broker xm | --broker pepperstone seleciona qual usar quando múltiplas estão ativas
+        broker_id_arg = config.get('_broker_arg')  # injetado por main() via --broker
+        broker_supa   = carregar_broker_ativo(broker_id=broker_id_arg)
+        if broker_supa:
+            bid    = broker_supa['id']
+            creds  = config.get('corretoras', {}).get(bid, {})
+            self._broker_id       = bid
+            self._broker_login    = creds.get('login')
+            self._broker_senha    = creds.get('senha')
+            self._broker_servidor = broker_supa.get('servidor') or creds.get('servidor')
+            # Símbolo correto por corretora (EURUSD# vs EURUSD)
+            self.par            = broker_supa.get('simbolo') or creds.get('simbolo') or self.par
+            self.cfg['par']     = self.par
+            self.mt5.par        = self.par
+            logger.info(f"Broker ativo (Supabase): {bid} | Símbolo: {self.par}")
+        else:
+            # Fallback: usa o par do config.yaml sem autenticação separada
+            self._broker_id       = config.get('corretora', 'xm').lower()
+            self._broker_login    = None
+            self._broker_senha    = None
+            self._broker_servidor = None
+            logger.warning("rafi_brokers indisponível — usando par do config.yaml (fallback)")
+
+        # Monitor de performance ML — rastreia WR/PF rolling e aciona retreino
+        self._monitor = MonitorPerformance(
+            janela     = 20,
+            wr_minimo  = 0.70,
+            pf_minimo  = 2.0,
+        )
+
+        # Contadores ML por dia — resetam junto com _pnl_hoje (meia-noite)
+        self._ml_sinais_hoje    = 0
+        self._ml_aprovados_hoje = 0
+
+        # Sinaliza ao loop principal para reiniciar (comando 'restart' do dashboard)
+        self._deve_reiniciar = False
+
+        # Último RAFI calculado — passado ao candle em formação para manter gauge atualizado
+        self._ultimo_rafi: Optional[float] = None
+
+        # Controle de backtest em background (evita dois simultâneos)
+        self._backtest_em_andamento = False
+
+        # Hash do config efetivo (pós-overrides) — exibido no dashboard para rastreabilidade
+        self._config_hash = calcular_hash_config(self.cfg)
+        # Força gravação do hash no Supabase via UPDATE dedicado (não depende do heartbeat)
+        publicar_config_hash_startup(self._config_hash)
+
+        # Informa status do modelo ML no startup
+        info_ml = modelo_info()
+        if info_ml.get('disponivel'):
+            logger.info(
+                f"Modelo ML carregado | Trades treino: {info_ml['n_trades']:,} | "
+                f"WR histórico: {info_ml['wr_historico']:.1%} | "
+                f"Threshold: {info_ml['threshold']:.0%}"
+            )
+        else:
+            logger.info("Modelo ML não encontrado — bot opera sem filtro ML até primeiro treino")
+
+        logger.info(f"RafiBot iniciado | Par: {self.par} | Capital: ${self.capital:.2f} | Config: {self._config_hash}")
 
     # ─────────────────────────────────────────────────────────────────────────
     # LOOP PRINCIPAL
@@ -129,8 +273,14 @@ class RafiBot:
         logger.info(f"Kill switch: crie o arquivo '{ARQUIVO_STOP}' na pasta raiz")
         logger.info("=" * 60)
 
-        if not self.mt5.conectar():
+        publicar_log(f"Bot RAFI iniciado — conectando ao MT5 ({self._broker_id})", level='info')
+        if not self.mt5.conectar(
+            login    = self._broker_login,
+            senha    = self._broker_senha,
+            servidor = self._broker_servidor,
+        ):
             logger.error("Não foi possível conectar ao MT5. Verifique o terminal.")
+            publicar_log("ERRO: Não foi possível conectar ao MT5", level='error')
             return
 
         # Captura informações da conta após conectar
@@ -148,6 +298,11 @@ class RafiBot:
             self.capital = saldo_real   # usa saldo real mesmo que seja $0
         logger.info(f"Saldo da conta: ${self.capital:.2f}")
 
+        # Publica histórico inicial para o gráfico do dashboard aparecer imediatamente
+        df_inicial = self.mt5.obter_candles('M5', n_candles=200)
+        if df_inicial is not None:
+            self._publicar_historico_inicial(df_inicial)
+
         try:
             while True:
                 # Kill switch por arquivo
@@ -161,7 +316,23 @@ class RafiBot:
                     publicar_heartbeat('stopped', self.capital, self.capital, 0,
                                        pnl_hoje=self._pnl_hoje,
                                        par=self.par, server=self._conta_server,
-                                       account=self._conta_account)
+                                       account=self._conta_account,
+                                       config_hash=self._config_hash)
+                    break
+
+                # Comandos avançados do dashboard (fechar posição, ordem manual, restart)
+                cmd = verificar_comando_avancado()
+                if cmd:
+                    self._processar_comando_avancado(cmd)
+
+                # Reinicialização solicitada via dashboard
+                if self._deve_reiniciar:
+                    logger.info("Comando RESTART recebido — encerrando para reinicialização.")
+                    publicar_heartbeat('stopped', self.capital, self.capital, 0,
+                                       pnl_hoje=self._pnl_hoje,
+                                       par=self.par, server=self._conta_server,
+                                       account=self._conta_account,
+                                       config_hash=self._config_hash)
                     break
 
                 # Reset diário
@@ -170,14 +341,176 @@ class RafiBot:
                 # Ciclo principal
                 self._ciclo()
 
-                # Aguarda próximo candle M5
-                aguardar_fechamento_candle(tf_segundos=300)
+                # Verifica backtest solicitado pelo admin (roda em thread separada)
+                if not self._backtest_em_andamento:
+                    _bt_pendente = verificar_backtest_pendente()
+                    if _bt_pendente:
+                        self._iniciar_backtest_background(_bt_pendente)
+
+                # Aguarda próximo candle M5, publicando candle em formação a cada 30s
+                agora   = time.time()
+                proximo = (int(agora / 300) + 1) * 300
+                espera  = proximo - agora
+                logger.info(f"Aguardando fechamento do candle M5 em {espera:.0f}s...")
+                while time.time() < proximo - 1:
+                    time.sleep(min(30, max(1, proximo - time.time())))
+                    if time.time() < proximo - 1:
+                        # Heartbeat periódico para manter dashboard online
+                        publicar_heartbeat(
+                            status         = 'waiting',
+                            balance        = self.capital,
+                            equity         = self.mt5.equity_atual() or self.capital,
+                            open_positions = len(self.mt5.posicoes_abertas()),
+                            pnl_hoje       = self._pnl_hoje,
+                            par            = self.par,
+                            server         = self._conta_server,
+                            account        = self._conta_account,
+                            config_hash    = self._config_hash,
+                            forming_rafi   = self._ultimo_rafi,
+                        )
+                        # Candle em formação: atualiza o gráfico entre fechamentos M5
+                        # Inclui o RAFI do último candle fechado para manter o gauge atualizado
+                        candle_formando = self.mt5.obter_candle_formando()
+                        if candle_formando:
+                            publicar_candle(
+                                time_unix  = candle_formando['time'],
+                                open_price = candle_formando['open'],
+                                high       = candle_formando['high'],
+                                low        = candle_formando['low'],
+                                close      = candle_formando['close'],
+                                volume     = candle_formando['volume'],
+                                rafi       = self._ultimo_rafi,
+                            )
 
         except KeyboardInterrupt:
             logger.info("Ctrl+C — encerrando bot.")
         finally:
             self.mt5.desconectar()
             logger.info("Bot encerrado.")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # BACKTEST REMOTO (disparado pelo admin dashboard)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _iniciar_backtest_background(self, run: dict) -> None:
+        """
+        Executa um backtest em thread daemon para não bloquear o loop de trading.
+
+        run: dict com {id, periodo, inicio, fim, capital, profile} do Supabase.
+        Ao terminar, grava o resultado em rafi_backtest_runs.
+        """
+        # Candles M5 por período (com margem de sessão/fim de semana)
+        PERIODO_CANDLES = {
+            '1w': 2500, '1m': 9000, '3m': 27000, '6m': 54000, '1y': 108000,
+        }
+
+        def _worker() -> None:
+            run_id = run['id']
+            try:
+                self._backtest_em_andamento = True
+                atualizar_backtest_run(run_id, 'running', progress=5)
+                periodo   = run.get('periodo', '1m')
+                n_candles = PERIODO_CANDLES.get(periodo, 9000)
+                logger.info(f"[Backtest] Run {run_id[:8]} | período: {periodo} | {n_candles:,} candles")
+                publicar_log(f"Backtest iniciado | período: {periodo}", level='info')
+
+                # Config: cópia do atual + override do perfil solicitado
+                profile   = run.get('profile', 'simulator')
+                cfg_run   = dict(self.cfg)
+                cfg_supa  = carregar_config_supabase(profile=profile)
+                if cfg_supa:
+                    for k in [
+                        'estrategia_modo', 'forca_limiar', 'rafi_periodo', 'sr_lookback',
+                        'swing_stop_lookback', 'ma_rapida', 'ma_lenta', 'ma_threshold',
+                        'bb_filtro_ativo', 'bb_limiar_estreita', 'bb_periodo', 'bb_desvios',
+                        'autoscan_min_breakout', 'autoscan_min_gap_candles',
+                        'autoscan_stop_offset', 'autoscan_sr_lookback', 'bb_squeeze_expansao_min',
+                        'ratio_risco_retorno', 'max_trades_simultaneos',
+                    ]:
+                        if k in cfg_supa and cfg_supa[k] is not None:
+                            cfg_run[k] = cfg_supa[k]
+
+                capital = float(run.get('capital') or cfg_run.get('capital_inicial', 20.0))
+                cfg_run['capital_inicial'] = capital
+                config_hash = calcular_hash_config(cfg_run)
+                atualizar_backtest_run(run_id, 'running', config_hash=config_hash, progress=15)
+
+                # Dados históricos via MT5
+                logger.info(f"[Backtest] Buscando {n_candles:,} candles M5 do MT5...")
+                df_m5 = self.mt5.obter_candles('M5', n_candles=n_candles)
+                if df_m5 is None or df_m5.empty:
+                    raise RuntimeError("MT5 não retornou dados — verifique a conexão")
+
+                # Filtro de período (--inicio / --fim)
+                import pandas as pd
+                inicio_str = run.get('inicio')
+                fim_str    = run.get('fim')
+                if inicio_str:
+                    df_m5 = df_m5[df_m5.index >= pd.Timestamp(str(inicio_str), tz='UTC')]
+                if fim_str:
+                    dt_fim = pd.Timestamp(str(fim_str), tz='UTC') + pd.Timedelta(hours=23, minutes=59)
+                    df_m5 = df_m5[df_m5.index <= dt_fim]
+                if df_m5.empty:
+                    raise RuntimeError("Nenhum dado no período selecionado")
+
+                # Reamostrar M15 do M5
+                df_m15 = df_m5.resample('15min').agg({
+                    'open': 'first', 'high': 'max', 'low': 'min',
+                    'close': 'last', 'volume': 'sum',
+                }).dropna()
+                atualizar_backtest_run(run_id, 'running', progress=35)
+
+                # Executar backtest
+                import sys as _sys
+                _sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+                from backtest.engine import Backtest
+                from backtest.report import gerar_relatorio
+                bt     = Backtest(cfg_run, df_m5, df_m15, capital=capital)
+                atualizar_backtest_run(run_id, 'running', progress=40)
+                trades = bt.executar()
+                atualizar_backtest_run(run_id, 'running', progress=85)
+
+                relatorio = gerar_relatorio(trades, capital_inicial=capital,
+                                            equity_curve=bt.equity_curve)
+
+                # Simplificar trades para JSON (≤500 registros)
+                trades_simples = []
+                for t in trades[:500]:
+                    ts_ent = t.get('timestamp_entrada')
+                    trades_simples.append({
+                        'ts':      int(ts_ent.timestamp()) if ts_ent else 0,
+                        'dir':     t.get('sinal', ''),
+                        'entry':   round(t.get('preco_entrada', 0), 5),
+                        'sl':      round(t.get('stop_loss', 0), 5),
+                        'tp':      round(t.get('take_profit', 0), 5),
+                        'pnl':     round(t.get('pnl_usd', 0), 2),
+                        'pips':    round(t.get('variacao_pips', 0), 1),
+                        'motivo':  t.get('motivo_saida', ''),
+                        'rafi':    round(t.get('forca_entrada', 0), 2) if t.get('forca_entrada') else None,
+                        'dur_c':   t.get('duracao_candles', 0),
+                    })
+
+                atualizar_backtest_run(
+                    run_id, 'done',
+                    config_hash=config_hash,
+                    progress=100,
+                    resultado=relatorio,
+                    trades_json=trades_simples,
+                )
+                wr = relatorio.get('win_rate_pct', 0)
+                pf = relatorio.get('profit_factor', 0)
+                logger.info(f"[Backtest] Run {run_id[:8]} concluído | WR: {wr:.1f}% | PF: {pf:.3f} | {len(trades)} trades")
+                publicar_log(f"Backtest concluído | WR: {wr:.1f}% | PF: {pf:.3f} | {len(trades)} trades", level='info')
+
+            except Exception as exc:
+                logger.error(f"[Backtest] Erro no run {run_id}: {exc}")
+                atualizar_backtest_run(run_id, 'error', error_msg=str(exc))
+                publicar_log(f"Backtest erro: {exc}", level='error')
+            finally:
+                self._backtest_em_andamento = False
+
+        t = threading.Thread(target=_worker, daemon=True, name=f'bt-{run["id"][:8]}')
+        t.start()
 
     # ─────────────────────────────────────────────────────────────────────────
     # CICLO POR CANDLE
@@ -203,20 +536,46 @@ class RafiBot:
             status_hb = 'running'
         else:
             status_hb = 'waiting'
+        _info_ml   = modelo_info()
+        _status_ml = self._monitor.status()
         publicar_heartbeat(
             status         = status_hb,
             balance        = self.capital,
-            equity         = self.capital,
+            equity         = self.mt5.equity_atual() or self.capital,
             open_positions = len(posicoes_abertas_hb),
             pnl_hoje       = self._pnl_hoje,
             par            = self.par,
             server         = self._conta_server,
             account        = self._conta_account,
+            config_hash    = self._config_hash,
+            # ML status
+            ml_modelo_carregado = _info_ml.get('disponivel', False),
+            ml_modo             = _status_ml.get('modo', 'OBSERVAÇÃO'),
+            ml_wr_rolling       = _status_ml.get('wr_rolling'),
+            ml_pf_rolling       = _status_ml.get('pf_rolling'),
+            ml_sinais_hoje      = self._ml_sinais_hoje,
+            ml_aprovados_hoje   = self._ml_aprovados_hoje,
+            ml_treinado_em      = _info_ml.get('treinado_em') or None,
+            ml_threshold        = _info_ml.get('threshold', 0.65),
+        )
+        # Atualiza card da corretora no /admin/brokers
+        publicar_status_broker(
+            broker_id   = self._broker_id,
+            saldo       = self.capital,
+            posicoes    = len(posicoes_abertas_hb),
+            pnl_hoje    = self._pnl_hoje,
+            status_text = ('OPERANDO' if posicoes_abertas_hb
+                           else 'PARADO' if self._limite_diario_atingido()
+                           else 'AGUARDANDO SINAL'),
         )
 
         # 4. Verifica limite diário de perda
         if self._limite_diario_atingido():
             logger.warning("Limite de perda diária atingido — sem novas entradas hoje.")
+            publicar_log(
+                f"Limite de perda diária atingido (−${self._perda_hoje:.2f}) — bot parado até amanhã",
+                level='warn',
+            )
             return
 
         # 5. Verifica número máximo de posições abertas
@@ -233,18 +592,92 @@ class RafiBot:
             return
 
         # 6. Calcula indicadores
-        indice_forca = calcular_indice_forca(df, periodo=3)
+        indice_forca = calcular_indice_forca(df, periodo=14)  # igual ao backtest (default)
         bb           = calcular_bollinger(df, periodo=8, desvios=2.0)
         pivotos      = detectar_pivotos(df, janela=5)
         niveis_sr    = niveis_sr_ativos(df, pivotos, lookback=self.cfg.get('sr_lookback', 20))
 
-        # 7. Verifica sinal de entrada no candle mais recente
-        sinal = self._verificar_sinal(df, indice_forca, bb, niveis_sr)
+        # 7. Publica o último candle fechado no Supabase (alimenta o gráfico ao vivo)
+        try:
+            c_last = df.iloc[-1]
+            publicar_candle(
+                time_unix  = int(df.index[-1].timestamp()),
+                open_price = float(c_last['open']),
+                high       = float(c_last['high']),
+                low        = float(c_last['low']),
+                close      = float(c_last['close']),
+                volume     = float(c_last.get('volume', 0)),
+                rafi       = float(indice_forca.iloc[-1]) if indice_forca is not None else None,
+            )
+        except Exception as e:
+            logger.debug(f"Erro ao publicar candle: {e}")
+
+        # 8. Verifica sinal de entrada no candle mais recente
+        rafi_v = float(indice_forca.iloc[-1]) if indice_forca is not None else 0.0
+        self._ultimo_rafi = rafi_v  # mantém gauge atualizado no candle em formação
+        sinal  = self._verificar_sinal(df, indice_forca, bb, niveis_sr)
         if sinal is None:
             logger.debug("Sem sinal de entrada.")
+            publicar_log(
+                f"Ciclo M5 — sem sinal | RAFI={rafi_v:.2f} | "
+                f"Saldo=${self.capital:.2f} | Pos={len(posicoes_abertas)}",
+                level='info',
+            )
+            # Atualiza gauge do dashboard com RAFI atual (mesmo sem sinal)
+            publicar_heartbeat(
+                status='waiting', balance=self.capital,
+                equity=self.mt5.equity_atual() or self.capital,
+                open_positions=len(posicoes_abertas),
+                pnl_hoje=self._pnl_hoje, par=self.par,
+                server=self._conta_server, account=self._conta_account,
+                forming_signal=False, forming_rafi=rafi_v,
+                config_hash=self._config_hash,
+                ml_modelo_carregado = _info_ml.get('disponivel', False),
+                ml_modo             = _status_ml.get('modo', 'OBSERVAÇÃO'),
+                ml_wr_rolling       = _status_ml.get('wr_rolling'),
+                ml_pf_rolling       = _status_ml.get('pf_rolling'),
+                ml_sinais_hoje      = self._ml_sinais_hoje,
+                ml_aprovados_hoje   = self._ml_aprovados_hoje,
+                ml_treinado_em      = _info_ml.get('treinado_em') or None,
+                ml_threshold        = _info_ml.get('threshold', 0.65),
+            )
             return
 
-        # 8. Calcula lote e envia ordem
+        # 9. Filtro ML — P(win) ≥ 65% para abrir trade
+        candles_lista = self._df_para_candles(df)
+        dir_int       = 1 if sinal['direcao'] == 'compra' else -1
+        self._ml_sinais_hoje += 1
+        deve_operar, prob_ml = filtrar_sinal(
+            candles_ate_sinal = candles_lista,
+            direcao           = dir_int,
+            forca_rompimento  = sinal.get('forca_rompimento', 0.00005),
+            rr_ratio          = float(self.cfg.get('ratio_risco_retorno', 1.3)),
+            wr_rolling20      = self._monitor.wr_rolling(),
+        )
+        sinal['probabilidade_ml'] = prob_ml
+        sinal['ml_aprovado']      = deve_operar
+        if deve_operar:
+            self._ml_aprovados_hoje += 1
+
+        if not deve_operar:
+            logger.info(
+                f"Sinal REJEITADO pelo ML | {sinal['direcao'].upper()} | "
+                f"P(win)={prob_ml:.1%} < 65%"
+            )
+            publicar_log(
+                f"Sinal {sinal['direcao'].upper()} rejeitado pelo ML | "
+                f"P(win)={prob_ml:.1%}",
+                level='info',
+            )
+            return
+
+        # 10. Calcula lote e envia ordem
+        publicar_log(
+            f"SINAL {sinal['direcao'].upper()} aprovado ML={prob_ml:.1%} | "
+            f"Entry={sinal['entry']:.5f} | SL={sinal['stop_loss']:.5f} | "
+            f"TP={sinal['take_profit']:.5f} | RAFI={sinal['rafi']:.2f}",
+            level='signal',
+        )
         self._executar_sinal(sinal, df, indice_forca, bb)
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -253,90 +686,272 @@ class RafiBot:
 
     def _verificar_sinal(self, df, indice_forca, bb, niveis_sr) -> Optional[dict]:
         """
-        Verifica se o último candle gerou sinal de entrada RAFI.
+        Verifica sinal de entrada no último candle.
 
-        Condições (todas obrigatórias):
-          1. BB estava estreita no candle anterior e está abrindo agora
-          2. Preço rompeu S/R relevante com candle direcional
-          3. RAFI ≥ 2.5 no candle do rompimento
+        Despacha para o modo configurado via dashboard (estrategia_modo):
+          'autoscan' → réplica exata do browser (BB squeeze + rompimento S/R, sem RAFI/MA)
+          'rafi'     → filtros RAFI completos (MA + RAFI + BB + S/R)
 
         Retorna dict com {direcao, entry, stop_loss, take_profit, rafi, bb_width}
         ou None se não há sinal.
         """
+        modo = self.cfg.get('estrategia_modo', 'rafi')
+
+        if modo == 'autoscan':
+            return self._verificar_sinal_autoscan(df, bb)
+
+        # ── Modo RAFI (padrão) ────────────────────────────────────────────────
         if bb is None or len(bb) < 2:
             return None
 
-        c    = df.iloc[-1]   # candle atual (fechado)
-        prev = df.iloc[-2]   # candle anterior
+        n_needed = max(
+            self.cfg.get('ma_lenta', 50),
+            self.cfg.get('sr_lookback', 50),
+            self.cfg.get('swing_stop_lookback', 150),
+        ) + 2
+        if len(df) < n_needed:
+            return None
 
-        # ── Filtro BB: squeeze → abertura ────────────────────────────────────
-        bb_prev_width = bb['bb_superior'].iloc[-2] - bb['bb_inferior'].iloc[-2]
-        bb_curr_width = bb['bb_superior'].iloc[-1] - bb['bb_inferior'].iloc[-1]
-        bb_mid        = bb['bb_media'].iloc[-1]
-        squeeze_ratio = self.cfg.get('bb_limiar_estreita', 0.0012)
-
-        prev_ratio = bb_prev_width / bb_mid if bb_mid else 0
-        curr_ratio = bb_curr_width / bb_mid if bb_mid else 0
-
-        if prev_ratio >= squeeze_ratio:
-            return None    # não era squeeze
-        if curr_ratio <= prev_ratio * 1.05:
-            return None    # não está abrindo
-
-        # ── Resistência / Suporte (janela de 20 candles anteriores) ──────────
-        janela      = df.iloc[-21:-1]
-        resistencia = float(janela['high'].max())
-        suporte     = float(janela['low'].min())
-        min_breakout = 0.00003   # 0.3 pip mínimo de rompimento
-
+        c      = df.iloc[-1]
         rafi_atual = float(indice_forca.iloc[-1]) if indice_forca is not None else 0.0
-        p = lambda v: round(v, 5)
 
-        # ── COMPRA: fecha acima da resistência com candle de alta ────────────
-        if (c['close'] > resistencia and
-            c['close'] - resistencia >= min_breakout and
-            c['close'] >= c['open']):
+        # ── Filtro 1: Tendência M5 — MA20 vs MA50 ────────────────────────────
+        ma_r   = int(self.cfg.get('ma_rapida', 20))
+        ma_l   = int(self.cfg.get('ma_lenta', 50))
+        ma_thr = float(self.cfg.get('ma_threshold', 0.0003))
+        ma20   = float(df['close'].rolling(ma_r).mean().iloc[-1])
+        ma50   = float(df['close'].rolling(ma_l).mean().iloc[-1])
+        diff   = ma20 - ma50
+        if abs(diff) < ma_thr:
+            return None   # mercado lateral
+        direcao = 'compra' if diff > 0 else 'venda'
 
-            entry  = p(resistencia)
-            stop   = p(float(c['low']) - 0.00015)
-            risco  = entry - stop
+        # ── Filtro 2: RAFI ≥ limiar (padrão 2.50) ────────────────────────────
+        forca_limiar = float(self.cfg.get('forca_limiar', 2.50))
+        if rafi_atual < forca_limiar:
+            # Sinal em formação: RAFI entre 1.75 e limiar
+            LIMIAR_FORMANDO = 1.75
+            if LIMIAR_FORMANDO <= rafi_atual < forca_limiar:
+                sr_lb    = int(self.cfg.get('sr_lookback', 50))
+                resist2  = float(df['high'].iloc[-(sr_lb+1):-1].max())
+                suporte2 = float(df['low'].iloc[-(sr_lb+1):-1].min())
+                f_dir    = 'buy' if direcao == 'compra' else 'sell'
+                f_price  = resist2 if f_dir == 'buy' else suporte2
+                bb_curr_width2 = float(bb['bb_superior'].iloc[-1] - bb['bb_inferior'].iloc[-1])
+                bb_prev_width2 = float(bb['bb_superior'].iloc[-2] - bb['bb_inferior'].iloc[-2])
+                publicar_heartbeat(
+                    status='waiting', balance=self.capital,
+                    equity=self.mt5.equity_atual() or self.capital,
+                    open_positions=len(self.mt5.posicoes_abertas()),
+                    pnl_hoje=self._pnl_hoje, par=self.par,
+                    server=self._conta_server, account=self._conta_account,
+                    forming_signal=True, forming_direction=f_dir,
+                    forming_rafi=rafi_atual, forming_tf_count=2,
+                    forming_bb_open=bool(bb_curr_width2 > bb_prev_width2 * 1.05),
+                    forming_price=f_price,
+                    config_hash=self._config_hash,
+                )
+                publicar_log(
+                    f"Sinal em formação: {f_dir.upper()} | RAFI={rafi_atual:.2f} "
+                    f"(falta {forca_limiar - rafi_atual:.2f}) | Nível={f_price:.5f}",
+                    level='info',
+                )
+            return None
+
+        # ── Filtro 3: Bollinger squeeze → abrindo (se ativo) ─────────────────
+        bb_prev_width = float(bb['bb_superior'].iloc[-2] - bb['bb_inferior'].iloc[-2])
+        bb_curr_width = float(bb['bb_superior'].iloc[-1] - bb['bb_inferior'].iloc[-1])
+        if self.cfg.get('bb_filtro_ativo', True):
+            bb_mid = float(bb['bb_media'].iloc[-1])
+            squeeze_ratio = float(self.cfg.get('bb_limiar_estreita', 0.0012))
+            prev_ratio = bb_prev_width / bb_mid if bb_mid else 0
+            curr_ratio = bb_curr_width / bb_mid if bb_mid else 0
+            if prev_ratio >= squeeze_ratio:
+                return None
+            if curr_ratio <= prev_ratio * 1.05:
+                return None
+
+        # ── Filtro 4: Cor do candle confirma direção ──────────────────────────
+        candle_verde = float(c['close']) >= float(c['open'])
+        if direcao == 'compra' and not candle_verde:
+            return None
+        if direcao == 'venda' and candle_verde:
+            return None
+
+        # ── Filtro 5: Rompimento de S/R (rolling high/low dos últimos N candles) ─
+        sr_lb       = int(self.cfg.get('sr_lookback', 50))
+        close_atual = float(c['close'])
+        rolling_high = float(df['high'].iloc[-(sr_lb+1):-1].max())
+        rolling_low  = float(df['low'].iloc[-(sr_lb+1):-1].min())
+
+        if direcao == 'compra' and close_atual <= rolling_high:
+            return None
+        if direcao == 'venda' and close_atual >= rolling_low:
+            return None
+
+        # ── Stop na estrutura: swing_stop dos últimos N candles ───────────────
+        sw_lb        = int(self.cfg.get('swing_stop_lookback', 150))
+        p            = lambda v: round(v, 5)
+        ratio_rr     = float(self.cfg.get('ratio_risco_retorno', 1.5))
+
+        if direcao == 'compra':
+            nivel_sr = rolling_high
+            stop     = p(float(df['low'].iloc[-(sw_lb+1):-1].min()))
+            entry    = p(nivel_sr)
+            risco    = entry - stop
             if risco <= 0:
                 return None
-            tp = p(entry + risco * self.cfg.get('ratio_risco_retorno', 1.5))
-
+            tp = p(entry + risco * ratio_rr)
             logger.info(
                 f"SINAL COMPRA | Entry: {entry:.5f} | SL: {stop:.5f} | TP: {tp:.5f} "
-                f"| RAFI: {rafi_atual:.2f} | BB width: {bb_curr_width:.5f}"
+                f"| RAFI: {rafi_atual:.2f} | MA20-MA50: {diff:+.5f}"
             )
             return {
                 'direcao': 'compra', 'entry': entry,
                 'stop_loss': stop, 'take_profit': tp,
                 'rafi': rafi_atual, 'rafi_dir': 'bull', 'bb_width': bb_curr_width,
+                'forca_rompimento': max(0.0, close_atual - rolling_high),
             }
 
-        # ── VENDA: fecha abaixo do suporte com candle de baixa ───────────────
-        if (c['close'] < suporte and
-            suporte - c['close'] >= min_breakout and
-            c['close'] < c['open']):
-
-            entry  = p(suporte)
-            stop   = p(float(c['high']) + 0.00015)
-            risco  = stop - entry
+        else:
+            nivel_sr = rolling_low
+            stop     = p(float(df['high'].iloc[-(sw_lb+1):-1].max()))
+            entry    = p(nivel_sr)
+            risco    = stop - entry
             if risco <= 0:
                 return None
-            tp = p(entry - risco * self.cfg.get('ratio_risco_retorno', 1.5))
-
+            tp = p(entry - risco * ratio_rr)
             logger.info(
                 f"SINAL VENDA | Entry: {entry:.5f} | SL: {stop:.5f} | TP: {tp:.5f} "
-                f"| RAFI: {rafi_atual:.2f} | BB width: {bb_curr_width:.5f}"
+                f"| RAFI: {rafi_atual:.2f} | MA20-MA50: {diff:+.5f}"
             )
             return {
                 'direcao': 'venda', 'entry': entry,
                 'stop_loss': stop, 'take_profit': tp,
                 'rafi': rafi_atual, 'rafi_dir': 'bear', 'bb_width': bb_curr_width,
+                'forca_rompimento': max(0.0, rolling_low - close_atual),
+            }
+
+    def _verificar_sinal_autoscan(self, df, bb) -> Optional[dict]:
+        """
+        Modo Autoscan — réplica exata do browser (indicators.ts autoScanBreakouts).
+
+        Critérios (sem RAFI, sem filtro de MA/tendência, sem filtro de sessão):
+          1. BB squeeze no candle anterior (width/mid < squeeze_ratio)
+          2. BB expandindo no candle atual (curr_ratio > prev_ratio * expansao_min)
+          3. COMPRA: close > max_high(sr_lookback) e close >= open (candle verde)
+          4. VENDA:  close < min_low(sr_lookback)  e close <  open (candle vermelho)
+          5. Rompimento mínimo: (close - resistance) >= min_breakout
+          6. Stop: candle_low - stop_offset (compra) / candle_high + stop_offset (venda)
+        """
+        if bb is None or len(bb) < 2:
+            return None
+
+        sr_lb         = int(self.cfg.get('sr_lookback', 20))
+        min_breakout  = float(self.cfg.get('autoscan_min_breakout', 0.00003))
+        stop_offset   = float(self.cfg.get('autoscan_stop_offset', 0.00015))
+        expansao_min  = float(self.cfg.get('bb_squeeze_expansao_min', 1.05))
+        squeeze_ratio = float(self.cfg.get('bb_limiar_estreita', 0.0012))
+        ratio_rr      = float(self.cfg.get('ratio_risco_retorno', 1.5))
+        min_gap       = int(self.cfg.get('autoscan_min_gap_candles', 8))
+
+        n_needed = sr_lb + int(self.cfg.get('bb_periodo', 8)) + 2
+        if len(df) < n_needed:
+            return None
+
+        # Gap mínimo: verifica se passaram candles suficientes desde o último sinal
+        candle_ts = int(df.index[-1].timestamp())
+        segundos_gap = min_gap * 300  # M5 = 300s por candle
+        if candle_ts - self._autoscan_ultimo_ts < segundos_gap:
+            return None
+
+        # BB ratios: width = upper - lower; mid = média
+        bb_mid_curr  = float(bb['bb_media'].iloc[-1])
+        bb_mid_prev  = float(bb['bb_media'].iloc[-2])
+        bb_w_curr    = float(bb['bb_superior'].iloc[-1] - bb['bb_inferior'].iloc[-1])
+        bb_w_prev    = float(bb['bb_superior'].iloc[-2] - bb['bb_inferior'].iloc[-2])
+        prev_ratio   = bb_w_prev / bb_mid_prev if bb_mid_prev else 0
+        curr_ratio   = bb_w_curr / bb_mid_curr if bb_mid_curr else 0
+
+        # Filtro 1: squeeze no candle anterior
+        if prev_ratio >= squeeze_ratio:
+            return None
+        # Filtro 2: expansão no candle atual
+        if curr_ratio <= prev_ratio * expansao_min:
+            return None
+
+        c      = df.iloc[-1]
+        close  = float(c['close'])
+        open_  = float(c['open'])
+        low    = float(c['low'])
+        high   = float(c['high'])
+
+        # S/R = max HIGH / min LOW dos candles anteriores (sem lookahead)
+        window     = df.iloc[-(sr_lb + 1):-1]
+        resistance = float(window['high'].max())
+        support    = float(window['low'].min())
+
+        p = lambda v: round(v, 5)
+
+        # COMPRA: fecha acima da resistência, candle verde
+        if close > resistance and (close - resistance) >= min_breakout and close >= open_:
+            entry = p(resistance)
+            stop  = p(low - stop_offset)
+            risco = entry - stop
+            if risco <= 0:
+                return None
+            tp = p(entry + risco * ratio_rr)
+            logger.info(
+                f"SINAL AUTOSCAN COMPRA | Entry: {entry:.5f} | SL: {stop:.5f} | TP: {tp:.5f} "
+                f"| BB_ratio: prev={prev_ratio:.5f} curr={curr_ratio:.5f}"
+            )
+            self._autoscan_ultimo_ts = candle_ts
+            return {
+                'direcao': 'compra', 'entry': entry,
+                'stop_loss': stop, 'take_profit': tp,
+                'rafi': 0.0, 'rafi_dir': 'bull', 'bb_width': bb_w_curr,
+                'forca_rompimento': close - resistance,
+            }
+
+        # VENDA: fecha abaixo do suporte, candle vermelho
+        if close < support and (support - close) >= min_breakout and close < open_:
+            entry = p(support)
+            stop  = p(high + stop_offset)
+            risco = stop - entry
+            if risco <= 0:
+                return None
+            tp = p(entry - risco * ratio_rr)
+            logger.info(
+                f"SINAL AUTOSCAN VENDA | Entry: {entry:.5f} | SL: {stop:.5f} | TP: {tp:.5f} "
+                f"| BB_ratio: prev={prev_ratio:.5f} curr={curr_ratio:.5f}"
+            )
+            self._autoscan_ultimo_ts = candle_ts
+            return {
+                'direcao': 'venda', 'entry': entry,
+                'stop_loss': stop, 'take_profit': tp,
+                'rafi': 0.0, 'rafi_dir': 'bear', 'bb_width': bb_w_curr,
+                'forca_rompimento': support - close,
             }
 
         return None
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # HELPERS
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _df_para_candles(df) -> list:
+        """Converte DataFrame de candles para lista de dicts usada pelo feature_builder."""
+        candles = []
+        for ts, row in df.iterrows():
+            candles.append({
+                'time':  int(ts.timestamp()),
+                'open':  float(row['open']),
+                'high':  float(row['high']),
+                'low':   float(row['low']),
+                'close': float(row['close']),
+            })
+        return candles
 
     # ─────────────────────────────────────────────────────────────────────────
     # EXECUÇÃO DA ORDEM
@@ -363,17 +978,21 @@ class RafiBot:
         preco_ent = resultado['preco_entrada']
         ts        = int(time.time())
 
-        # Registra posição aberta para monitoramento
+        # Registra posição aberta para monitoramento (inclui dados ML para gravação ao fechar)
         self._posicoes[ticket] = {
-            'ts':          ts,
-            'entry':       preco_ent,
-            'stop_loss':   sinal['stop_loss'],
-            'take_profit': sinal['take_profit'],
-            'lot':         lote,
-            'direcao':     sinal['direcao'],
-            'rafi':        sinal['rafi'],
-            'rafi_dir':    sinal['rafi_dir'],
-            'bb_width':    sinal['bb_width'],
+            'ts':              ts,
+            'entry':           preco_ent,
+            'stop_loss':       sinal['stop_loss'],
+            'take_profit':     sinal['take_profit'],
+            'lot':             lote,
+            'direcao':         sinal['direcao'],
+            'rafi':            sinal['rafi'],
+            'rafi_dir':        sinal['rafi_dir'],
+            'bb_width':        sinal['bb_width'],
+            'probabilidade_ml': sinal.get('probabilidade_ml'),
+            'ml_aprovado':     sinal.get('ml_aprovado'),
+            'forca_rompimento': sinal.get('forca_rompimento', 0.0),
+            'rr_ratio':        float(self.cfg.get('ratio_risco_retorno', 1.3)),
         }
 
         # ── Sincroniza com Supabase (aparece no admin) ────────────────────────
@@ -418,19 +1037,138 @@ class RafiBot:
                 f"Posição #{ticket} fechada → {resultado.upper()} "
                 f"| P&L: ${pnl_trade:+.2f} | Saldo: ${cap_novo:.2f}"
             )
+            publicar_log(
+                f"Posição #{ticket} fechada → {resultado.upper()} | P&L: ${pnl_trade:+.2f} | Saldo: ${cap_novo:.2f}",
+                level='signal' if resultado == 'win' else 'warn',
+            )
 
             # Acumula P&L do dia e controle de perda diária
             self._pnl_hoje += pnl_trade
             if resultado == 'loss':
                 self._perda_hoje += abs(pnl_trade)
 
-            # Atualiza saldo e Supabase
+            # Atualiza saldo e Supabase (tabela rafi_bot_status)
             if cap_novo is not None:
                 self.capital = cap_novo
             atualizar_resultado(ticket=ticket, result=resultado,
                                 ts=info['ts'], pnl=pnl_trade)
 
+            # Resultado em múltiplos de R para o monitor ML
+            rr      = info.get('rr_ratio', 1.3)
+            lucro_r = rr if resultado == 'win' else -1.0
+            resultado_int = 1 if resultado == 'win' else 0
+
+            # Grava na tabela rafi_trades (alimenta o modelo ML)
+            gravar_rafi_trade(
+                resultado        = resultado_int,
+                lucro_r          = lucro_r,
+                lucro_usd        = pnl_trade,
+                lotes            = info.get('lot'),
+                direcao          = 1 if info['direcao'] == 'compra' else -1,
+                forca_rompimento = info.get('forca_rompimento'),
+                rr_ratio         = rr,
+                preco_entrada    = info.get('entry'),
+                preco_saida      = cap_novo,       # aproximação — MT5 fecha ao preço de mercado
+                preco_stop       = info.get('stop_loss'),
+                preco_target     = info.get('take_profit'),
+                probabilidade_ml = info.get('probabilidade_ml'),
+                ml_aprovado      = info.get('ml_aprovado'),
+            )
+
+            # Registra no monitor de performance (dispara retreino se WR/PF cair)
+            self._monitor.registrar_trade(
+                resultado = resultado_int,
+                lucro_r   = lucro_r,
+            )
+
             del self._posicoes[ticket]
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # COMANDOS DO DASHBOARD
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _processar_comando_avancado(self, cmd: dict) -> None:
+        """Processa comandos avançados recebidos do dashboard (fechar, ordem manual, start/restart)."""
+        comando = cmd.get('command')
+
+        if comando == 'start':
+            logger.info("Comando START recebido — bot já está em execução.")
+            return
+
+        elif comando == 'restart':
+            logger.info("Comando RESTART recebido — bot irá reinicializar.")
+            self._deve_reiniciar = True
+            return
+
+        elif comando == 'close_position':
+            logger.info("Comando FECHAR POSIÇÃO recebido do dashboard")
+            for pos in self.mt5.posicoes_abertas():
+                ticket = pos['ticket']
+                if self.mt5.fechar_posicao(ticket):
+                    logger.info(f"Posição #{ticket} fechada pelo dashboard")
+
+        elif comando in ('buy_manual', 'sell_manual'):
+            direcao = 'compra' if comando == 'buy_manual' else 'venda'
+            logger.info(f"Ordem manual {direcao.upper()} recebida do dashboard")
+
+            # Verifica limite de posições
+            if len(self.mt5.posicoes_abertas()) >= self.cfg.get('max_trades_simultaneos', 1):
+                logger.warning("Máximo de posições atingido — ordem manual ignorada.")
+                return
+
+            df = self.mt5.obter_candles('M5', n_candles=30)
+            if df is None:
+                return
+
+            c = df.iloc[-1]
+            lote = lote_por_faixa(self.capital)
+            p = lambda v: round(v, 5)
+            rr = self.cfg.get('ratio_risco_retorno', 1.5)
+
+            if direcao == 'compra':
+                stop  = p(float(c['low']) - 0.00015)
+                entry = p(float(c['high']))
+                risco = entry - stop
+                if risco <= 0:
+                    return
+                sinal_dict = {
+                    'direcao': 'compra', 'entry': entry,
+                    'stop_loss': stop, 'take_profit': p(entry + risco * rr),
+                    'rafi': 0.0, 'rafi_dir': 'bull', 'bb_width': 0.0,
+                }
+            else:
+                stop  = p(float(c['high']) + 0.00015)
+                entry = p(float(c['low']))
+                risco = stop - entry
+                if risco <= 0:
+                    return
+                sinal_dict = {
+                    'direcao': 'venda', 'entry': entry,
+                    'stop_loss': stop, 'take_profit': p(entry - risco * rr),
+                    'rafi': 0.0, 'rafi_dir': 'bear', 'bb_width': 0.0,
+                }
+
+            indice_forca = calcular_indice_forca(df, periodo=14)  # igual ao backtest (default)
+            bb = calcular_bollinger(df, periodo=8, desvios=2.0)
+            self._executar_sinal(sinal_dict, df, indice_forca, bb)
+
+    def _publicar_historico_inicial(self, df) -> None:
+        """Publica os últimos candles no Supabase para preencher o gráfico na inicialização."""
+        try:
+            candles = []
+            for ts, row in df.tail(200).iterrows():
+                candles.append({
+                    'time':   int(ts.timestamp()),
+                    'open':   round(float(row['open']),  5),
+                    'high':   round(float(row['high']),  5),
+                    'low':    round(float(row['low']),   5),
+                    'close':  round(float(row['close']), 5),
+                    'volume': round(float(row.get('volume', 0)), 2),
+                    'rafi':   None,
+                })
+            publicar_candles_batch(candles)
+        except Exception as e:
+            logger.debug(f"Erro ao publicar histórico inicial: {e}")
 
     # ─────────────────────────────────────────────────────────────────────────
     # PROTEÇÕES
@@ -444,9 +1182,11 @@ class RafiBot:
                 f"Novo dia UTC — reiniciando contadores "
                 f"(perda: ${self._perda_hoje:.2f} | P&L: ${self._pnl_hoje:+.2f})"
             )
-            self._perda_hoje = 0.0
-            self._pnl_hoje   = 0.0
-            self._data_hoje  = hoje
+            self._perda_hoje        = 0.0
+            self._pnl_hoje          = 0.0
+            self._data_hoje         = hoje
+            self._ml_sinais_hoje    = 0
+            self._ml_aprovados_hoje = 0
 
     def _limite_diario_atingido(self) -> bool:
         """
@@ -465,8 +1205,10 @@ class RafiBot:
 # ── Ponto de entrada ──────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description='Bot RAFI — EURUSD M5 · XM')
+    parser = argparse.ArgumentParser(description='Bot RAFI — EURUSD M5')
     parser.add_argument('--config', default='config.yaml', help='Arquivo de configuração YAML')
+    parser.add_argument('--broker', default=None,
+                        help='ID da corretora a usar: xm | pepperstone (padrão: primeira ativa no Supabase)')
     args = parser.parse_args()
 
     # Carrega variáveis de ambiente do .env — busca na pasta atual e na raiz do repo
@@ -482,6 +1224,8 @@ def main() -> None:
             break
 
     cfg = carregar_config(args.config)
+    if args.broker:
+        cfg['_broker_arg'] = args.broker.lower()
     bot = RafiBot(cfg)
     bot.rodar()
 

@@ -15,6 +15,7 @@ Escalonamento agressivo de lotes (definido em 2026-07):
 """
 
 import logging
+import time
 from datetime import date, datetime
 from typing import Optional
 
@@ -22,16 +23,12 @@ logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TABELA DE FAIXAS (capital USD → lote padrão EURUSD XM Ultra Low)
-#
-# pip value = lote × $10/pip  |  alavancagem 1:1000  |  capital em USD
-#
-# Faixas de teste ($0–$40):
-#   $0 –$20  → 0.01L  ($0.10/pip)  SL 10p = $1  =  5% risco — seguro para teste
-#   $20–$40  → 0.05L  ($0.50/pip)  SL 10p = $5  = 12% risco — aceitável com consistência
-#   $40+     → faixas normais de escalonamento agressivo
+# FALLBACK hardcoded — usado SOMENTE quando o Supabase não está disponível.
+# A fonte de verdade é a tabela rafi_lote_faixas no Supabase, editável pelo
+# admin dashboard (/admin/config). NUNCA edite os valores aqui diretamente —
+# faça a alteração no admin e ela se propaga automaticamente para o bot.
 # ─────────────────────────────────────────────────────────────────────────────
-FAIXAS_LOTE: list[tuple[float, float, float]] = [
+_FAIXAS_FALLBACK: list[tuple[float, float, float]] = [
     #  capital_min   capital_max    lote
     (        0,            40,     0.10),
     (       40,            80,     0.20),
@@ -47,14 +44,55 @@ FAIXAS_LOTE: list[tuple[float, float, float]] = [
     (   20_000,   float('inf'),  100.00),
 ]
 
+# Cache em memória: (faixas, timestamp_da_última_busca)
+# Refresca do Supabase a cada 5 minutos para não sobrecarregar o banco.
+_faixas_cache: list[tuple[float, float, float]] = []
+_faixas_ts: float = 0.0
+_CACHE_TTL = 300  # segundos
+
+
+def _faixas_vigentes() -> list[tuple[float, float, float]]:
+    """Retorna as faixas do cache Supabase ou o fallback hardcoded."""
+    global _faixas_cache, _faixas_ts
+    agora = time.monotonic()
+    if agora - _faixas_ts < _CACHE_TTL and _faixas_cache:
+        return _faixas_cache
+    try:
+        from .supabase_sync import carregar_faixas_lote
+        faixas = carregar_faixas_lote()
+        if faixas:
+            _faixas_cache = faixas
+            _faixas_ts = agora
+            return _faixas_cache
+    except Exception as e:
+        logger.debug(f"[RiskManager] Supabase indisponível para faixas: {e}")
+    # Fallback: usa hardcoded e não atualiza timestamp (próxima chamada tenta de novo)
+    return _faixas_fallback_ou_cache()
+
+
+def _faixas_fallback_ou_cache() -> list[tuple[float, float, float]]:
+    """Retorna cache anterior se existir, senão o fallback hardcoded."""
+    return _faixas_cache if _faixas_cache else _FAIXAS_FALLBACK
+
 
 def lote_por_faixa(capital: float) -> float:
-    """Retorna o lote da faixa correspondente ao capital atual."""
-    for cap_min, cap_max, lote in FAIXAS_LOTE:
+    """
+    Retorna o lote correspondente ao capital atual.
+
+    Lê da tabela rafi_lote_faixas no Supabase (com cache de 5 min).
+    Se o Supabase estiver indisponível, usa o fallback hardcoded acima.
+    """
+    for cap_min, cap_max, lote in _faixas_vigentes():
         if cap_min <= capital < cap_max:
             return lote
-    # Capital abaixo de $100 → lote mínimo
-    return 0.01
+    return 0.01  # capital abaixo da primeira faixa → lote mínimo
+
+
+def recarregar_faixas_lote() -> None:
+    """Força recarregamento imediato das faixas do Supabase (ignora cache TTL)."""
+    global _faixas_ts
+    _faixas_ts = 0.0
+    _faixas_vigentes()
 
 
 class GestorRisco:
@@ -74,7 +112,10 @@ class GestorRisco:
 
     def __init__(self, config: dict):
         # ── Parâmetros base ─────────────────────────────────────────────────
-        self.risco_por_trade      = float(config.get('risco_por_trade', 0.02))
+        # risco_por_trade REMOVIDO: no modo autoscan (único modo em uso),
+        # o lote é determinado exclusivamente por lote_por_faixa(capital),
+        # que lê da tabela rafi_lote_faixas no Supabase. calcular_lote()
+        # abaixo é legado do modo rafi e não é chamado em autoscan.
         self.risco_maximo_diario  = float(config.get('risco_maximo_diario', 0.05))
         self.max_trades_simult    = int(config.get('max_trades_simultaneos', 1))
         self.max_perdas_dia       = int(config.get('max_perdas_por_dia', 1))
@@ -194,13 +235,14 @@ class GestorRisco:
         elif modo == 'fixo':
             lote = self.lote_fixo
 
-        # ── Kelly % (legado) ──────────────────────────────────────────────
+        # ── Kelly % (MODO LEGADO — nunca chamado no autoscan) ────────────
         else:
             if risco_pips <= 0 or capital_atual <= 0:
                 return self.lote_minimo
             custo_extra      = (self.spread_pips + self.slippage_pips) if incluir_spread else 0.0
             risco_total_pips = risco_pips + custo_extra
-            valor_risco_usd  = capital_atual * self.risco_por_trade
+            # No autoscan este bloco nunca é atingido; 2% fixo apenas como fallback legado
+            valor_risco_usd  = capital_atual * 0.02
             pip_value        = 10.0  # EURUSD: $10/pip por lote padrão
             lote             = valor_risco_usd / (risco_total_pips * pip_value)
             lote             = max(self.lote_minimo, min(lote, self._lote_max_margem(capital_atual)))

@@ -12,6 +12,7 @@ Em ambiente de desenvolvimento/backtest, use dados CSV locais.
 """
 
 import logging
+import time
 import pandas as pd
 from datetime import datetime
 from typing import Optional
@@ -60,16 +61,22 @@ class ClienteMT5:
             logger.warning("MT5 não disponível — simulação ativa")
             return False
 
+        # initialize() sem credenciais: conecta ao processo MT5 já aberto.
+        # O terminal gerencia a autenticação com a corretora de forma independente.
+        # Não passamos login/senha aqui para não interferir na sessão ativa.
         if not mt5.initialize():
             logger.error(f"Falha ao inicializar MT5: {mt5.last_error()}")
             return False
 
+        # Só faz login explícito se o terminal não tiver sessão ativa
         if login and senha and servidor:
-            ok = mt5.login(login, password=senha, server=servidor)
-            if not ok:
-                logger.error(f"Falha no login MT5: {mt5.last_error()}")
-                mt5.shutdown()
-                return False
+            info_atual = mt5.account_info()
+            if info_atual is None or info_atual.login != int(login):
+                ok = mt5.login(login, password=senha, server=servidor)
+                if not ok:
+                    logger.error(f"Falha no login MT5: {mt5.last_error()}")
+                    mt5.shutdown()
+                    return False
 
         info = mt5.account_info()
         if info is None:
@@ -89,6 +96,28 @@ class ClienteMT5:
             mt5.shutdown()
             self.conectado = False
             logger.info("MT5 desconectado")
+
+    def _tentar_reconectar(self, tentativas: int = 3, espera: float = 5.0) -> bool:
+        """
+        Reconexão automática após falha de IPC.
+        Chama shutdown + initialize até 'tentativas' vezes.
+        """
+        if not MT5_DISPONIVEL:
+            return False
+        for i in range(1, tentativas + 1):
+            logger.warning(f"Reconexão MT5 — tentativa {i}/{tentativas}...")
+            try:
+                mt5.shutdown()
+            except Exception:
+                pass
+            time.sleep(espera)
+            if mt5.initialize():
+                logger.info("MT5 reconectado com sucesso")
+                self.conectado = True
+                return True
+            logger.error(f"Tentativa {i} falhou: {mt5.last_error()}")
+        self.conectado = False
+        return False
 
     # ─────────────────────────────────────────────────────────
     # DADOS DE MERCADO
@@ -136,8 +165,17 @@ class ClienteMT5:
             rates = mt5.copy_rates_from_pos(self.par, tf_id, 0, n_candles)
 
         if rates is None or len(rates) == 0:
-            logger.error(f"Sem dados MT5 para {self.par} {timeframe}: {mt5.last_error()}")
-            return None
+            err = mt5.last_error()
+            logger.error(f"Sem dados MT5 para {self.par} {timeframe}: {err}")
+            # IPC send failed (-10001) → tenta reconectar e repetir uma vez
+            if err[0] in (-1, -10001) or 'IPC send failed' in str(err):
+                if self._tentar_reconectar():
+                    if data_inicio and data_fim:
+                        rates = mt5.copy_rates_range(self.par, tf_id, data_inicio, data_fim)
+                    else:
+                        rates = mt5.copy_rates_from_pos(self.par, tf_id, 0, n_candles)
+            if rates is None or len(rates) == 0:
+                return None
 
         df = pd.DataFrame(rates)
         df['time'] = pd.to_datetime(df['time'], unit='s', utc=True)
@@ -150,12 +188,47 @@ class ClienteMT5:
         df = df[['open', 'high', 'low', 'close', 'volume']]
         return df
 
+    def obter_candle_formando(self) -> Optional[dict]:
+        """
+        Retorna o candle M5 em formação (ainda não fechado) com OHLCV ao vivo.
+
+        MT5: copy_rates_from_pos com pos=0 retorna a barra mais recente,
+        que ainda está sendo construída entre fechamentos M5.
+        """
+        if not MT5_DISPONIVEL or not self.conectado:
+            return None
+        tf_id = self._TF_MAP.get('M5')
+        rates = mt5.copy_rates_from_pos(self.par, tf_id, 0, 1)
+        if rates is None or len(rates) == 0:
+            err = mt5.last_error()
+            if err[0] in (-1, -10001) or 'IPC send failed' in str(err):
+                self._tentar_reconectar()
+                rates = mt5.copy_rates_from_pos(self.par, tf_id, 0, 1)
+        if rates is None or len(rates) == 0:
+            return None
+        r = rates[0]
+        return {
+            'time':   int(r['time']),
+            'open':   float(r['open']),
+            'high':   float(r['high']),
+            'low':    float(r['low']),
+            'close':  float(r['close']),
+            'volume': float(r['tick_volume']),
+        }
+
     def capital_atual(self) -> Optional[float]:
         """Retorna o saldo atual da conta em USD, ou None se não conectado."""
         if not MT5_DISPONIVEL or not self.conectado:
             return None
         info = mt5.account_info()
         return float(info.balance) if info else None
+
+    def equity_atual(self) -> Optional[float]:
+        """Retorna o equity atual (balance + P&L flutuante das posições abertas)."""
+        if not MT5_DISPONIVEL or not self.conectado:
+            return None
+        info = mt5.account_info()
+        return float(info.equity) if info else None
 
     # ─────────────────────────────────────────────────────────
     # ORDENS

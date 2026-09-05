@@ -54,6 +54,40 @@ def _get_cliente():
     return _cliente
 
 
+def publicar_config_hash_startup(config_hash: str) -> bool:
+    """
+    Força a gravação do config_hash em rafi_bot_status no startup do bot.
+
+    Usa UPDATE separado do heartbeat para garantir que o campo seja atualizado
+    mesmo em versões do PostgREST que ignoram colunas desconhecidas no upsert.
+    Se a linha ainda não existir, faz INSERT mínimo com id='main'.
+    """
+    cliente = _get_cliente()
+    if cliente is None:
+        return False
+    ts = datetime.utcnow().isoformat()
+    try:
+        # Tenta UPDATE primeiro (linha já existe)
+        res = cliente.table('rafi_bot_status').update(
+            {'config_hash': config_hash, 'updated_at': ts}
+        ).eq('id', 'main').execute()
+        if hasattr(res, 'error') and res.error:
+            raise RuntimeError(res.error)
+        # UPDATE retorna lista vazia se nenhuma linha foi afetada — nesse caso faz INSERT
+        if hasattr(res, 'data') and res.data is not None and len(res.data) == 0:
+            res2 = cliente.table('rafi_bot_status').insert(
+                {'id': 'main', 'status': 'waiting', 'balance': 0, 'equity': 0,
+                 'open_positions': 0, 'config_hash': config_hash, 'updated_at': ts}
+            ).execute()
+            if hasattr(res2, 'error') and res2.error:
+                raise RuntimeError(res2.error)
+        logger.info(f"[Supabase] config_hash publicado no startup: {config_hash}")
+        return True
+    except Exception as e:
+        logger.error(f"[Supabase] Falha ao publicar config_hash no startup: {e}")
+        return False
+
+
 def sincronizar_trade(
     ticket:      int,
     direction:   str,         # 'buy' ou 'sell'
@@ -139,46 +173,189 @@ def atualizar_resultado(ticket: int, result: str, ts: int,
 
 
 def publicar_heartbeat(
-    status:         str,
-    balance:        float,
-    equity:         float,
-    open_positions: int,
-    pnl_hoje:       float = 0.0,
-    par:            str   = 'EURUSD',
-    server:         str   = '',
-    account:        int   = 0,
-    last_signal:    Optional[str] = None,
+    status:            str,
+    balance:           float,
+    equity:            float,
+    open_positions:    int,
+    pnl_hoje:          float = 0.0,
+    par:               str   = 'EURUSD',
+    server:            str   = '',
+    account:           int   = 0,
+    last_signal:       Optional[str]   = None,
+    forming_signal:    bool             = False,
+    forming_direction: Optional[str]   = None,
+    forming_rafi:      Optional[float] = None,
+    forming_tf_count:  Optional[int]   = None,
+    forming_bb_open:   bool             = False,
+    forming_price:     Optional[float] = None,
+    config_hash:       Optional[str]   = None,
+    # ── campos ML (Fase 2) ────────────────────────────────────────────────
+    ml_modelo_carregado: bool            = False,
+    ml_modo:             str             = 'OBSERVAÇÃO',
+    ml_wr_rolling:       Optional[float] = None,
+    ml_pf_rolling:       Optional[float] = None,
+    ml_sinais_hoje:      int             = 0,
+    ml_aprovados_hoje:   int             = 0,
+    ml_treinado_em:      Optional[str]   = None,
+    ml_threshold:        float           = 0.65,
 ) -> bool:
     """
     Publica o status atual do bot na tabela rafi_bot_status (heartbeat).
 
     Chamado a cada ciclo para que o dashboard saiba que o bot está vivo.
     status: 'running' | 'waiting' | 'stopped' | 'error'
+    Os campos forming_* alimentam o card "Sinal em Formação" no admin.
+    Os campos ml_* alimentam o painel de ML / Fase 2 no monitor.
     """
     cliente = _get_cliente()
     if cliente is None:
         return False
 
     row = {
-        'id':             'main',
-        'status':         status,
-        'balance':        round(balance, 2),
-        'equity':         round(equity, 2),
-        'open_positions': open_positions,
-        'pnl_today':      round(pnl_hoje, 2),
-        'par':            par,
-        'server':         server,
-        'account':        account,
-        'last_signal':    last_signal,
-        'updated_at':     datetime.utcnow().isoformat(),
+        'id':                'main',
+        'status':            status,
+        'balance':           round(balance, 2),
+        'equity':            round(equity, 2),
+        'open_positions':    open_positions,
+        'pnl_today':         round(pnl_hoje, 2),
+        'par':               par,
+        'server':            server,
+        'account':           account,
+        'last_signal':       last_signal,
+        'forming_signal':    forming_signal,
+        'forming_direction': forming_direction,
+        'forming_rafi':      round(forming_rafi, 4) if forming_rafi is not None else None,
+        'forming_tf_count':  forming_tf_count,
+        'forming_bb_open':   forming_bb_open,
+        'forming_price':     round(forming_price, 5) if forming_price is not None else None,
+        'config_hash':       config_hash,
+        # campos ML
+        'ml_modelo_carregado': ml_modelo_carregado,
+        'ml_modo':             ml_modo,
+        'ml_wr_rolling':       round(ml_wr_rolling, 4) if ml_wr_rolling is not None else None,
+        'ml_pf_rolling':       round(ml_pf_rolling, 4) if ml_pf_rolling is not None else None,
+        'ml_sinais_hoje':      ml_sinais_hoje,
+        'ml_aprovados_hoje':   ml_aprovados_hoje,
+        'ml_treinado_em':      ml_treinado_em,
+        'ml_threshold':        round(ml_threshold, 4),
+        'updated_at':          datetime.utcnow().isoformat(),
     }
 
     try:
-        cliente.table('rafi_bot_status').upsert(row, on_conflict='id').execute()
+        res = cliente.table('rafi_bot_status').upsert(row, on_conflict='id').execute()
+        # supabase-py ≥2.x levanta exceção em erros HTTP; versões mais antigas retornam .error
+        if hasattr(res, 'error') and res.error:
+            logger.error(f"[Supabase] Erro no upsert rafi_bot_status: {res.error}")
+            return False
         return True
     except Exception as e:
         logger.error(f"[Supabase] Erro ao publicar heartbeat: {e}")
         return False
+
+
+def publicar_candle(
+    time_unix:  int,
+    open_price: float,
+    high:       float,
+    low:        float,
+    close:      float,
+    volume:     float = 0.0,
+    rafi:       Optional[float] = None,
+) -> bool:
+    """
+    Publica o último candle M5 fechado na tabela rafi_candles.
+
+    Chamado a cada ciclo para alimentar o gráfico em tempo real do dashboard.
+    SQL para criar a tabela no Supabase (executar uma vez):
+      create table rafi_candles (
+        time bigint primary key,
+        open float8, high float8, low float8, close float8,
+        volume float8 default 0, rafi float8
+      );
+      alter table rafi_candles enable row level security;
+      create policy "anon_r" on rafi_candles for select to anon using (true);
+      create policy "anon_i" on rafi_candles for insert to anon with check (true);
+      create policy "anon_u" on rafi_candles for update to anon using (true);
+    """
+    cliente = _get_cliente()
+    if cliente is None:
+        return False
+
+    row = {
+        'time':   time_unix,
+        'open':   round(open_price, 5),
+        'high':   round(high, 5),
+        'low':    round(low, 5),
+        'close':  round(close, 5),
+        'volume': round(volume, 2),
+        'rafi':   round(rafi, 4) if rafi is not None else None,
+    }
+
+    try:
+        cliente.table('rafi_candles').upsert(row, on_conflict='time').execute()
+        return True
+    except Exception as e:
+        logger.debug(f"[Supabase] rafi_candles não existe ou erro: {e}")
+        return False
+
+
+def publicar_candles_batch(candles_list: list) -> bool:
+    """
+    Publica uma lista de candles de uma vez (inicialização do bot).
+
+    Cada item deve ser {'time', 'open', 'high', 'low', 'close', 'volume', 'rafi'}.
+    """
+    cliente = _get_cliente()
+    if cliente is None or not candles_list:
+        return False
+
+    try:
+        cliente.table('rafi_candles').upsert(candles_list, on_conflict='time').execute()
+        logger.info(f"[Supabase] {len(candles_list)} candles publicados em batch")
+        return True
+    except Exception as e:
+        logger.debug(f"[Supabase] Batch candles erro (tabela pode não existir): {e}")
+        return False
+
+
+def verificar_comando_avancado() -> Optional[dict]:
+    """
+    Verifica comandos avançados do dashboard: close_position, close_all,
+    buy_manual, sell_manual, start, restart.
+
+    Retorna {'command': str} ou None se não houver comandos pendentes.
+    """
+    cliente = _get_cliente()
+    if cliente is None:
+        return None
+
+    try:
+        res = (
+            cliente.table('rafi_bot_commands')
+            .select('id,command')
+            .eq('pending', True)
+            .in_('command', ['close_position', 'close_all', 'buy_manual', 'sell_manual',
+                             'start', 'restart'])
+            .order('created_at')
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return None
+
+        cmd = res.data[0]
+        cmd_id = cmd.get('id')
+        if cmd_id:
+            cliente.table('rafi_bot_commands').update({
+                'pending':      False,
+                'processed_at': datetime.utcnow().isoformat(),
+            }).eq('id', cmd_id).execute()
+
+        logger.info(f"[Supabase] Comando avançado recebido: {cmd['command']}")
+        return {'command': cmd['command']}
+    except Exception as e:
+        logger.error(f"[Supabase] Erro ao verificar comandos avançados: {e}")
+        return None
 
 
 def verificar_comando_parar() -> bool:
@@ -216,4 +393,381 @@ def verificar_comando_parar() -> bool:
         return True
     except Exception as e:
         logger.error(f"[Supabase] Erro ao verificar comandos: {e}")
+        return False
+
+
+def publicar_log(
+    message: str,
+    level:   str = 'info',
+    details: Optional[str] = None,
+) -> bool:
+    """
+    Publica uma entrada de log na tabela rafi_bot_logs.
+
+    level: 'info' | 'warn' | 'error' | 'signal'
+    Alimenta o feed ao vivo do admin (ActivityFeed).
+
+    SQL para criar a tabela no Supabase (executar uma vez):
+      create table rafi_bot_logs (
+        id uuid primary key default gen_random_uuid(),
+        level text not null default 'info',
+        message text not null,
+        details text,
+        created_at timestamptz not null default now()
+      );
+      alter table rafi_bot_logs enable row level security;
+      create policy "anon_r" on rafi_bot_logs for select to anon using (true);
+      create policy "anon_i" on rafi_bot_logs for insert to anon with check (true);
+      -- Limpar logs antigos automaticamente (opcional):
+      -- create index on rafi_bot_logs (created_at);
+    """
+    cliente = _get_cliente()
+    if cliente is None:
+        return False
+
+    row = {
+        'level':      level,
+        'message':    message,
+        'details':    details,
+        'created_at': datetime.utcnow().isoformat(),
+    }
+
+    try:
+        cliente.table('rafi_bot_logs').insert(row).execute()
+        return True
+    except Exception as e:
+        # Falha silenciosa — log não bloqueia o bot
+        logger.debug(f"[Supabase] rafi_bot_logs erro (tabela pode não existir): {e}")
+        return False
+
+
+def carregar_broker_ativo(broker_id: Optional[str] = None) -> Optional[dict]:
+    """
+    Retorna os dados da corretora ativa no Supabase.
+
+    broker_id : se fornecido via --broker, filtra por esse ID específico.
+                Se None, retorna o primeiro enabled=true encontrado.
+
+    Tabela rafi_brokers — SQL para criar (executar uma vez no Supabase):
+      create table rafi_brokers (
+        id text primary key,          -- 'xm', 'pepperstone'
+        nome text not null,
+        servidor text not null,
+        login integer not null,
+        simbolo text not null,        -- 'EURUSD#' (XM) ou 'EURUSD' (Pepperstone)
+        enabled boolean default false,
+        saldo float8 default 0,
+        posicoes integer default 0,
+        pnl_hoje float8 default 0,
+        status_text text default 'DESLIGADA',
+        updated_at timestamptz default now()
+      );
+      alter table rafi_brokers enable row level security;
+      create policy "anon_r" on rafi_brokers for select to anon using (true);
+      create policy "anon_u" on rafi_brokers for update to anon using (true);
+      -- Inserir corretoras iniciais:
+      insert into rafi_brokers (id, nome, servidor, login, simbolo, enabled) values
+        ('xm',          'XM Global',   'XMGlobal-MT5 4',           86082468, 'EURUSD#', true),
+        ('pepperstone', 'Pepperstone', 'PepperstoneBS-MT5-Live01', 51552485, 'EURUSD',  false);
+    """
+    cliente = _get_cliente()
+    if not cliente:
+        return None
+    try:
+        q = cliente.table('rafi_brokers').select('*').eq('enabled', True)
+        if broker_id:
+            q = q.eq('id', broker_id)
+        resp = q.limit(1).execute()
+        if resp.data:
+            logger.info(f"[Supabase] Broker ativo: {resp.data[0]['id']}")
+            return resp.data[0]
+        return None
+    except Exception as e:
+        logger.warning(f"rafi_brokers não disponível ({e}) — usando config.yaml")
+        return None
+
+
+def publicar_status_broker(
+    broker_id:   str,
+    saldo:       float,
+    posicoes:    int,
+    pnl_hoje:    float,
+    status_text: str,
+) -> bool:
+    """
+    Atualiza o card da corretora ativa no Supabase (saldo, posições, P&L).
+
+    Chamado a cada heartbeat para que o dashboard mostre dados ao vivo
+    no painel /admin/brokers.
+    """
+    cliente = _get_cliente()
+    if cliente is None:
+        return False
+    try:
+        cliente.table('rafi_brokers').update({
+            'saldo':       round(saldo, 2),
+            'posicoes':    posicoes,
+            'pnl_hoje':    round(pnl_hoje, 2),
+            'status_text': status_text,
+            'updated_at':  datetime.utcnow().isoformat(),
+        }).eq('id', broker_id).execute()
+        return True
+    except Exception as e:
+        logger.debug(f"[Supabase] publicar_status_broker erro: {e}")
+        return False
+
+
+def gravar_rafi_trade(
+    resultado:         int,              # 1=win 0=loss
+    lucro_r:           float,            # em múltiplos de R (1.3 win / -1.0 loss)
+    lucro_usd:         Optional[float]  = None,
+    lotes:             Optional[float]  = None,
+    direcao:           Optional[int]    = None,   # +1 compra / -1 venda
+    forca_rompimento:  Optional[float]  = None,
+    rr_ratio:          Optional[float]  = None,
+    preco_entrada:     Optional[float]  = None,
+    preco_saida:       Optional[float]  = None,
+    preco_stop:        Optional[float]  = None,
+    preco_target:      Optional[float]  = None,
+    probabilidade_ml:  Optional[float]  = None,
+    ml_aprovado:       Optional[bool]   = None,
+    perfil:            str              = 'live',
+) -> bool:
+    """
+    Grava o resultado de um trade fechado na tabela rafi_historico.
+
+    Essa tabela alimenta o modelo XGBoost (retreino automático) e o monitor
+    de performance (WR/PF rolling). É diferente da tabela rafi_trades, que
+    exibe trades em andamento no dashboard admin.
+    """
+    cliente = _get_cliente()
+    if cliente is None:
+        return False
+
+    p5 = lambda v: round(v, 5) if v is not None else None
+    p4 = lambda v: round(v, 4) if v is not None else None
+    p2 = lambda v: round(v, 2) if v is not None else None
+
+    row = {
+        'aberto_em':        datetime.utcnow().isoformat(),
+        'perfil':           perfil,
+        'resultado':        resultado,
+        'lucro_r':          p4(lucro_r),
+        'lucro_usd':        p2(lucro_usd),
+        'lotes':            p2(lotes),
+        'direcao':          direcao,
+        'forca_rompimento': p5(forca_rompimento),
+        'rr_ratio':         p4(rr_ratio),
+        'preco_entrada':    p5(preco_entrada),
+        'preco_saida':      p5(preco_saida),
+        'preco_stop':       p5(preco_stop),
+        'preco_target':     p5(preco_target),
+        'probabilidade_ml': p4(probabilidade_ml),
+        'ml_aprovado':      ml_aprovado,
+        'ml_threshold':     0.65,
+    }
+
+    try:
+        cliente.table('rafi_historico').insert(row).execute()
+        logger.info(
+            f"[Supabase] Trade gravado → {'WIN' if resultado else 'LOSS'} "
+            f"| R={lucro_r:+.2f} | ML={probabilidade_ml:.1%}" if probabilidade_ml else
+            f"[Supabase] Trade gravado → {'WIN' if resultado else 'LOSS'} | R={lucro_r:+.2f}"
+        )
+        return True
+    except Exception as e:
+        logger.error(f"[Supabase] Erro ao gravar trade ML: {e}")
+        return False
+
+
+def verificar_backtest_pendente() -> Optional[dict]:
+    """
+    Retorna o run de backtest mais antigo com status='pending', ou None.
+
+    Chamado pelo executor a cada ciclo para detectar solicitações vindas do admin.
+
+    Tabela rafi_backtest_runs — SQL para criar (executar uma vez no Supabase):
+      create table rafi_backtest_runs (
+        id uuid primary key default gen_random_uuid(),
+        created_at timestamptz default now(),
+        periodo text,
+        inicio date,
+        fim date,
+        capital real default 20.0,
+        profile text default 'simulator',
+        status text default 'pending',
+        config_hash text,
+        progress_pct integer default 0,
+        resultado jsonb,
+        trades_json jsonb,
+        error_msg text,
+        updated_at timestamptz default now()
+      );
+      alter table rafi_backtest_runs enable row level security;
+      create policy "anon_r"  on rafi_backtest_runs for select to anon using (true);
+      create policy "anon_i"  on rafi_backtest_runs for insert to anon with check (true);
+      create policy "anon_u"  on rafi_backtest_runs for update to anon using (true);
+    """
+    cliente = _get_cliente()
+    if cliente is None:
+        return None
+    try:
+        res = (
+            cliente.table('rafi_backtest_runs')
+            .select('id,periodo,inicio,fim,capital,profile')
+            .eq('status', 'pending')
+            .order('created_at')
+            .limit(1)
+            .execute()
+        )
+        return res.data[0] if res.data else None
+    except Exception as e:
+        logger.debug(f"[Supabase] rafi_backtest_runs não disponível: {e}")
+        return None
+
+
+def atualizar_backtest_run(
+    run_id:      str,
+    status:      str,
+    config_hash: Optional[str]  = None,
+    resultado:   Optional[dict] = None,
+    trades_json: Optional[list] = None,
+    error_msg:   Optional[str]  = None,
+    progress:    int            = 0,
+) -> bool:
+    """Atualiza status e resultado de um run de backtest na tabela rafi_backtest_runs."""
+    cliente = _get_cliente()
+    if cliente is None:
+        return False
+    patch: dict = {
+        'status':       status,
+        'progress_pct': progress,
+        'updated_at':   datetime.utcnow().isoformat(),
+    }
+    if config_hash is not None:
+        patch['config_hash'] = config_hash
+    if resultado is not None:
+        patch['resultado'] = resultado
+    if trades_json is not None:
+        patch['trades_json'] = trades_json
+    if error_msg is not None:
+        patch['error_msg'] = error_msg
+    try:
+        cliente.table('rafi_backtest_runs').update(patch).eq('id', run_id).execute()
+        return True
+    except Exception as e:
+        logger.error(f"[Supabase] Erro ao atualizar backtest run {run_id}: {e}")
+        return False
+
+
+def carregar_config_supabase(profile: str = 'live') -> Optional[dict]:
+    """
+    Carrega configurações do perfil indicado na tabela rafi_bot_config.
+
+    Retorna dict com os parâmetros ou None se a tabela/perfil não existir.
+    O bot usa esses valores para sobrescrever o config.yaml — qualquer ajuste
+    feito no dashboard (/admin/config) é aplicado imediatamente sem tocar no código.
+
+    Parâmetros:
+      profile : 'live' (bot ao vivo) ou 'simulator' (backtest)
+    """
+    cliente = _get_cliente()
+    if not cliente:
+        return None
+    try:
+        resp = cliente.table('rafi_bot_config').select('*').eq('profile', profile).limit(1).execute()
+        if resp.data:
+            logger.info(f"[Supabase] Config '{profile}' carregada do dashboard")
+            return resp.data[0]
+        return None
+    except Exception as e:
+        logger.warning(f"rafi_bot_config não disponível ({e}) — usando config.yaml")
+        return None
+
+
+def carregar_faixas_lote() -> list[tuple[float, float, float]]:
+    """
+    Carrega a tabela de faixas de lote do Supabase (rafi_lote_faixas).
+
+    Retorna lista de tuplas (capital_min, capital_max, lote) ordenada por capital_min.
+    Se o Supabase estiver indisponível ou a tabela não existir, retorna o fallback
+    hardcoded — garantia de que o bot nunca para por falta de conexão.
+
+    Chamado por risk_manager.lote_por_faixa() e backtest/engine.py a cada ciclo
+    de decisão (com cache interno de 5 minutos para não sobrecarregar o banco).
+    """
+    cliente = _get_cliente()
+    if not cliente:
+        return []  # fallback será aplicado pelo chamador
+    try:
+        resp = (
+            cliente.table('rafi_lote_faixas')
+            .select('capital_min,capital_max,lote')
+            .eq('ativo', True)
+            .order('ordem')
+            .execute()
+        )
+        if not resp.data:
+            return []
+        faixas: list[tuple[float, float, float]] = []
+        for row in resp.data:
+            cap_min = float(row['capital_min'])
+            cap_max = float(row['capital_max']) if row['capital_max'] is not None else float('inf')
+            lote    = float(row['lote'])
+            faixas.append((cap_min, cap_max, lote))
+        logger.info(f"[Supabase] {len(faixas)} faixas de lote carregadas do dashboard")
+        return faixas
+    except Exception as e:
+        logger.warning(f"[Supabase] rafi_lote_faixas indisponível ({e}) — usando fallback hardcoded")
+        return []
+
+
+def salvar_config_supabase(
+    params: dict,
+    perfil: str  = 'live',
+    fonte: str   = 'otimizador_adaptativo',
+) -> bool:
+    """
+    Salva novos parâmetros de estratégia no Supabase (rafi_bot_config).
+
+    Chamado pelo otimizador_adaptativo quando encontra parâmetros melhores.
+    O bot lê automaticamente na próxima iteração via carregar_config_supabase().
+
+    IMPORTANTE: nunca sobrescreve parâmetros de risco (risco_por_trade, etc.).
+    Só atualiza os campos presentes em `params`.
+    """
+    cliente = _get_cliente()
+    if not cliente:
+        logger.warning("[Supabase] salvar_config_supabase: cliente indisponível")
+        return False
+
+    # Campos de risco que a IA NUNCA pode alterar
+    CAMPOS_PROTEGIDOS = {
+        'risco_por_trade', 'max_trades_simultaneos', 'risco_maximo_diario',
+        'capital_inicial', 'estrategia_modo', 'par',
+    }
+    patch = {k: v for k, v in params.items() if k not in CAMPOS_PROTEGIDOS}
+    patch['_otimizado_em']  = datetime.utcnow().isoformat()
+    patch['_otimizado_por'] = fonte
+
+    try:
+        # Verifica se o perfil já existe
+        resp = cliente.table('rafi_bot_config').select('profile').eq('profile', perfil).limit(1).execute()
+
+        if resp.data:
+            # Atualiza apenas os campos otimizados — preserva tudo o mais
+            cliente.table('rafi_bot_config').update(patch).eq('profile', perfil).execute()
+        else:
+            # Cria registro do perfil com os parâmetros
+            patch['profile'] = perfil
+            cliente.table('rafi_bot_config').insert(patch).execute()
+
+        logger.info(
+            f"[Supabase] Config '{perfil}' atualizada pela IA ({fonte}) — "
+            f"{len(patch)} campos alterados"
+        )
+        return True
+
+    except Exception as e:
+        logger.error(f"[Supabase] Erro ao salvar config: {e}")
         return False

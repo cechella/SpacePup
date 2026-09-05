@@ -1,24 +1,26 @@
 """
-scripts/baixar_dados.py — Baixa histórico EURUSD# do MT5 e salva em CSV
+scripts/baixar_dados.py — Baixa histórico EURUSD do MT5 e salva em CSV
 
 Uso:
   python scripts/baixar_dados.py
+  python scripts/baixar_dados.py --par EURUSD#   (XM usa # no símbolo)
 
 Requisitos:
-  - MetaTrader 5 aberto e conectado à conta XM
+  - MetaTrader 5 aberto e conectado à conta da corretora
   - pip install MetaTrader5 pandas
 
 Saída:
-  data/EURUSD_M5.csv   — dados M5 (de 2023-01-01 até hoje)
+  data/EURUSD_M5.csv   — dados M5 (máximo histórico disponível no MT5)
 
 IMPORTANTE: O MT5 só entrega histórico que já está em cache local.
-  Se receber poucos candles, abra o gráfico EURUSD# M5 no MT5,
-  role até 2023 (Home/Page Up) e execute este script novamente.
+  Se receber poucos candles, abra o gráfico M5 no MT5,
+  role até o início (Home/Page Up) e execute este script novamente.
 """
 
 import sys
 import os
 import time
+import argparse
 from datetime import datetime, timezone
 import pandas as pd
 
@@ -29,16 +31,34 @@ except ImportError:
     print("Execute: pip install MetaTrader5")
     sys.exit(1)
 
-# ── Configuração ─────────────────────────────────────────────
-# XM usa EURUSD# com hashtag — NÃO usar "EURUSD" sem hashtag na XM
-PAR         = "EURUSD#"
-DATA_INICIO = datetime(2023, 1, 1, tzinfo=timezone.utc)   # início fixo para ~300+ trades
+# ── Argumentos de linha de comando ───────────────────────────
+parser = argparse.ArgumentParser(description="Baixa histórico MT5 para backtest")
+parser.add_argument("--par", default=None,
+                    help="Símbolo MT5 (ex: EURUSD ou EURUSD#). "
+                         "Padrão: lê do config.yaml ou usa EURUSD.")
+args, _ = parser.parse_known_args()
+
+# ── Símbolo: argumento > config.yaml > fallback EURUSD ───────
+def _ler_par_config() -> str:
+    """Lê o símbolo do config.yaml sem depender do módulo src."""
+    try:
+        import yaml
+        cfg_path = os.path.join(os.path.dirname(__file__), '..', 'config.yaml')
+        with open(cfg_path, 'r', encoding='utf-8') as f:
+            cfg = yaml.safe_load(f)
+        return cfg.get('par', 'EURUSD')
+    except Exception:
+        return 'EURUSD'
+
+PAR         = args.par if args.par else _ler_par_config()
+# Pega o máximo de histórico que o MT5 disponibilizar (Pepperstone: ~10 anos)
+DATA_INICIO = datetime(2000, 1, 1, tzinfo=timezone.utc)
 PASTA       = os.path.join(os.path.dirname(__file__), '..', 'data')
 ARQUIVO_M5  = os.path.join(PASTA, "EURUSD_M5.csv")
 
-# Mínimo de candles esperado para 3.5 anos de M5 (dias úteis ~8h/dia)
-# 3.5 anos × 260 dias úteis × 96 candles/dia = ~87.000 candles
-MINIMO_CANDLES = 80_000
+# Mínimo de candles para avisar que o histórico está incompleto
+# 1 ano × 260 dias úteis × 96 candles/dia = ~25.000 candles
+MINIMO_CANDLES = 25_000
 
 
 def inicializar_mt5() -> bool:
@@ -73,7 +93,7 @@ def baixar_timeframe(par: str, timeframe, nome: str, arquivo: str,
 
     if n1 < MINIMO_CANDLES:
         print(f"  Histórico incompleto (mínimo esperado: {MINIMO_CANDLES:,}).")
-        print("  Aguardando 30s para o MT5 baixar do servidor da XM...")
+        print("  Aguardando 30s para o MT5 baixar do servidor da corretora...")
         time.sleep(30)
 
         # Tentativa 2 — após o MT5 baixar do broker
@@ -86,8 +106,8 @@ def baixar_timeframe(par: str, timeframe, nome: str, arquivo: str,
             print("=" * 65)
             print("AVISO: histórico insuficiente — ação necessária no MT5:")
             print()
-            print("  1. No MT5, abra o gráfico EURUSD# M5")
-            print("  2. Pressione HOME ou Page Up várias vezes até ver 2023")
+            print(f"  1. No MT5, abra o gráfico {par} M5")
+            print("  2. Pressione HOME ou Page Up várias vezes para carregar histórico")
             print("  3. Aguarde o carregamento (barra de progresso na base)")
             print("  4. Execute este script novamente")
             print()

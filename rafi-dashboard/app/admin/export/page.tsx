@@ -1,8 +1,55 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { Download, Trash2, TrendingUp, TrendingDown, BarChart2, FileText, Filter } from 'lucide-react'
+import { Download, TrendingUp, TrendingDown, BarChart2, FileText, Filter, RefreshCw, Brain } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { fetchTrades, updateTradeResult as dbUpdateResult } from '@/lib/trades-db'
+import { createClient } from '@supabase/supabase-js'
+
+const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
+const SUPA_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
+const supa = SUPA_URL && SUPA_KEY ? createClient(SUPA_URL, SUPA_KEY) : null
+
+interface MLTrade {
+  id: string
+  time_unix: number
+  direcao: number
+  forca_rompimento: number
+  squeeze_ratio: number | null
+  expansao_bb: number | null
+  atr14: number | null
+  dist_topo_pips: number | null
+  dist_fundo_pips: number | null
+  hora_utc: number
+  sessao: string | null
+  dia_semana: number
+  wr_rolling20: number | null
+  rr_ratio: number | null
+  prob_win: number | null
+  resultado: number | null
+  pnl_usd: number | null
+  created_at: string
+}
+
+function exportMLCSV(rows: MLTrade[]) {
+  const header = 'id,time,direcao,forca_rompimento,squeeze_ratio,expansao_bb,atr14,dist_topo_pips,dist_fundo_pips,hora_utc,sessao,dia_semana,wr_rolling20,rr_ratio,prob_win,resultado,pnl_usd'
+  const lines = rows.map(r => [
+    r.id,
+    new Date(r.time_unix * 1000).toISOString(),
+    r.direcao, r.forca_rompimento, r.squeeze_ratio ?? '',
+    r.expansao_bb ?? '', r.atr14 ?? '',
+    r.dist_topo_pips ?? '', r.dist_fundo_pips ?? '',
+    r.hora_utc, r.sessao ?? '', r.dia_semana,
+    r.wr_rolling20 ?? '', r.rr_ratio ?? '',
+    r.prob_win ?? '', r.resultado ?? '', r.pnl_usd ?? '',
+  ].join(','))
+  const csv  = [header, ...lines].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href = url; a.download = `rafi-historico-ml-${new Date().toISOString().slice(0, 10)}.csv`; a.click()
+  URL.revokeObjectURL(url)
+}
 
 interface ManualTrade {
   id:         string
@@ -19,8 +66,6 @@ interface ManualTrade {
   rafiDir?:   'bull' | 'bear'
   bbWidth?:   number
 }
-
-const STORAGE_KEY = 'rafi-trade-log'
 
 function riskPips(e: number, s: number, dir: 'buy' | 'sell') {
   return dir === 'buy' ? Math.round((e - s) * 10000) : Math.round((s - e) * 10000)
@@ -189,34 +234,61 @@ type DirFilter    = 'all' | 'buy' | 'sell'
 type ResultFilter = 'all' | 'win' | 'loss' | 'pending'
 
 export default function ExportPage() {
-  const [trades,  setTrades]  = useState<ManualTrade[]>([])
-  const [mounted, setMounted] = useState(false)
-  const [dirF,    setDirF]    = useState<DirFilter>('all')
-  const [resultF, setResultF] = useState<ResultFilter>('all')
+  const [trades,     setTrades]     = useState<ManualTrade[]>([])
+  const [loading,    setLoading]    = useState(true)
+  const [dirF,       setDirF]       = useState<DirFilter>('all')
+  const [resultF,    setResultF]    = useState<ResultFilter>('all')
+  const [activeTab,  setActiveTab]  = useState<'trades' | 'historico'>('trades')
+  const [mlTrades,   setMlTrades]   = useState<MLTrade[]>([])
+  const [mlLoading,  setMlLoading]  = useState(false)
 
-  useEffect(() => {
-    setMounted(true)
+  async function loadTrades() {
+    setLoading(true)
     try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        if (Array.isArray(parsed)) setTrades(parsed)
-      }
-    } catch {}
-  }, [])
-
-  function clearAll() {
-    if (!confirm('Apagar todos os trades mapeados? Ação irreversível.')) return
-    localStorage.removeItem(STORAGE_KEY)
-    setTrades([])
+      const rows = await fetchTrades()
+      setTrades(rows.map(r => ({
+        id:         r.id,
+        direction:  r.direction,
+        entry:      r.entry,
+        stopLoss:   r.stopLoss,
+        takeProfit: r.takeProfit,
+        label:      r.label,
+        time:       r.time,
+        lot:        r.lot,
+        leverage:   r.leverage,
+        result:     r.result,
+        rafi:       r.rafi,
+        rafiDir:    r.rafiDir,
+        bbWidth:    r.bbWidth,
+      })))
+    } catch (e) {
+      console.error('Erro ao carregar trades:', e)
+    } finally {
+      setLoading(false)
+    }
   }
 
-  function markResult(id: string, result: 'win' | 'loss') {
-    setTrades(prev => {
-      const updated = prev.map(t => t.id === id ? { ...t, result } : t)
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)) } catch {}
-      return updated
-    })
+  async function loadMLTrades() {
+    if (!supa) return
+    setMlLoading(true)
+    try {
+      const { data } = await supa.from('rafi_historico')
+        .select('*').order('time_unix', { ascending: false }).limit(500)
+      if (data) setMlTrades(data as MLTrade[])
+    } catch {}
+    finally { setMlLoading(false) }
+  }
+
+  useEffect(() => { loadTrades() }, [])
+  useEffect(() => { if (activeTab === 'historico') loadMLTrades() }, [activeTab])
+
+  async function markResult(id: string, result: 'win' | 'loss') {
+    await dbUpdateResult(id, result)
+    setTrades(prev => prev.map(t => t.id === id ? { ...t, result } : t))
+  }
+
+  function clearAll() {
+    // clearAll não é mais aplicável com dados do Supabase
   }
 
   const wins    = trades.filter(t => t.result === 'win').length
@@ -249,7 +321,14 @@ export default function ExportPage() {
     return true
   }), [trades, dirF, resultF])
 
-  if (!mounted) return null
+  if (loading) return (
+    <div className="min-h-screen bg-[#0d1117] flex items-center justify-center">
+      <div className="flex items-center gap-3 text-[#484f58] text-sm">
+        <RefreshCw size={16} className="animate-spin" />
+        Carregando trades do Supabase…
+      </div>
+    </div>
+  )
 
   return (
     <div className="min-h-screen bg-[#0d1117] p-5 space-y-5">
@@ -259,35 +338,67 @@ export default function ExportPage() {
         <div>
           <h1 className="text-lg font-bold text-[#f0f6fc] flex items-center gap-2">
             <FileText size={18} className="text-[#3b82f6]" />
-            Dataset ML — Trades Mapeados
+            Dataset ML — Trades
           </h1>
           <p className="text-xs text-[#484f58] mt-0.5">
-            Trades registrados no Gráfico RAFI · armazenados localmente no navegador
+            Sincronizado com Supabase · Exporta CSV para treino XGBoost
           </p>
         </div>
-        {trades.length > 0 && (
-          <div className="flex gap-2">
-            <button onClick={clearAll}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-500/25 hover:bg-red-500/10 transition-all">
-              <Trash2 size={11} /> Limpar
-            </button>
-            <button onClick={() => exportCSV(trades)}
-              className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold bg-[#3b82f6] hover:bg-[#2563eb] text-white transition-all">
-              <Download size={12} /> Exportar CSV ({trades.length})
-            </button>
-          </div>
-        )}
+        <div className="flex gap-2">
+          {activeTab === 'trades' ? (
+            <>
+              <button onClick={loadTrades}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-[#8b949e] border border-[#30363d] hover:bg-[#21262d] transition-all">
+                <RefreshCw size={11} /> Atualizar
+              </button>
+              {trades.length > 0 && (
+                <button onClick={() => exportCSV(trades)}
+                  className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold bg-[#3b82f6] hover:bg-[#2563eb] text-white transition-all">
+                  <Download size={12} /> Exportar CSV ({trades.length})
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <button onClick={loadMLTrades}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-[#8b949e] border border-[#30363d] hover:bg-[#21262d] transition-all">
+                <RefreshCw size={11} /> Atualizar
+              </button>
+              {mlTrades.length > 0 && (
+                <button onClick={() => exportMLCSV(mlTrades)}
+                  className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold bg-[#6366f1] hover:bg-[#4f46e5] text-white transition-all">
+                  <Download size={12} /> Exportar CSV ML ({mlTrades.length})
+                </button>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
-      {trades.length === 0 ? (
+      {/* Tabs */}
+      <div className="flex gap-1 border-b border-[#30363d] pb-0">
+        {([['trades', 'Trades Autoscan', FileText], ['historico', 'Histórico ML', Brain]] as const).map(([tab, label, Icon]) => (
+          <button key={tab} onClick={() => setActiveTab(tab)}
+            className={cn(
+              'flex items-center gap-1.5 px-4 py-2 text-xs font-semibold transition-all border-b-2 -mb-px',
+              activeTab === tab
+                ? 'text-[#3b82f6] border-[#3b82f6]'
+                : 'text-[#484f58] border-transparent hover:text-[#8b949e]',
+            )}>
+            <Icon size={12} />{label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'trades' && trades.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-32 text-center">
           <BarChart2 size={48} className="text-[#30363d] mb-4" />
-          <p className="text-[#484f58] text-sm">Nenhum trade mapeado ainda.</p>
+          <p className="text-[#484f58] text-sm">Nenhum trade encontrado no Supabase.</p>
           <p className="text-[#30363d] text-xs mt-1">
-            Vá para <span className="text-[#3b82f6]">Gráfico RAFI</span>, posicione o OCO e clique COMPRA ou VENDA.
+            Use o <span className="text-[#3b82f6]">Autoscan</span> no Gráfico RAFI para gerar sinais.
           </p>
         </div>
-      ) : (
+      ) : activeTab === 'trades' && (
         <>
           {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -432,6 +543,94 @@ export default function ExportPage() {
             CSV exportado: id · timestamp · direção · entrada · SL · TP · lote · alavancagem · RAFI · bbWidth · pips · R:R · USD · resultado — pronto para XGBoost
           </p>
         </>
+      )}
+
+      {/* ── Historico ML tab ──────────────────────────────────────────────────── */}
+      {activeTab === 'historico' && (
+        <div className="bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-[#30363d] flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Brain size={13} className="text-[#6366f1]" />
+              <span className="text-sm font-semibold text-[#f0f6fc]">rafi_historico</span>
+              <span className="text-[9px] text-[#484f58] ml-2">12 features · P(win) · resultado real</span>
+            </div>
+            <span className="text-[10px] font-mono text-[#484f58]">{mlTrades.length} registros</span>
+          </div>
+          {mlLoading ? (
+            <div className="flex items-center justify-center py-20 gap-3 text-[#484f58] text-sm">
+              <RefreshCw size={14} className="animate-spin" /> Carregando historico ML…
+            </div>
+          ) : mlTrades.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-24 text-center">
+              <Brain size={40} className="text-[#30363d] mb-4" />
+              <p className="text-[#484f58] text-sm">Nenhum registro em rafi_historico.</p>
+              <p className="text-[#30363d] text-xs mt-1">O bot preenche esta tabela automaticamente após cada sinal ML.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs font-mono">
+                <thead>
+                  <tr className="border-b border-[#30363d] text-[#484f58] text-[9px] uppercase tracking-wider">
+                    <th className="px-3 py-2.5 text-left">Data/Hora</th>
+                    <th className="px-3 py-2.5 text-center">Dir</th>
+                    <th className="px-3 py-2.5 text-right">Força</th>
+                    <th className="px-3 py-2.5 text-right">Squeeze</th>
+                    <th className="px-3 py-2.5 text-right">Expan.BB</th>
+                    <th className="px-3 py-2.5 text-right">ATR14</th>
+                    <th className="px-3 py-2.5 text-right">Dist.Topo</th>
+                    <th className="px-3 py-2.5 text-right">Dist.Fundo</th>
+                    <th className="px-3 py-2.5 text-center">Hora</th>
+                    <th className="px-3 py-2.5 text-center">Sessão</th>
+                    <th className="px-3 py-2.5 text-right">WR roll</th>
+                    <th className="px-3 py-2.5 text-right">R:R</th>
+                    <th className="px-3 py-2.5 text-right text-[#6366f1]">P(win)</th>
+                    <th className="px-3 py-2.5 text-center">Resultado</th>
+                    <th className="px-3 py-2.5 text-right">P&L</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mlTrades.map((r, i) => {
+                    const dt = new Date(r.time_unix * 1000)
+                    const ds = `${dt.toLocaleDateString('pt-BR')} ${dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+                    const rowBg = r.resultado === 1 ? 'bg-[#10b981]/5' : r.resultado === 0 ? 'bg-[#ef4444]/5' : i % 2 === 1 ? 'bg-[#0d1117]/30' : ''
+                    const probColor = r.prob_win !== null ? (r.prob_win >= 0.65 ? '#10b981' : '#ef4444') : '#484f58'
+                    return (
+                      <tr key={r.id} className={cn('border-b border-[#21262d] hover:bg-[#21262d]/50 transition-colors', rowBg)}>
+                        <td className="px-3 py-2 text-[#8b949e]">{ds}</td>
+                        <td className="px-3 py-2 text-center">
+                          {r.direcao === 1
+                            ? <span className="text-[#3b82f6]">▲ BUY</span>
+                            : <span className="text-[#f59e0b]">▼ SELL</span>}
+                        </td>
+                        <td className="px-3 py-2 text-right text-[#10b981]">{r.forca_rompimento?.toFixed(5) ?? '—'}</td>
+                        <td className="px-3 py-2 text-right text-[#8b949e]">{r.squeeze_ratio?.toFixed(4) ?? '—'}</td>
+                        <td className="px-3 py-2 text-right text-[#8b949e]">{r.expansao_bb?.toFixed(4) ?? '—'}</td>
+                        <td className="px-3 py-2 text-right text-[#8b949e]">{r.atr14?.toFixed(5) ?? '—'}</td>
+                        <td className="px-3 py-2 text-right text-[#8b949e]">{r.dist_topo_pips?.toFixed(1) ?? '—'}</td>
+                        <td className="px-3 py-2 text-right text-[#8b949e]">{r.dist_fundo_pips?.toFixed(1) ?? '—'}</td>
+                        <td className="px-3 py-2 text-center text-[#f59e0b]">{r.hora_utc}h</td>
+                        <td className="px-3 py-2 text-center text-[#8b949e]">{r.sessao ?? '—'}</td>
+                        <td className="px-3 py-2 text-right text-[#8b949e]">{r.wr_rolling20 !== null ? `${(r.wr_rolling20 * 100).toFixed(0)}%` : '—'}</td>
+                        <td className="px-3 py-2 text-right text-[#8b949e]">{r.rr_ratio?.toFixed(1) ?? '—'}</td>
+                        <td className="px-3 py-2 text-right font-bold" style={{ color: probColor }}>
+                          {r.prob_win !== null ? `${(r.prob_win * 100).toFixed(1)}%` : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          {r.resultado === 1 && <span className="px-2 py-0.5 rounded text-[9px] bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/25">WIN</span>}
+                          {r.resultado === 0 && <span className="px-2 py-0.5 rounded text-[9px] bg-[#ef4444]/15 text-[#ef4444] border border-[#ef4444]/25">LOSS</span>}
+                          {r.resultado === null && <span className="text-[#484f58]">—</span>}
+                        </td>
+                        <td className={cn('px-3 py-2 text-right', r.pnl_usd !== null && r.pnl_usd > 0 ? 'text-[#10b981]' : r.pnl_usd !== null && r.pnl_usd < 0 ? 'text-[#ef4444]' : 'text-[#484f58]')}>
+                          {r.pnl_usd !== null ? `$${r.pnl_usd > 0 ? '+' : ''}${r.pnl_usd.toFixed(2)}` : '—'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

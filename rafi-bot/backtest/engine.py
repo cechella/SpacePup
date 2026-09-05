@@ -35,7 +35,7 @@ from typing import Optional
 
 from src.indicators import calcular_indice_forca, calcular_bollinger, bollinger_estreitas_abrindo
 from src.strategy import calcular_stops, verificar_saida
-from src.risk_manager import GestorRisco
+from src.risk_manager import GestorRisco, lote_por_faixa
 
 logger = logging.getLogger(__name__)
 
@@ -66,10 +66,12 @@ class Backtest:
         self.gestor = GestorRisco(config)
 
         # Parâmetros de custo
-        self.spread_pips   = float(config.get('spread_pips', 0.8))
-        self.slippage_pips = float(config.get('slippage_pips', 0.5))
-        self.custo_total   = (self.spread_pips + self.slippage_pips) * 0.0001
-        self.par           = config.get('par', 'EURUSD')
+        self.spread_pips      = float(config.get('spread_pips', 0.8))
+        self.slippage_pips    = float(config.get('slippage_pips', 0.5))
+        self.custo_total      = (self.spread_pips + self.slippage_pips) * 0.0001
+        # Comissão Razor: $6/lote round trip cobrada na abertura ($3/lado)
+        self.comissao_lote    = float(config.get('comissao_por_lote', 0.0))
+        self.par              = config.get('par', 'EURUSD')
 
         # Registros
         self.trades: list[dict] = []
@@ -119,6 +121,11 @@ class Backtest:
         # ── Pré-cálculo de indicadores (O(n)) ─────────────────
         logger.info("Pré-calculando indicadores (RAFI, MA20/50 M5, S/R)...")
 
+        # Modo determinado PRIMEIRO para que sr_lookback use o valor correto por modo.
+        # config.yaml tem dois sr_lookback (autoscan=10, rafi=20); YAML mantém o último,
+        # mas 'autoscan_sr_lookback' sobrepõe corretamente para o modo autoscan.
+        modo = self.config.get('estrategia_modo', 'rafi')
+
         # Índice de força RAFI no M5
         forca_serie = calcular_indice_forca(self.df_m5)
 
@@ -135,9 +142,14 @@ class Backtest:
         trend_m5[diff_m5 >  ma_threshold] = 1
         trend_m5[diff_m5 < -ma_threshold] = -1
 
-        # S/R dinâmico: máximo e mínimo dos últimos sr_lookback candles (shift=1 evita lookahead)
-        # Usar sr_lookback do config (padrão 50 = 250 min ≈ 4h de histórico local)
-        sr_lookback  = int(self.config.get('sr_lookback', 50))
+        # S/R dinâmico: sr_lookback depende do modo.
+        # Autoscan: 'autoscan_sr_lookback' (padrão 10) ou fallback 'sr_lookback'.
+        # RAFI: 'sr_lookback' (padrão 50).
+        if modo == 'autoscan':
+            sr_lookback = int(self.config.get('autoscan_sr_lookback',
+                                              self.config.get('sr_lookback', 10)))
+        else:
+            sr_lookback = int(self.config.get('sr_lookback', 50))
         rolling_high = self.df_m5['high'].rolling(sr_lookback).max().shift(1)
         rolling_low  = self.df_m5['low'].rolling(sr_lookback).min().shift(1)
 
@@ -170,7 +182,6 @@ class Backtest:
         # ─── Pré-cálculo EPM (EMA Pullback Momentum) ──────────
         # Estratégia alternativa: entra na recuperação após pullback à EMA21
         # WR esperado: 50-55% (vs 33-37% do RAFI S/R breakout)
-        modo = self.config.get('estrategia_modo', 'rafi')
         if modo == 'epm':
             epm_ema_r   = int(self.config.get('epm_ema_rapida',    21))
             epm_ema_l   = int(self.config.get('epm_ema_lenta',     55))
@@ -303,6 +314,7 @@ class Backtest:
         # Suporte a múltiplas posições simultâneas
         posicoes_abertas: list[dict] = []
         forca_anterior: float = 0.0
+        last_autoscan_candle: int = -9999  # rastreia gap mínimo entre trades no modo autoscan
         # Rastreamento do pico de capital para proteção de drawdown
         capital_pico: float = self.capital
 
@@ -318,6 +330,8 @@ class Backtest:
             timestamp   = self.df_m5.index[i]
             close_atual = float(self.df_m5['close'].iloc[i])
             open_atual  = float(self.df_m5['open'].iloc[i])
+            high_atual  = float(self.df_m5['high'].iloc[i])
+            low_atual   = float(self.df_m5['low'].iloc[i])
             forca_val   = forca_serie.iloc[i]
             forca_atual = float(forca_val) if not np.isnan(forca_val) else 0.0
 
@@ -325,39 +339,63 @@ class Backtest:
                     else datetime.fromtimestamp(timestamp.timestamp(), tz=timezone.utc)
 
             # ── Verificar saída de todas as posições abertas ───
+            # Cada entrada: (posicao, motivo, preco_override)
+            # preco_override=SL ou TP quando atingidos intra-candle; None=usa close
             posicoes_a_fechar = []
             for posicao in list(posicoes_abertas):
+                sl  = posicao['stop_loss']
+                tp  = posicao['take_profit']
+                sig = posicao['sinal']
+
                 # Saída por duração máxima (evita trades multi-semanas com TP inalcançável)
                 if max_duracao_candles > 0:
                     duracao = i - posicao.get('indice_entrada', i)
                     if duracao >= max_duracao_candles:
                         posicoes_a_fechar.append(
                             (posicao,
-                             f"Duração máxima ({max_duracao_candles}c/{max_duracao_candles*5//60}h) atingida")
+                             f"Duração máxima ({max_duracao_candles}c/{max_duracao_candles*5//60}h) atingida",
+                             None)
                         )
                         continue
 
                 # Breakeven stop: após +1R de lucro, move SL para preço de entrada
-                # Converte perdas totais em empate → melhora WR efetivo sem mudar sinal
                 if breakeven_stop_ativo and not posicao.get('breakeven_atingido', False):
                     entrada  = posicao['preco_entrada']
                     risco_pr = posicao['risco_pips'] * 0.0001 * breakeven_gatilho_r
-                    if posicao['sinal'] == 'compra' and close_atual >= entrada + risco_pr:
+                    if sig == 'compra' and close_atual >= entrada + risco_pr:
                         posicao['stop_loss']          = entrada + self.custo_total
                         posicao['breakeven_atingido'] = True
-                        logger.debug(f"Breakeven atingido (compra) → SL={posicao['stop_loss']:.5f}")
-                    elif posicao['sinal'] == 'venda' and close_atual <= entrada - risco_pr:
+                        sl = posicao['stop_loss']
+                        logger.debug(f"Breakeven atingido (compra) → SL={sl:.5f}")
+                    elif sig == 'venda' and close_atual <= entrada - risco_pr:
                         posicao['stop_loss']          = entrada - self.custo_total
                         posicao['breakeven_atingido'] = True
-                        logger.debug(f"Breakeven atingido (venda) → SL={posicao['stop_loss']:.5f}")
+                        sl = posicao['stop_loss']
+                        logger.debug(f"Breakeven atingido (venda) → SL={sl:.5f}")
 
+                # Verificação intra-candle (high/low) — idêntico ao browser:
+                # SL detectado pelo mínimo/máximo do candle, saída no preço do SL/TP
+                if sig == 'compra' and low_atual <= sl:
+                    posicoes_a_fechar.append((posicao, 'Stop Loss', sl))
+                    continue
+                if sig == 'venda' and high_atual >= sl:
+                    posicoes_a_fechar.append((posicao, 'Stop Loss', sl))
+                    continue
+                if sig == 'compra' and high_atual >= tp:
+                    posicoes_a_fechar.append((posicao, 'Take Profit', tp))
+                    continue
+                if sig == 'venda' and low_atual <= tp:
+                    posicoes_a_fechar.append((posicao, 'Take Profit', tp))
+                    continue
+
+                # Demais saídas (exaustão RAFI, fallback close) via verificar_saida
                 posicao['forca_anterior'] = forca_anterior
                 saida = verificar_saida(close_atual, posicao, forca_atual, forca_exaust)
                 if saida['fechar']:
-                    posicoes_a_fechar.append((posicao, saida['motivo']))
+                    posicoes_a_fechar.append((posicao, saida['motivo'], None))
 
-            for posicao, motivo in posicoes_a_fechar:
-                self._fechar_posicao(posicao, close_atual, ts_dt, motivo)
+            for posicao, motivo, preco_override in posicoes_a_fechar:
+                self._fechar_posicao(posicao, close_atual, ts_dt, motivo, preco_override)
                 posicoes_abertas.remove(posicao)
 
             forca_anterior = forca_atual
@@ -389,9 +427,15 @@ class Backtest:
             _d_sessao += 1
 
             # ── Verificar permissão do gestor de risco ─────────
-            pode, _ = self.gestor.pode_operar(self.capital)
-            if not pode:
-                continue
+            # Autoscan: replica browser (não bloqueia por capital — usa lot mínimo a $0)
+            if modo == 'autoscan':
+                if self.capital < 0:
+                    continue  # capital negativo não deve acontecer com max(0,...) abaixo
+                pode = True
+            else:
+                pode, _ = self.gestor.pode_operar(self.capital)
+                if not pode:
+                    continue
             _d_risco += 1
 
             # ── Guard: capital mínimo operacional ──────────────
@@ -638,6 +682,120 @@ class Backtest:
                     f"| Capital: ${self.capital:.2f}"
                 )
 
+            elif modo == 'autoscan':
+                # ── AUTOSCAN: replica exata do autoScanBreakouts() do browser ──
+                # Sem filtro RAFI, sem MA, sem multi-TF (sessão = 00:00-23:59 no config).
+                # 5 filtros: gap → BB squeeze → BB expansão → S/R rompido → cor candle
+                # _d_total/_d_sessao/_d_risco já foram incrementados pelo bloco geral acima.
+                # Usa _d_trend/_d_rafi/_d_bb/_d_cor/_d_sr para cada filtro autoscan-específico.
+
+                # Parâmetros (lidos do config — defaults=valores otimizados para fallback seguro)
+                squeeze_ratio   = float(self.config.get('bb_limiar_estreita',      0.0016))
+                expansao_min    = float(self.config.get('bb_squeeze_expansao_min', 1.05))
+                min_breakout    = float(self.config.get('autoscan_min_breakout',   0.00005))
+                min_gap         = int(self.config.get('autoscan_min_gap_candles',  5))
+                stop_offset     = float(self.config.get('autoscan_stop_offset',    0.00010))
+
+                # Filtro A (gap): candles mínimos desde o último trade autoscan
+                if i - last_autoscan_candle < min_gap:
+                    continue
+                _d_trend += 1  # passou gap
+
+                # BB do candle anterior e atual
+                bb_sup_prev = float(bb['bb_superior'].iloc[i - 1])
+                bb_inf_prev = float(bb['bb_inferior'].iloc[i - 1])
+                bb_sup_curr = float(bb['bb_superior'].iloc[i])
+                bb_inf_curr = float(bb['bb_inferior'].iloc[i])
+                bb_mid_prev = (bb_sup_prev + bb_inf_prev) / 2
+                bb_mid_curr = (bb_sup_curr + bb_inf_curr) / 2
+                bb_wid_prev = bb_sup_prev - bb_inf_prev
+                bb_wid_curr = bb_sup_curr - bb_inf_curr
+
+                if bb_mid_prev <= 0 or bb_mid_curr <= 0:
+                    continue
+
+                prev_ratio = bb_wid_prev / bb_mid_prev
+                curr_ratio = bb_wid_curr / bb_mid_curr
+
+                # Filtro B: BB anterior estava em squeeze (ratio < limiar)
+                if prev_ratio >= squeeze_ratio:
+                    continue
+                _d_rafi += 1  # passou squeeze
+
+                # Filtro C: BB está expandindo agora (>= expansao_min × candle anterior)
+                if curr_ratio <= prev_ratio * expansao_min:
+                    continue
+                _d_bb += 1  # passou expansão
+
+                # S/R = max/min dos sr_lookback candles anteriores (sem lookahead via shift(1))
+                rh = rolling_high.iloc[i]
+                rl = rolling_low.iloc[i]
+                if pd.isna(rh) or pd.isna(rl):
+                    continue
+
+                candle_low_atual  = low_atual   # já calculado no topo do loop
+                candle_high_atual = high_atual  # já calculado no topo do loop
+
+                # Filtro D + E: Rompimento de S/R + cor do candle confirma direção
+                # SL no mínimo/máximo do candle de rompimento ± stop_offset
+                # Idêntico ao browser autoScanBreakouts: stop = c['low'] - stop_offset
+                if close_atual > rh + min_breakout and close_atual >= open_atual:
+                    # BUY: rompe resistência + candle verde
+                    direcao     = 'compra'
+                    entrada     = round(rh, 5)                              # entry = nível S/R
+                    nivel_stop  = round(candle_low_atual - stop_offset, 5)  # SL = low − buffer
+                    _d_cor += 1
+                elif close_atual < rl - min_breakout and close_atual < open_atual:
+                    # SELL: rompe suporte + candle vermelho
+                    direcao     = 'venda'
+                    entrada     = round(rl, 5)                               # entry = nível S/R
+                    nivel_stop  = round(candle_high_atual + stop_offset, 5)  # SL = high + buffer
+                    _d_cor += 1
+                else:
+                    continue
+
+                # Calcular risco e TP
+                risco = abs(entrada - nivel_stop)
+                if risco <= 0:
+                    continue
+
+                risco_pips = round(risco / 0.0001, 1)
+                tp = round(entrada + risco * ratio_rr, 5) if direcao == 'compra' \
+                     else round(entrada - risco * ratio_rr, 5)
+
+                # Sizing: tabela faixa pura (sem ajuste semanal) — idêntico ao browser
+                lote = lote_por_faixa(max(0.0, self.capital))
+
+                risco_usd = round(risco_pips * lote * 10.0, 2)
+                self.gestor.abrir_trade()
+                last_autoscan_candle = i  # registra índice deste trade para enforçar gap
+
+                posicao = {
+                    'sinal'            : direcao,
+                    'preco_entrada'    : entrada,   # sem spread — autoscan entra no nível S/R
+                    'stop_loss'        : nivel_stop,
+                    'take_profit'      : tp,
+                    'risco_pips'       : risco_pips,
+                    'lote'             : lote,
+                    'timestamp_entrada': ts_dt,
+                    'capital_entrada'  : self.capital,
+                    'forca_entrada'    : forca_atual,
+                    'forca_anterior'   : 0.0,
+                    'indice_entrada'   : i,
+                    'nivel_sr'         : entrada,
+                    'bb_width'         : bb_wid_curr,
+                    'bb_abrindo'       : True,
+                    'ma_diff'          : None,
+                    'modo'             : 'autoscan',  # sinaliza P&L sem custo (browser parity)
+                }
+                posicoes_abertas.append(posicao)
+                logger.info(
+                    f"[{ts_dt.strftime('%Y-%m-%d %H:%M')}] AUTOSCAN {direcao.upper()} "
+                    f"| Lote: {lote} | Entry: {entrada:.5f} "
+                    f"| SL: {nivel_stop:.5f} | TP: {tp:.5f} "
+                    f"| Risco: {risco_pips}p (${risco_usd:.2f}) | Capital: ${self.capital:.2f}"
+                )
+
             else:
                 # ── RAFI Filtro 1: Tendência M5 (MA20 vs MA50) ────
                 t5 = int(trend_m5.iloc[i])
@@ -687,12 +845,19 @@ class Backtest:
                 nivel_stop = (float(swing_stop_low.iloc[i])  if direcao == 'compra'
                               else float(swing_stop_high.iloc[i]))
 
+                # Largura das Bollinger no candle de entrada (alimenta CSV detalhado)
+                _bb_w = (float(bb['bb_superior'].iloc[i] - bb['bb_inferior'].iloc[i])
+                         if bb is not None else None)
+
                 sinal_info = {
                     'sinal'         : direcao,
                     'nivel_sr'      : nivel_sr,
                     'nivel_stop'    : nivel_stop,
                     'forca'         : forca_atual,
                     'indice_entrada': i,
+                    'bb_width'      : _bb_w,
+                    'bb_abrindo'    : (bool(bb_abrindo.iloc[i]) if bb_abrindo is not None else False),
+                    'ma_diff'       : float(diff_m5.iloc[i]),
                 }
                 nova_posicao = self._abrir_posicao(sinal_info, close_atual, ts_dt, ratio_rr, max_stop_pips)
                 if nova_posicao is not None:
@@ -710,7 +875,17 @@ class Backtest:
 
         self.equity_curve.append((self.df_m5.index[-1], round(self.capital, 2)))
 
-        if modo == 'epm':
+        if modo == 'autoscan':
+            logger.info(
+                f"[DIAGNÓSTICO AUTOSCAN] Candles M5: {n}"
+                f" → sessão/risco: {_d_risco}"
+                f" → gap ok: {_d_trend}"
+                f" → squeeze: {_d_rafi}"
+                f" → expansão: {_d_bb}"
+                f" → breakout+cor: {_d_cor}"
+                f" → trades: {len(self.trades)}"
+            )
+        elif modo == 'epm':
             logger.info(
                 f"[DIAGNÓSTICO EPM] Candles sem posição: {_d_total} "
                 f"→ sessão: {_d_sessao} → risco ok: {_d_risco} "
@@ -806,6 +981,11 @@ class Backtest:
             'forca_entrada'    : sinal_info.get('forca'),
             'forca_anterior'   : 0.0,
             'indice_entrada'   : sinal_info.get('indice_entrada', 0),
+            # Campos extras para o CSV detalhado
+            'nivel_sr'         : sinal_info.get('nivel_sr'),
+            'bb_width'         : sinal_info.get('bb_width'),
+            'bb_abrindo'       : sinal_info.get('bb_abrindo', False),
+            'ma_diff'          : sinal_info.get('ma_diff'),
         }
 
         logger.info(
@@ -821,23 +1001,46 @@ class Backtest:
                          posicao: dict,
                          close_atual: float,
                          timestamp: datetime,
-                         motivo: str) -> None:
-        """Simula o fechamento e calcula o P&L em USD."""
+                         motivo: str,
+                         preco_override: Optional[float] = None) -> None:
+        """
+        Simula o fechamento e calcula o P&L em USD.
+
+        preco_override: quando SL/TP é atingido intra-candle, passar o preço exato
+        do SL ou TP para calcular P&L correto (idêntico ao browser). Se None, usa close.
+        """
         sinal         = posicao['sinal']
         lote          = posicao['lote']
         preco_entrada = posicao['preco_entrada']
 
-        if sinal == 'compra':
-            preco_saida   = close_atual - self.custo_total / 2
-            variacao_pips = (preco_saida - preco_entrada) / 0.0001
+        eh_autoscan = posicao.get('modo') == 'autoscan'
+
+        if eh_autoscan and preco_override is not None:
+            # Replica exata do browser: saída no preço exato do SL/TP, sem custo
+            preco_saida = preco_override
+            if sinal == 'compra':
+                variacao_pips = (preco_saida - preco_entrada) * 10000
+            else:
+                variacao_pips = (preco_entrada - preco_saida) * 10000
+            comissao_usd = 0.0
         else:
-            preco_saida   = close_atual + self.custo_total / 2
-            variacao_pips = (preco_entrada - preco_saida) / 0.0001
+            preco_base = preco_override if preco_override is not None else close_atual
+            if sinal == 'compra':
+                preco_saida   = preco_base - self.custo_total / 2
+                variacao_pips = (preco_saida - preco_entrada) / 0.0001
+            else:
+                preco_saida   = preco_base + self.custo_total / 2
+                variacao_pips = (preco_entrada - preco_saida) / 0.0001
+            comissao_usd = self.comissao_lote * lote
 
         # EURUSD: $10/pip por lote padrão (100.000 unidades)
-        pnl_usd = round(variacao_pips * lote * 10.0, 2)
+        pnl_usd = round(variacao_pips * lote * 10.0 - comissao_usd, 2)
 
-        self.capital = round(self.capital + pnl_usd, 2)
+        # Autoscan: capital não pode ficar negativo (replica browser max(0, ...))
+        if eh_autoscan:
+            self.capital = max(0.0, round(self.capital + pnl_usd, 2))
+        else:
+            self.capital = round(self.capital + pnl_usd, 2)
         self.gestor.fechar_trade(pnl_usd, self.capital)
 
         try:
@@ -857,10 +1060,16 @@ class Backtest:
             'risco_pips'       : posicao['risco_pips'],
             'variacao_pips'    : round(variacao_pips, 1),
             'pnl_usd'          : pnl_usd,
+            'capital_antes'    : posicao.get('capital_entrada'),
             'capital_apos'     : self.capital,
             'duracao_candles'  : duracao_candles,
             'motivo_saida'     : motivo,
             'forca_entrada'    : posicao.get('forca_entrada'),
+            # Campos extras para análise / Fase 2
+            'nivel_sr'         : posicao.get('nivel_sr'),
+            'bb_width'         : posicao.get('bb_width'),
+            'bb_abrindo'       : posicao.get('bb_abrindo'),
+            'ma_diff'          : posicao.get('ma_diff'),
         })
 
         simbolo = "+" if pnl_usd >= 0 else ""
@@ -897,18 +1106,89 @@ class BacktestCSV(Backtest):
     @staticmethod
     def _carregar_csv(caminho: str) -> pd.DataFrame:
         """
-        Carrega e normaliza um CSV exportado do MT5.
-        Suporta o formato com colunas separadas Date/Time
-        e o formato com coluna única '<DATE> <TIME>'.
+        Carrega e normaliza CSV de dados históricos EURUSD M5.
+        Suporta:
+          (1) Dukascopy  — header 'GMT time', formato DD.MM.YYYY HH:MM:SS.mmm
+          (2) MT5 export — TAB com <DATE>/<TIME>
+          (3) MT5 API    — vírgula com coluna 'datetime' ou 'time'
         """
-        df = pd.read_csv(caminho, sep='\t', header=0)
+        with open(caminho, 'r', encoding='utf-8') as _f:
+            _primeira = _f.readline()
+
+        # ── Formato Dukascopy (GMT time,Open,High,Low,Close,Volume) ──────────
+        # Timestamp: DD.MM.YYYY HH:MM:SS.mmm  — separador vírgula
+        _primeira_low = _primeira.lower()
+        if 'gmt time' in _primeira_low or (
+            '.' in _primeira.split(',')[0] and
+            len(_primeira.split(',')[0].strip()) > 10 and
+            _primeira.split(',')[0].strip()[2] == '.'
+        ):
+            sep = '\t' if '\t' in _primeira else ','
+            df = pd.read_csv(caminho, sep=sep, header=0)
+            # Normaliza nome da primeira coluna para 'gmt_time'
+            col0 = df.columns[0]
+            df = df.rename(columns={col0: 'gmt_time'})
+            df.columns = [c.strip().lower().replace(' ', '_') for c in df.columns]
+
+            def _parse_duka(s: str) -> pd.Timestamp:
+                # "23.06.2026 00:00:00.000"
+                s = s.strip()
+                date_part, time_part = s.split(' ')
+                dd, mm, yyyy = date_part.split('.')
+                hh, mi, sec  = time_part.split(':')
+                sec_int = int(float(sec))
+                return pd.Timestamp(
+                    f"{yyyy}-{mm}-{dd}T{hh}:{mi}:{sec_int:02d}Z"
+                )
+
+            df['datetime'] = df['gmt_time'].apply(_parse_duka)
+            df = df.set_index('datetime').sort_index()
+            rename = {'open': 'open', 'high': 'high', 'low': 'low',
+                      'close': 'close', 'volume': 'volume'}
+            df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+            for col in ['open', 'high', 'low', 'close']:
+                if col not in df.columns:
+                    raise ValueError(f"Coluna '{col}' ausente em {caminho}")
+            if 'volume' not in df.columns:
+                df['volume'] = 0
+            return df[['open', 'high', 'low', 'close', 'volume']].astype(float)
+
+        # ── Formatos MT5 / genérico ──────────────────────────────────────────
+        sep = '\t' if '\t' in _primeira else ','
+        df = pd.read_csv(caminho, sep=sep, header=0)
         df.columns = [c.strip().replace('<', '').replace('>', '').lower()
                       for c in df.columns]
+
+        # Quando o CSV tem uma coluna a mais do que o header (ex.: datetime + OHLCV +
+        # tickvol + spread com header tendo só 6 nomes), pandas usa a 1ª coluna como
+        # índice automático. Detecta e restaura como coluna 'time'.
+        # Quando o CSV tem N+1 colunas de dados mas N headers (ex.: datetime + OHLCV +
+        # tickvol + spread com header de 6 nomes), pandas usa a 1ª coluna como índice.
+        # Colunas ficam deslocadas: 'Time'=open, 'Open'=high, etc. Corrige mapeamento.
+        if len(df) > 0 and isinstance(df.index[0], str):
+            try:
+                pd.to_datetime(df.index[0])
+                cols = list(df.columns)
+                shift_names = ['open', 'high', 'low', 'close', 'volume', 'spread']
+                rename = {c: shift_names[i] for i, c in enumerate(cols) if i < len(shift_names)}
+                df = df.rename(columns=rename)
+                df.index.name = 'datetime'
+                df = df.reset_index()
+                df['datetime'] = pd.to_datetime(df['datetime'], utc=True)
+                df = df.set_index('datetime').sort_index()
+                if 'volume' not in df.columns:
+                    df['volume'] = 0
+                return df[['open', 'high', 'low', 'close', 'volume']].astype(float)
+            except (ValueError, TypeError, IndexError):
+                pass
 
         if 'date' in df.columns and 'time' in df.columns:
             df['datetime'] = pd.to_datetime(df['date'] + ' ' + df['time'], utc=True)
         elif 'datetime' in df.columns:
             df['datetime'] = pd.to_datetime(df['datetime'], utc=True)
+        elif 'time' in df.columns:
+            # Formato da API MT5: índice salvo como coluna 'time' com timezone UTC
+            df['datetime'] = pd.to_datetime(df['time'], utc=True)
         else:
             raise ValueError(f"Colunas de data/hora não encontradas em {caminho}")
 

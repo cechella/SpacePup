@@ -23,6 +23,7 @@ export interface ManualTrade {
   rafiDir?:   'bull' | 'bear'
   bbWidth?:   number
   snapshot?:  string  // miniatura JPEG base64 do gráfico no momento do trade
+  pnlUsd?:   number  // P&L real do backtest (pip a pip); quando presente, sobrepõe o recálculo do dashboard
 }
 
 interface Props {

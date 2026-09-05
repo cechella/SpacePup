@@ -18,6 +18,8 @@ export interface TradeRecord {
   rafiDir?: 'bull' | 'bear'
   bbWidth?: number
   snapshot?: string
+  pnlUsd?: number
+  capitalInicial?: number
 }
 
 function fromRow(row: Record<string, unknown>): TradeRecord {
@@ -36,6 +38,8 @@ function fromRow(row: Record<string, unknown>): TradeRecord {
     rafiDir:    (row.rafi_dir as TradeRecord['rafiDir']) ?? undefined,
     bbWidth:    row.bb_width != null ? Number(row.bb_width) : undefined,
     snapshot:   (row.snapshot as string) ?? undefined,
+    pnlUsd:        row.pnl_usd != null ? Number(row.pnl_usd) : row.pnl != null ? Number(row.pnl) : undefined,
+    capitalInicial: row.capital_inicial != null ? Number(row.capital_inicial) : undefined,
   }
 }
 
@@ -55,7 +59,9 @@ function toRow(t: TradeRecord) {
     rafi_dir:    t.rafiDir ?? null,
     bb_width:    t.bbWidth ?? null,
     snapshot:    t.snapshot ?? null,
-    updated_at:  new Date().toISOString(),
+    pnl_usd:         t.pnlUsd ?? null,
+    capital_inicial: t.capitalInicial ?? null,
+    updated_at:      new Date().toISOString(),
   }
 }
 
@@ -93,4 +99,40 @@ export async function updateTradeResult(id: string, result: 'win' | 'loss'): Pro
     .update({ result, updated_at: new Date().toISOString() })
     .eq('id', id)
   if (error) throw error
+}
+
+// ── Candles do Supabase (tabela rafi_candles) ─────────────────────────────────
+export interface CandleRow {
+  time:   number
+  open:   number
+  high:   number
+  low:    number
+  close:  number
+  volume?: number
+}
+
+export async function fetchCandles(): Promise<CandleRow[]> {
+  const db = createClient()
+  const { data, error } = await db
+    .from('rafi_candles')
+    .select('time,open,high,low,close,volume')
+    .order('time', { ascending: true })
+  if (error) throw error
+  return (data ?? []).map(r => ({
+    time:   Number(r.time),
+    open:   Number(r.open),
+    high:   Number(r.high),
+    low:    Number(r.low),
+    close:  Number(r.close),
+    volume: r.volume != null ? Number(r.volume) : undefined,
+  }))
+}
+
+export async function countCandles(): Promise<number> {
+  const db = createClient()
+  const { count, error } = await db
+    .from('rafi_candles')
+    .select('*', { count: 'exact', head: true })
+  if (error) return 0
+  return count ?? 0
 }
