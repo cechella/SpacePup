@@ -61,6 +61,7 @@ from .supabase_sync import (
     gravar_rafi_trade,
     verificar_backtest_pendente,
     atualizar_backtest_run,
+    publicar_config_hash_startup,
 )
 
 # ── Configuração de logging ───────────────────────────────────────────────────
@@ -241,6 +242,8 @@ class RafiBot:
 
         # Hash do config efetivo (pós-overrides) — exibido no dashboard para rastreabilidade
         self._config_hash = calcular_hash_config(self.cfg)
+        # Força gravação do hash no Supabase via UPDATE dedicado (não depende do heartbeat)
+        publicar_config_hash_startup(self._config_hash)
 
         # Informa status do modelo ML no startup
         info_ml = modelo_info()

@@ -54,6 +54,40 @@ def _get_cliente():
     return _cliente
 
 
+def publicar_config_hash_startup(config_hash: str) -> bool:
+    """
+    Força a gravação do config_hash em rafi_bot_status no startup do bot.
+
+    Usa UPDATE separado do heartbeat para garantir que o campo seja atualizado
+    mesmo em versões do PostgREST que ignoram colunas desconhecidas no upsert.
+    Se a linha ainda não existir, faz INSERT mínimo com id='main'.
+    """
+    cliente = _get_cliente()
+    if cliente is None:
+        return False
+    ts = datetime.utcnow().isoformat()
+    try:
+        # Tenta UPDATE primeiro (linha já existe)
+        res = cliente.table('rafi_bot_status').update(
+            {'config_hash': config_hash, 'updated_at': ts}
+        ).eq('id', 'main').execute()
+        if hasattr(res, 'error') and res.error:
+            raise RuntimeError(res.error)
+        # UPDATE retorna lista vazia se nenhuma linha foi afetada — nesse caso faz INSERT
+        if hasattr(res, 'data') and res.data is not None and len(res.data) == 0:
+            res2 = cliente.table('rafi_bot_status').insert(
+                {'id': 'main', 'status': 'waiting', 'balance': 0, 'equity': 0,
+                 'open_positions': 0, 'config_hash': config_hash, 'updated_at': ts}
+            ).execute()
+            if hasattr(res2, 'error') and res2.error:
+                raise RuntimeError(res2.error)
+        logger.info(f"[Supabase] config_hash publicado no startup: {config_hash}")
+        return True
+    except Exception as e:
+        logger.error(f"[Supabase] Falha ao publicar config_hash no startup: {e}")
+        return False
+
+
 def sincronizar_trade(
     ticket:      int,
     direction:   str,         # 'buy' ou 'sell'
