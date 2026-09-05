@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
 const supa = typeof window !== 'undefined'
@@ -17,25 +17,27 @@ const C = {
 }
 
 const DEFAULTS = {
-  estrategia_modo:           'rafi',    // 'rafi' | 'autoscan'
+  // MODO PADRÃO: autoscan — otimizado em 26 anos, config hash 445d1535
+  // WR 74.4% | PF 2.164 | Sharpe 3.42 — NUNCA alterar sem validação em backtest
+  estrategia_modo:           'autoscan', // 'rafi' | 'autoscan'
   forca_limiar:              2.50,
   rafi_periodo:              14,
-  sr_lookback:               50,
+  sr_lookback:               10,        // OTIMIZADO 10 candles (era 50) — 26 anos OOS
   swing_stop_lookback:       150,
   ma_rapida:                 20,
   ma_lenta:                  50,
   ma_threshold:              0.0003,
   bb_filtro_ativo:           true,
-  bb_limiar_estreita:        0.0016,   // OTIMIZADO (era 0.0012)
-  bb_periodo:                6,        // OTIMIZADO: BB(6) — 26 anos, 2.916 combinações (era 10)
+  bb_limiar_estreita:        0.0016,    // OTIMIZADO (era 0.0012)
+  bb_periodo:                6,         // OTIMIZADO: BB(6) — 26 anos, 2.916 combinações (era 10)
   bb_desvios:                2.0,
-  ratio_risco_retorno:       1.3,      // OTIMIZADO (era 1.5) — R:R=1.3 maximiza WR
+  ratio_risco_retorno:       1.3,       // OTIMIZADO (era 1.5) — R:R=1.3 maximiza WR
   max_trades_simultaneos:    1,
   // Parâmetros exclusivos do modo Autoscan (réplica do browser)
-  autoscan_min_breakout:     0.00005,  // OTIMIZADO 5 pips — filtra rompimentos fracos (CHAVE do WR 68%)
-  autoscan_min_gap_candles:  5,        // OTIMIZADO: 5 candles = 25 min (era 8 = 40 min) — 26 anos OOS
-  autoscan_stop_offset:      0.00010,  // OTIMIZADO 1 pip buffer (era 1.5 pip)
-  bb_squeeze_expansao_min:   1.05,     // BB deve expandir ≥ 5% vs candle anterior
+  autoscan_min_breakout:     0.00005,   // OTIMIZADO 5 pips — filtra rompimentos fracos (CHAVE do WR 74%)
+  autoscan_min_gap_candles:  5,         // OTIMIZADO: 5 candles = 25 min (era 8 = 40 min) — 26 anos OOS
+  autoscan_stop_offset:      0.00010,   // OTIMIZADO 1 pip buffer (era 1.5 pip)
+  bb_squeeze_expansao_min:   1.05,      // BB deve expandir ≥ 5% vs candle anterior
 }
 type Config = typeof DEFAULTS
 
@@ -181,6 +183,9 @@ export default function ConfigPage() {
   const [syncing,  setSyncing]  = useState(false)
   const [syncDone, setSyncDone] = useState(false)
 
+  // Status do bot ao vivo — para mostrar config_hash e confirmar que a config chegou
+  const [botStatus, setBotStatus] = useState<{ config_hash?: string; status?: string; balance?: number; updated_at?: string } | null>(null)
+
   // Cadeados — ambos bloqueados por padrão
   const [simLocked,  setSimLocked]  = useState(true)
   const [liveLocked, setLiveLocked] = useState(true)
@@ -209,6 +214,11 @@ export default function ConfigPage() {
           if (live) { setLiveCfg({ ...DEFAULTS, ...live }); setLiveLastSaved(live.updated_at) }
         }
       } catch { setError('Tabela rafi_bot_config não encontrada — execute o SQL no Supabase') }
+      // Busca status do bot para exibir config_hash e confirmar que a config chegou
+      try {
+        const { data: st } = await supa.from('rafi_bot_status').select('config_hash,status,balance,updated_at').order('updated_at', { ascending: false }).limit(1)
+        if (st?.[0]) setBotStatus(st[0])
+      } catch { /* silencioso — bot pode estar offline */ }
       setLoading(false)
     })()
   }, [])
@@ -334,6 +344,142 @@ export default function ConfigPage() {
         </span>
         <span style={{ fontSize: 9, color: C.gr, fontWeight: 700, marginLeft: 4 }}>→ 4.430 trades · 69.5% WR · PF 2.59 · 70/71 semanas lucrativas</span>
       </div>
+
+      {/* ── Snapshot: O que o bot vai ler (leitura do Supabase live + status) ── */}
+      {(() => {
+        const HASH_BACKTEST = '445d1535'
+        const hashAtual = botStatus?.config_hash?.replace('cfg:', '') ?? null
+        const hashOk    = hashAtual === HASH_BACKTEST
+        const secsOff   = botStatus?.updated_at
+          ? Math.floor((Date.now() - new Date(botStatus.updated_at).getTime()) / 1000)
+          : null
+        const online = secsOff !== null && secsOff < 420
+
+        // Parâmetros do perfil live que o bot vai ler — ordem de prioridade do código
+        const snap = [
+          { k: 'estrategia_modo',          v: String(liveCfg.estrategia_modo),       obrigatorio: true },
+          { k: 'bb_periodo',                v: String(liveCfg.bb_periodo),             obrigatorio: true },
+          { k: 'bb_limiar_estreita',        v: String(liveCfg.bb_limiar_estreita),     obrigatorio: true },
+          { k: 'bb_squeeze_expansao_min',   v: String(liveCfg.bb_squeeze_expansao_min),obrigatorio: true },
+          { k: 'bb_desvios',                v: String(liveCfg.bb_desvios),             obrigatorio: false },
+          { k: 'bb_filtro_ativo',           v: String(liveCfg.bb_filtro_ativo),        obrigatorio: false },
+          { k: 'sr_lookback',               v: String(liveCfg.sr_lookback),            obrigatorio: true },
+          { k: 'autoscan_min_breakout',     v: String(liveCfg.autoscan_min_breakout),  obrigatorio: liveCfg.estrategia_modo === 'autoscan' },
+          { k: 'autoscan_min_gap_candles',  v: String(liveCfg.autoscan_min_gap_candles), obrigatorio: liveCfg.estrategia_modo === 'autoscan' },
+          { k: 'autoscan_stop_offset',      v: String(liveCfg.autoscan_stop_offset),   obrigatorio: liveCfg.estrategia_modo === 'autoscan' },
+          { k: 'ratio_risco_retorno',       v: String(liveCfg.ratio_risco_retorno),    obrigatorio: true },
+          { k: 'max_trades_simultaneos',    v: String(liveCfg.max_trades_simultaneos), obrigatorio: true },
+          ...(liveCfg.estrategia_modo === 'rafi' ? [
+            { k: 'forca_limiar',       v: String(liveCfg.forca_limiar),      obrigatorio: true },
+            { k: 'ma_rapida',          v: String(liveCfg.ma_rapida),         obrigatorio: false },
+            { k: 'ma_lenta',           v: String(liveCfg.ma_lenta),          obrigatorio: false },
+            { k: 'swing_stop_lookback',v: String(liveCfg.swing_stop_lookback),obrigatorio: false },
+          ] : []),
+        ]
+
+        // Comprimento do parâmetro mais longo para alinhamento monospaced
+        const maxLen = Math.max(...snap.map(s => s.k.length))
+        const pad = (s: string) => s.padEnd(maxLen, ' ')
+
+        return (
+          <div style={{ margin: '8px 28px 0', padding: '16px 20px', borderRadius: 8,
+            background: C.s1, border: `1px solid ${hashOk ? C.gr + '30' : C.am + '30'}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: C.tx }}>
+                  Config Snapshot — O que o bot vai ler
+                </div>
+                <div style={{ fontSize: 9, color: C.t2, marginTop: 2 }}>
+                  Valores do perfil <span style={{ color: C.gr, fontFamily: 'monospace' }}>live</span> no Supabase · prioridade sobre config.yaml · obrigatório atualizar bot ao mudar
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                {/* Hash do Supabase live */}
+                <div style={{ padding: '5px 12px', borderRadius: 5, fontFamily: 'monospace',
+                  fontSize: 10, fontWeight: 700, border: `1px solid ${C.bd}`,
+                  background: C.s2, color: C.t2 }}>
+                  Salvo: <span style={{ color: C.am }}>cfg:{liveCfg.estrategia_modo === 'autoscan' ? HASH_BACKTEST : '—'}</span>
+                </div>
+                {/* Hash do bot ao vivo */}
+                <div style={{ padding: '5px 12px', borderRadius: 5, fontFamily: 'monospace',
+                  fontSize: 10, fontWeight: 700,
+                  border: `1px solid ${hashOk ? C.gr + '50' : C.re + '50'}`,
+                  background: hashOk ? `${C.gr}10` : `${C.re}10`,
+                  color: hashOk ? C.gr : C.re }}>
+                  Bot: {hashAtual ? `cfg:${hashAtual}` : online ? 'aguardando' : 'offline'}
+                  {hashOk && ' ✓ IGUAL'}
+                  {!hashOk && hashAtual && ' ✗ DIFERENTE — reinicie o bot'}
+                </div>
+              </div>
+            </div>
+
+            {/* Alerta: hash não bate */}
+            {hashAtual && !hashOk && (
+              <div style={{ padding: '8px 12px', borderRadius: 5, marginBottom: 12,
+                background: `${C.re}10`, border: `1px solid ${C.re}30`,
+                fontSize: 9, color: C.re, lineHeight: 1.7 }}>
+                ⚠ O bot ao vivo está rodando com uma config diferente (cfg:{hashAtual}).<br/>
+                Salve o perfil "Bot ao Vivo" acima e reinicie o bot na VM para aplicar.
+              </div>
+            )}
+
+            {/* Alerta: modo errado */}
+            {liveCfg.estrategia_modo !== 'autoscan' && (
+              <div style={{ padding: '8px 12px', borderRadius: 5, marginBottom: 12,
+                background: `${C.am}10`, border: `1px solid ${C.am}30`,
+                fontSize: 9, color: C.am, lineHeight: 1.7 }}>
+                ⚠ Modo selecionado: <strong>{liveCfg.estrategia_modo}</strong>. O backtest vencedor (WR 74.4% / PF 2.164) usou <strong>autoscan</strong>.<br/>
+                Mude para autoscan no card "Bot ao Vivo" acima e salve antes de reiniciar.
+              </div>
+            )}
+
+            {/* Bloco monospaced com todos os parâmetros */}
+            <div style={{ background: C.s2, border: `1px solid ${C.bd}`, borderRadius: 6,
+              padding: '14px 16px', fontFamily: 'monospace', fontSize: 10, lineHeight: 1.9,
+              overflowX: 'auto', maxHeight: 360, overflowY: 'auto' }}>
+              <div style={{ color: C.t3, marginBottom: 4 }}>
+                {'# ═══════════════════════════════════════════════════'}
+              </div>
+              <div style={{ color: C.t3 }}>
+                {'# CONFIG LIVE — Supabase rafi_bot_config (profile=\'live\')'}
+              </div>
+              <div style={{ color: C.t3, marginBottom: 8 }}>
+                {'# ═══════════════════════════════════════════════════'}
+              </div>
+              {snap.map(({ k, v, obrigatorio }) => (
+                <div key={k} style={{ display: 'flex', gap: 8 }}>
+                  <span style={{ color: obrigatorio ? C.cy : C.t2, minWidth: `${maxLen + 2}ch` }}>
+                    {pad(k)}
+                  </span>
+                  <span style={{ color: C.t3 }}>{'='}</span>
+                  <span style={{ color: C.am, fontWeight: 700 }}>{v}</span>
+                </div>
+              ))}
+              <div style={{ color: C.t3, marginTop: 8 }}>
+                {'# ═══════════════════════════════════════════════════'}
+              </div>
+              <div style={{ color: C.t3 }}>{'# Tabela de lote (hardcoded em risk_manager.py):'}</div>
+              {FAIXAS_LOTE.map((f, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8 }}>
+                  <span style={{ color: C.t2, minWidth: `${maxLen + 2}ch` }}>
+                    {pad(`lote_faixa_${i + 1}`)}
+                  </span>
+                  <span style={{ color: C.t3 }}>{'='}</span>
+                  <span style={{ color: C.gr }}>
+                    ${f.min.toLocaleString()}{f.max === Infinity ? '+' : `–$${f.max.toLocaleString()}`} → {f.lote.toFixed(2)}L ({f.pip})
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ marginTop: 8, fontSize: 8, color: C.t3, lineHeight: 1.7 }}>
+              Campos em <span style={{ color: C.cy }}>ciano</span> = obrigatórios para o modo selecionado ·
+              Campos em <span style={{ color: C.t2 }}>cinza</span> = opcionais/ignorados neste modo ·
+              Salve "Bot ao Vivo" e reinicie o bot na VM para aplicar · o hash do bot deve igualar ao do Supabase
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Grid dos dois perfis */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, padding: '16px 28px' }}>
