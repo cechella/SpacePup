@@ -104,8 +104,23 @@ def calcular_hash_config(cfg: dict) -> str:
         'autoscan_stop_offset', 'bb_squeeze_expansao_min',
     ]
     snapshot = {k: cfg.get(k) for k in CHAVES}
-    # separators=(',',':') → JSON compacto sem espaços, idêntico ao JSON.stringify do JS
-    serializado = json.dumps(snapshot, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
+
+    def _val(v: object) -> str:
+        """Serializa um valor exatamente como JSON.stringify do JavaScript.
+        Python serializa float 0.00005 como '5e-05'; JS serializa como '0.00005'.
+        O format :.10f + rstrip garante compatibilidade para todos os valores do config."""
+        if v is None:            return 'null'
+        if isinstance(v, bool):  return 'true' if v else 'false'
+        if isinstance(v, int):   return str(v)
+        if isinstance(v, float): return f'{v:.10f}'.rstrip('0').rstrip('.')
+        if isinstance(v, str):   return json.dumps(v, ensure_ascii=False)
+        return json.dumps(v, ensure_ascii=False)
+
+    partes = ','.join(
+        f'{json.dumps(k, ensure_ascii=False)}:{_val(snapshot[k])}'
+        for k in sorted(snapshot)
+    )
+    serializado = '{' + partes + '}'
     return hashlib.md5(serializado.encode()).hexdigest()[:8]
 
 
