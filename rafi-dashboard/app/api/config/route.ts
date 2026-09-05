@@ -13,6 +13,16 @@ function getServiceClient() {
   return createClient(url, key, { auth: { persistSession: false } })
 }
 
+// Campos da estratégia que o bot lê — não inclui colunas internas do Supabase
+const CAMPOS_CONFIG = [
+  'estrategia_modo', 'forca_limiar', 'rafi_periodo', 'sr_lookback',
+  'swing_stop_lookback', 'ma_rapida', 'ma_lenta', 'ma_threshold',
+  'bb_filtro_ativo', 'bb_limiar_estreita', 'bb_periodo', 'bb_desvios',
+  'ratio_risco_retorno', 'max_trades_simultaneos',
+  'autoscan_min_breakout', 'autoscan_min_gap_candles',
+  'autoscan_stop_offset', 'bb_squeeze_expansao_min',
+]
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -28,13 +38,39 @@ export async function POST(req: NextRequest) {
     const supa = getServiceClient()
     const ts = new Date().toISOString()
 
-    const { error } = await supa
+    // Filtra apenas os campos de estratégia — remove id, updated_at antigo e
+    // outras colunas internas do Supabase que causam conflito de PK no upsert
+    const payload: Record<string, unknown> = { profile, updated_at: ts }
+    for (const k of CAMPOS_CONFIG) {
+      if (k in cfg) payload[k] = cfg[k]
+    }
+
+    // Verifica se o perfil já existe para decidir entre update e insert
+    const { data: existing } = await supa
       .from('rafi_bot_config')
-      .upsert({ ...cfg, profile, updated_at: ts }, { onConflict: 'profile' })
+      .select('profile')
+      .eq('profile', profile)
+      .limit(1)
+
+    let error: { message?: string; details?: string; hint?: string } | null
+    if (existing && existing.length > 0) {
+      // Perfil existe — usa UPDATE para evitar conflito de PK
+      const { error: e } = await supa
+        .from('rafi_bot_config')
+        .update(payload)
+        .eq('profile', profile)
+      error = e
+    } else {
+      // Perfil não existe — usa INSERT
+      const { error: e } = await supa
+        .from('rafi_bot_config')
+        .insert(payload)
+      error = e
+    }
 
     if (error) {
       const msg = error.message ?? error.details ?? error.hint ?? JSON.stringify(error)
-      return NextResponse.json({ error: msg, code: error.code }, { status: 500 })
+      return NextResponse.json({ error: msg }, { status: 500 })
     }
 
     return NextResponse.json({ ok: true, updated_at: ts })
