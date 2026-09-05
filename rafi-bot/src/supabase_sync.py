@@ -685,6 +685,43 @@ def carregar_config_supabase(profile: str = 'live') -> Optional[dict]:
         return None
 
 
+def carregar_faixas_lote() -> list[tuple[float, float, float]]:
+    """
+    Carrega a tabela de faixas de lote do Supabase (rafi_lote_faixas).
+
+    Retorna lista de tuplas (capital_min, capital_max, lote) ordenada por capital_min.
+    Se o Supabase estiver indisponível ou a tabela não existir, retorna o fallback
+    hardcoded — garantia de que o bot nunca para por falta de conexão.
+
+    Chamado por risk_manager.lote_por_faixa() e backtest/engine.py a cada ciclo
+    de decisão (com cache interno de 5 minutos para não sobrecarregar o banco).
+    """
+    cliente = _get_cliente()
+    if not cliente:
+        return []  # fallback será aplicado pelo chamador
+    try:
+        resp = (
+            cliente.table('rafi_lote_faixas')
+            .select('capital_min,capital_max,lote')
+            .eq('ativo', True)
+            .order('ordem')
+            .execute()
+        )
+        if not resp.data:
+            return []
+        faixas: list[tuple[float, float, float]] = []
+        for row in resp.data:
+            cap_min = float(row['capital_min'])
+            cap_max = float(row['capital_max']) if row['capital_max'] is not None else float('inf')
+            lote    = float(row['lote'])
+            faixas.append((cap_min, cap_max, lote))
+        logger.info(f"[Supabase] {len(faixas)} faixas de lote carregadas do dashboard")
+        return faixas
+    except Exception as e:
+        logger.warning(f"[Supabase] rafi_lote_faixas indisponível ({e}) — usando fallback hardcoded")
+        return []
+
+
 def salvar_config_supabase(
     params: dict,
     perfil: str  = 'live',

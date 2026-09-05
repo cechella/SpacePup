@@ -41,20 +41,13 @@ const DEFAULTS = {
 }
 type Config = typeof DEFAULTS
 
-const FAIXAS_LOTE = [
-  { min:      0, max:    40, lote:   0.10, pip: '$1/pip'   },
-  { min:     40, max:    80, lote:   0.20, pip: '$2/pip'   },
-  { min:     80, max:   150, lote:   0.40, pip: '$4/pip'   },
-  { min:    150, max:   200, lote:   0.70, pip: '$7/pip'   },
-  { min:    200, max:   400, lote:   1.00, pip: '$10/pip'  },
-  { min:    400, max:   800, lote:   2.00, pip: '$20/pip'  },
-  { min:    800, max:  1500, lote:   4.00, pip: '$40/pip'  },
-  { min:   1500, max:  3000, lote:   8.00, pip: '$80/pip'  },
-  { min:   3000, max:  6000, lote:  15.00, pip: '$150/pip' },
-  { min:   6000, max: 10000, lote:  30.00, pip: '$300/pip' },
-  { min:  10000, max: 20000, lote:  50.00, pip: '$500/pip' },
-  { min:  20000, max: Infinity, lote: 100.00, pip: '$1k/pip' },
-]
+type FaixaLote = { id?: number; ordem: number; capital_min: number; capital_max: number | null; lote: number }
+
+// Calcula pip value a partir do lote (lote × $10/pip)
+function pipValue(lote: number): string {
+  const v = lote * 10
+  return v >= 1000 ? `$${(v/1000).toFixed(0)}k/pip` : `$${v % 1 === 0 ? v.toFixed(0) : v.toFixed(0)}/pip`
+}
 
 const GRUPOS: {
   label: string; cor: string
@@ -204,6 +197,12 @@ export default function ConfigPage() {
   // Modal de confirmação para salvar ao vivo
   const [showModal, setShowModal] = useState(false)
 
+  // Tabela de faixas de lote — carregada do Supabase
+  const [faixas, setFaixas] = useState<FaixaLote[]>([])
+  const [faixasEditando, setFaixasEditando] = useState<Record<number, Partial<FaixaLote>>>({})
+  const [faixasSaving, setFaixasSaving] = useState<Record<number, boolean>>({})
+  const [faixasSaved,  setFaixasSaved]  = useState<Record<number, boolean>>({})
+
   // Atualiza status do bot e hash live do Supabase — chamado no mount e a cada 30s
   const atualizarStatusBot = useCallback(async () => {
     if (!supa) return
@@ -230,6 +229,14 @@ export default function ConfigPage() {
           if (live) { setLiveCfg({ ...DEFAULTS, ...live }); setLiveLastSaved(live.updated_at) }
         }
       } catch { setError('Tabela rafi_bot_config não encontrada — execute o SQL no Supabase') }
+      try {
+        const { data: faixasData } = await supa
+          .from('rafi_lote_faixas')
+          .select('id,ordem,capital_min,capital_max,lote')
+          .eq('ativo', true)
+          .order('ordem')
+        if (faixasData) setFaixas(faixasData as FaixaLote[])
+      } catch { /* tabela ainda não existe — ignora silenciosamente */ }
       await atualizarStatusBot()
       setLoading(false)
     })()
@@ -274,6 +281,29 @@ export default function ConfigPage() {
   const confirmarSalvarLive = () => {
     setShowModal(false)
     salvarDb('live', liveCfg)
+  }
+
+  const salvarFaixa = async (ordem: number) => {
+    if (!supa) return
+    const edit = faixasEditando[ordem]
+    if (!edit) return
+    setFaixasSaving(s => ({ ...s, [ordem]: true }))
+    try {
+      const faixa = faixas.find(f => f.ordem === ordem)
+      const patch = {
+        lote: edit.lote ?? faixa?.lote,
+        capital_min: edit.capital_min ?? faixa?.capital_min,
+        capital_max: edit.capital_max !== undefined ? edit.capital_max : faixa?.capital_max,
+        updated_at: new Date().toISOString(),
+      }
+      await supa.from('rafi_lote_faixas').update(patch).eq('ordem', ordem)
+      // Atualiza estado local
+      setFaixas(prev => prev.map(f => f.ordem === ordem ? { ...f, ...patch } : f))
+      setFaixasEditando(e => { const n = { ...e }; delete n[ordem]; return n })
+      setFaixasSaved(s => ({ ...s, [ordem]: true }))
+      setTimeout(() => setFaixasSaved(s => ({ ...s, [ordem]: false })), 2000)
+    } catch (e) { setError(`Erro ao salvar faixa ${ordem}: ${e}`) }
+    setFaixasSaving(s => ({ ...s, [ordem]: false }))
   }
 
   const sincronizarLive = async () => {
@@ -706,37 +736,89 @@ export default function ConfigPage() {
               })()}
             </div>
 
-            {/* Tabela de crescimento de lote */}
+            {/* Tabela de crescimento de lote — editável, salvo no Supabase */}
             <div style={{ margin: '0 20px 14px', borderRadius: 6, overflow: 'hidden', border: `1px solid ${C.bd}` }}>
               <div style={{ padding: '7px 12px', background: `${C.am}15`, borderBottom: `1px solid ${C.am}20`,
-                fontSize: 8, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.am }}>
-                Crescimento de Lote — Capital → Lote Automático
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.am }}>
+                  Crescimento de Lote — Capital → Lote Automático
+                </span>
+                <span style={{ fontSize: 7, color: C.t2 }}>clique no lote para editar</span>
               </div>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 9, fontFamily: 'monospace' }}>
                   <thead>
                     <tr style={{ background: C.s2 }}>
-                      {['Capital', 'Lote', 'Pip value'].map(h => (
+                      {['Capital Min', 'Capital Max', 'Lote', 'Pip value', ''].map(h => (
                         <th key={h} style={{ padding: '4px 10px', color: C.t2, fontWeight: 600,
                           textAlign: 'left', borderBottom: `1px solid ${C.bd}` }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {FAIXAS_LOTE.map((f, i) => (
-                      <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : `${C.s2}80` }}>
-                        <td style={{ padding: '3px 10px', color: C.t2 }}>
-                          ${f.min.toLocaleString()}{f.max === Infinity ? '+' : `–$${f.max.toLocaleString()}`}
-                        </td>
-                        <td style={{ padding: '3px 10px', color: C.am, fontWeight: 700 }}>{f.lote.toFixed(2)}L</td>
-                        <td style={{ padding: '3px 10px', color: C.t2 }}>{f.pip}</td>
-                      </tr>
-                    ))}
+                    {faixas.map((f, i) => {
+                      const edit = faixasEditando[f.ordem] ?? {}
+                      const loteAtual = edit.lote ?? f.lote
+                      const minAtual  = edit.capital_min ?? f.capital_min
+                      const maxAtual  = 'capital_max' in edit ? edit.capital_max : f.capital_max
+                      const temEdit   = f.ordem in faixasEditando
+                      const saving    = faixasSaving[f.ordem]
+                      const saved     = faixasSaved[f.ordem]
+                      return (
+                        <tr key={f.ordem} style={{ background: i % 2 === 0 ? 'transparent' : `${C.s2}80`,
+                          outline: temEdit ? `1px solid ${C.am}30` : 'none' }}>
+                          {/* Capital Min */}
+                          <td style={{ padding: '2px 6px' }}>
+                            <input type="number" value={minAtual} step={1} min={0}
+                              onChange={e => setFaixasEditando(ev => ({ ...ev, [f.ordem]: { ...ev[f.ordem], capital_min: parseFloat(e.target.value) } }))}
+                              style={{ width: 68, background: 'transparent', border: `1px solid ${temEdit ? C.am+'60' : C.bd}`,
+                                color: C.t2, fontSize: 9, fontFamily: 'monospace', padding: '2px 4px', borderRadius: 3, outline: 'none' }} />
+                          </td>
+                          {/* Capital Max */}
+                          <td style={{ padding: '2px 6px' }}>
+                            {maxAtual === null ? (
+                              <span style={{ color: C.t3, fontSize: 9 }}>∞</span>
+                            ) : (
+                              <input type="number" value={maxAtual ?? ''} step={1} min={0}
+                                onChange={e => setFaixasEditando(ev => ({ ...ev, [f.ordem]: { ...ev[f.ordem], capital_max: e.target.value === '' ? null : parseFloat(e.target.value) } }))}
+                                style={{ width: 68, background: 'transparent', border: `1px solid ${temEdit ? C.am+'60' : C.bd}`,
+                                  color: C.t2, fontSize: 9, fontFamily: 'monospace', padding: '2px 4px', borderRadius: 3, outline: 'none' }} />
+                            )}
+                          </td>
+                          {/* Lote */}
+                          <td style={{ padding: '2px 6px' }}>
+                            <input type="number" value={loteAtual} step={0.01} min={0.01}
+                              onChange={e => setFaixasEditando(ev => ({ ...ev, [f.ordem]: { ...ev[f.ordem], lote: parseFloat(e.target.value) } }))}
+                              style={{ width: 60, background: temEdit ? `${C.am}12` : 'transparent',
+                                border: `1px solid ${temEdit ? C.am : C.bd}`,
+                                color: C.am, fontWeight: 700, fontSize: 9, fontFamily: 'monospace',
+                                padding: '2px 4px', borderRadius: 3, outline: 'none' }} />
+                          </td>
+                          {/* Pip value calculado */}
+                          <td style={{ padding: '3px 10px', color: C.t2 }}>{pipValue(loteAtual)}</td>
+                          {/* Botão salvar */}
+                          <td style={{ padding: '2px 6px' }}>
+                            {temEdit && (
+                              <button onClick={() => salvarFaixa(f.ordem)} disabled={saving}
+                                style={{ padding: '2px 8px', fontSize: 8, fontWeight: 700,
+                                  background: saved ? `${C.gr}20` : `${C.am}20`,
+                                  border: `1px solid ${saved ? C.gr : C.am}60`,
+                                  color: saved ? C.gr : C.am,
+                                  borderRadius: 3, cursor: saving ? 'wait' : 'pointer' }}>
+                                {saving ? '...' : saved ? '✓' : 'Salvar'}
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
-              <div style={{ padding: '5px 12px', fontSize: 7, color: C.t3, borderTop: `1px solid ${C.bd}` }}>
-                Hardcoded em risk_manager.py · sobe automaticamente com o capital
+              <div style={{ padding: '5px 12px', fontSize: 7, color: C.t2, borderTop: `1px solid ${C.bd}`,
+                display: 'flex', justifyContent: 'space-between' }}>
+                <span>Fonte: Supabase · rafi_lote_faixas · sobe automaticamente com o capital</span>
+                <span style={{ color: C.t3 }}>{faixas.length} faixas ativas</span>
               </div>
             </div>
 
