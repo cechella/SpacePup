@@ -94,8 +94,9 @@ def trade_para_dashboard(trade: dict, capital_entrada: float) -> dict:
     """
     Converte um dict de trade do backtest no formato ManualTrade do dashboard.
 
-    O lote é recalculado pela tabela agressiva baseado no capital NO MOMENTO
-    da entrada — o mesmo lote que o bot usaria se aplicasse esta estratégia.
+    Usa o lote real registrado pelo backtest (trade['lote']), que segue a tabela
+    FAIXAS_LOTE do risk_manager.py. Só usa SCALE_TIERS_PYTHON como fallback se
+    o trade não tiver o campo 'lote'.
     """
     sinal     = trade['sinal']
     direction = 'buy' if sinal == 'compra' else 'sell'
@@ -115,8 +116,10 @@ def trade_para_dashboard(trade: dict, capital_entrada: float) -> dict:
     ts_str = ts.strftime('%Y-%m-%d %H:%M') if hasattr(ts, 'strftime') else str(ts)[:16]
     label  = f"{'BUY' if direction == 'buy' else 'SELL'} {ts_str}"
 
-    # Lote: usa a tabela agressiva pelo capital no momento da entrada
-    lot = lote_agressivo(capital_entrada)
+    # Lote: usa o lote real do backtest (FAIXAS_LOTE do risk_manager.py).
+    # Fallback para SCALE_TIERS_PYTHON se o campo não existir (trades antigos).
+    lot_raw = trade.get('lote')
+    lot = float(lot_raw) if lot_raw is not None else lote_agressivo(capital_entrada)
 
     # Força RAFI (pode ser NaN para estratégias que não o calculam)
     forca_raw = trade.get('forca_entrada')
