@@ -93,12 +93,15 @@ def calcular_hash_config(cfg: dict) -> str:
     Permite verificar no dashboard se o bot ao vivo usa os mesmos parâmetros
     do backtest que gerou os resultados históricos.
     """
-    # Serializa apenas as chaves que afetam as regras da estratégia
+    # Serializa exatamente os campos salvos no Supabase pelo dashboard
+    # (deve ser idêntico a CAMPOS_CONFIG em rafi-dashboard/app/api/config/route.ts)
     CHAVES = [
-        'par', 'forca_limiar', 'rafi_periodo', 'sr_lookback', 'swing_stop_lookback',
-        'ma_rapida', 'ma_lenta', 'ma_threshold', 'bb_filtro_ativo', 'bb_limiar_estreita',
-        'bb_periodo', 'bb_desvios', 'risco_por_trade', 'ratio_risco_retorno',
-        'max_trades_simultaneos', 'risco_maximo_diario', 'capital_inicial',
+        'estrategia_modo', 'forca_limiar', 'rafi_periodo', 'sr_lookback',
+        'swing_stop_lookback', 'ma_rapida', 'ma_lenta', 'ma_threshold',
+        'bb_filtro_ativo', 'bb_limiar_estreita', 'bb_periodo', 'bb_desvios',
+        'ratio_risco_retorno', 'max_trades_simultaneos',
+        'autoscan_min_breakout', 'autoscan_min_gap_candles',
+        'autoscan_stop_offset', 'bb_squeeze_expansao_min',
     ]
     snapshot = {k: cfg.get(k) for k in CHAVES}
     serializado = json.dumps(snapshot, sort_keys=True, ensure_ascii=False)

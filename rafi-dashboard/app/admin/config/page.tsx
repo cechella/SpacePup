@@ -185,6 +185,8 @@ export default function ConfigPage() {
 
   // Status do bot ao vivo — para mostrar config_hash e confirmar que a config chegou
   const [botStatus, setBotStatus] = useState<{ config_hash?: string; status?: string; balance?: number; updated_at?: string } | null>(null)
+  // Hash do config live calculado server-side (mesmo algoritmo que o bot) — substitui o hardcoded
+  const [liveHashSupabase, setLiveHashSupabase] = useState<string | null>(null)
 
   // Cadeados — ambos bloqueados por padrão
   const [simLocked,  setSimLocked]  = useState(true)
@@ -219,6 +221,12 @@ export default function ConfigPage() {
         const { data: st } = await supa.from('rafi_bot_status').select('config_hash,status,balance,updated_at').order('updated_at', { ascending: false }).limit(1)
         if (st?.[0]) setBotStatus(st[0])
       } catch { /* silencioso — bot pode estar offline */ }
+      // Busca hash do config live calculado server-side (mesmo algoritmo que o bot)
+      try {
+        const res = await fetch('/api/config')
+        const apiData = await res.json()
+        if (apiData.live_hash) setLiveHashSupabase(apiData.live_hash)
+      } catch { /* silencioso */ }
       setLoading(false)
     })()
   }, [])
@@ -347,9 +355,9 @@ export default function ConfigPage() {
 
       {/* ── Snapshot: O que o bot vai ler (leitura do Supabase live + status) ── */}
       {(() => {
-        const HASH_BACKTEST = '445d1535'
+        const hashSalvo = liveHashSupabase
         const hashAtual = botStatus?.config_hash?.replace('cfg:', '') ?? null
-        const hashOk    = hashAtual === HASH_BACKTEST
+        const hashOk    = hashSalvo !== null && hashAtual === hashSalvo
         const secsOff   = botStatus?.updated_at
           ? Math.floor((Date.now() - new Date(botStatus.updated_at).getTime()) / 1000)
           : null
@@ -398,7 +406,7 @@ export default function ConfigPage() {
                 <div style={{ padding: '5px 12px', borderRadius: 5, fontFamily: 'monospace',
                   fontSize: 10, fontWeight: 700, border: `1px solid ${C.bd}`,
                   background: C.s2, color: C.t2 }}>
-                  Salvo: <span style={{ color: C.am }}>cfg:{liveCfg.estrategia_modo === 'autoscan' ? HASH_BACKTEST : '—'}</span>
+                  Salvo: <span style={{ color: C.am }}>cfg:{hashSalvo ?? '…'}</span>
                 </div>
                 {/* Hash do bot ao vivo */}
                 <div style={{ padding: '5px 12px', borderRadius: 5, fontFamily: 'monospace',
@@ -414,12 +422,13 @@ export default function ConfigPage() {
             </div>
 
             {/* Alerta: hash não bate */}
-            {hashAtual && !hashOk && (
+            {hashAtual && hashSalvo && !hashOk && (
               <div style={{ padding: '8px 12px', borderRadius: 5, marginBottom: 12,
                 background: `${C.re}10`, border: `1px solid ${C.re}30`,
                 fontSize: 9, color: C.re, lineHeight: 1.7 }}>
-                ⚠ O bot ao vivo está rodando com uma config diferente (cfg:{hashAtual}).<br/>
-                Salve o perfil "Bot ao Vivo" acima e reinicie o bot na VM para aplicar.
+                ⚠ O bot ao vivo está rodando com uma config diferente.<br/>
+                Supabase: cfg:{hashSalvo} · Bot ativo: cfg:{hashAtual}<br/>
+                Reinicie o bot na VM para aplicar a config atual.
               </div>
             )}
 
