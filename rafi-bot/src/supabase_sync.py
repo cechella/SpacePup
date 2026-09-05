@@ -295,7 +295,7 @@ def verificar_comando_avancado() -> Optional[dict]:
             cliente.table('rafi_bot_commands')
             .select('id,command')
             .eq('pending', True)
-            .in_('command', ['close_position', 'buy_manual', 'sell_manual'])
+            .in_('command', ['close_position', 'close_all', 'buy_manual', 'sell_manual'])
             .order('created_at')
             .limit(1)
             .execute()
