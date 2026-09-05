@@ -104,7 +104,8 @@ def calcular_hash_config(cfg: dict) -> str:
         'autoscan_stop_offset', 'bb_squeeze_expansao_min',
     ]
     snapshot = {k: cfg.get(k) for k in CHAVES}
-    serializado = json.dumps(snapshot, sort_keys=True, ensure_ascii=False)
+    # separators=(',',':') → JSON compacto sem espaços, idêntico ao JSON.stringify do JS
+    serializado = json.dumps(snapshot, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
     return hashlib.md5(serializado.encode()).hexdigest()[:8]
 
 
