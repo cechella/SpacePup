@@ -204,6 +204,20 @@ export default function ConfigPage() {
   // Modal de confirmação para salvar ao vivo
   const [showModal, setShowModal] = useState(false)
 
+  // Atualiza status do bot e hash live do Supabase — chamado no mount e a cada 30s
+  const atualizarStatusBot = useCallback(async () => {
+    if (!supa) return
+    try {
+      const { data: st } = await supa.from('rafi_bot_status').select('config_hash,status,balance,updated_at').order('updated_at', { ascending: false }).limit(1)
+      if (st?.[0]) setBotStatus(st[0])
+    } catch { /* silencioso — bot pode estar offline */ }
+    try {
+      const res = await fetch('/api/config')
+      const apiData = await res.json()
+      if (apiData.live_hash) setLiveHashSupabase(apiData.live_hash)
+    } catch { /* silencioso */ }
+  }, [])
+
   useEffect(() => {
     if (!supa) return
     ;(async () => {
@@ -216,20 +230,13 @@ export default function ConfigPage() {
           if (live) { setLiveCfg({ ...DEFAULTS, ...live }); setLiveLastSaved(live.updated_at) }
         }
       } catch { setError('Tabela rafi_bot_config não encontrada — execute o SQL no Supabase') }
-      // Busca status do bot para exibir config_hash e confirmar que a config chegou
-      try {
-        const { data: st } = await supa.from('rafi_bot_status').select('config_hash,status,balance,updated_at').order('updated_at', { ascending: false }).limit(1)
-        if (st?.[0]) setBotStatus(st[0])
-      } catch { /* silencioso — bot pode estar offline */ }
-      // Busca hash do config live calculado server-side (mesmo algoritmo que o bot)
-      try {
-        const res = await fetch('/api/config')
-        const apiData = await res.json()
-        if (apiData.live_hash) setLiveHashSupabase(apiData.live_hash)
-      } catch { /* silencioso */ }
+      await atualizarStatusBot()
       setLoading(false)
     })()
-  }, [])
+    // Atualiza status do bot a cada 30 segundos para manter o hash sincronizado
+    const intervalo = setInterval(atualizarStatusBot, 30_000)
+    return () => clearInterval(intervalo)
+  }, [atualizarStatusBot])
 
   const divergindo  = useMemo(() => camposDivergindo(simCfg, liveCfg), [simCfg, liveCfg])
   const emSincronia = divergindo.size === 0
@@ -250,6 +257,8 @@ export default function ConfigPage() {
       if (!res.ok) throw new Error(data.error || res.statusText)
       setLast(data.updated_at); setSaved(true); setLocked(true)  // re-bloqueia após salvar
       setTimeout(() => setSaved(false), 3000)
+      // Atualiza hash live imediatamente após salvar
+      if (profile === 'live') atualizarStatusBot()
     } catch (e) { setError(`Erro ao salvar: ${e}`) }
     setSaving(false)
   }

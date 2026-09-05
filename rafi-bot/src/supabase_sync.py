@@ -208,7 +208,11 @@ def publicar_heartbeat(
     }
 
     try:
-        cliente.table('rafi_bot_status').upsert(row, on_conflict='id').execute()
+        res = cliente.table('rafi_bot_status').upsert(row, on_conflict='id').execute()
+        # supabase-py ≥2.x levanta exceção em erros HTTP; versões mais antigas retornam .error
+        if hasattr(res, 'error') and res.error:
+            logger.error(f"[Supabase] Erro no upsert rafi_bot_status: {res.error}")
+            return False
         return True
     except Exception as e:
         logger.error(f"[Supabase] Erro ao publicar heartbeat: {e}")
