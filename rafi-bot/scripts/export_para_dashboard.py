@@ -90,7 +90,7 @@ def _resultado(trade: dict) -> str:
     return 'win' if pnl > 0 else 'loss'
 
 
-def trade_para_dashboard(trade: dict, capital_entrada: float) -> dict:
+def trade_para_dashboard(trade: dict, capital_entrada: float, capital_inicial: float = 0) -> dict:
     """
     Converte um dict de trade do backtest no formato ManualTrade do dashboard.
 
@@ -142,7 +142,8 @@ def trade_para_dashboard(trade: dict, capital_entrada: float) -> dict:
         'result'    : result,
         'rafi'      : rafi_val,
         'rafiDir'   : 'bull' if direction == 'buy' else 'bear',
-        'pnlUsd'    : pnl_usd,
+        'pnlUsd'       : pnl_usd,
+        'capitalInicial': round(capital_inicial, 2),
     }
 
 
@@ -244,7 +245,7 @@ def main() -> None:
     for trade in trades_raw:
         # Capital no momento da entrada (antes de fechar este trade)
         cap_entrada = float(trade.get('capital_entrada', capital_atual))
-        dt = trade_para_dashboard(trade, cap_entrada)
+        dt = trade_para_dashboard(trade, cap_entrada, capital_inicial=capital)
         dashboard_trades.append(dt)
         # Atualiza capital para o próximo trade
         capital_atual = float(trade.get('capital_apos', capital_atual))

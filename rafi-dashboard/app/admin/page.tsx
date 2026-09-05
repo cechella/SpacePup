@@ -90,7 +90,7 @@ interface ManualTrade {
   time: number; lot: number; leverage: number
   result?: 'win' | 'loss' | 'pending'
   rafi?: number; rafiDir?: 'bull' | 'bear'; bbWidth?: number
-  snapshot?: string; pnlUsd?: number
+  snapshot?: string; pnlUsd?: number; capitalInicial?: number
 }
 
 const STORAGE_KEY = 'rafi-trade-log'
@@ -653,6 +653,12 @@ export default function AdminDashboard() {
     return acc
   }, 0), [trades])
 
+  const capitalInicial = useMemo(
+    () => trades.find(t => t.capitalInicial != null)?.capitalInicial ?? 0,
+    [trades]
+  )
+  const capitalFinal = pnl + capitalInicial
+
   const pnlPotential = useMemo(() => trades
     .filter(t => !t.result || t.result === 'pending')
     .reduce((acc, t) => acc + rewardPips(t.entry, t.takeProfit, t.direction) * pipValueUSD(t.lot), 0),
@@ -730,9 +736,13 @@ export default function AdminDashboard() {
         <KPI label="Win Rate"
           value={winRate !== null ? `${winRate}%` : '—'}
           sub={`${wins}W · ${losses}L`} color={winRateColor} icon={Award} />
-        <KPI label="P&L Simulado"
-          value={`${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`}
-          sub={pending > 0 ? `+$${pnlPotential.toFixed(0)} potencial (${pending} pend.)` : 'trades rotulados'}
+        <KPI label={capitalInicial > 0 ? 'Capital Final' : 'P&L Simulado'}
+          value={capitalInicial > 0
+            ? `$${capitalFinal.toFixed(2)}`
+            : `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`}
+          sub={capitalInicial > 0
+            ? `lucro: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`
+            : pending > 0 ? `+$${pnlPotential.toFixed(0)} potencial (${pending} pend.)` : 'trades rotulados'}
           color={pnl >= 0 ? '#10b981' : '#ef4444'} icon={Zap} />
         <KPI label="R:R Médio"
           value={avgRR ? `${avgRR}×` : '—'}
