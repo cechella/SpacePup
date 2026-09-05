@@ -38,7 +38,7 @@ function fromRow(row: Record<string, unknown>): TradeRecord {
     rafiDir:    (row.rafi_dir as TradeRecord['rafiDir']) ?? undefined,
     bbWidth:    row.bb_width != null ? Number(row.bb_width) : undefined,
     snapshot:   (row.snapshot as string) ?? undefined,
-    pnlUsd:        row.pnl_usd != null ? Number(row.pnl_usd) : undefined,
+    pnlUsd:        row.pnl_usd != null ? Number(row.pnl_usd) : row.pnl != null ? Number(row.pnl) : undefined,
     capitalInicial: row.capital_inicial != null ? Number(row.capital_inicial) : undefined,
   }
 }
