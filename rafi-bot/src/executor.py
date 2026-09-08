@@ -154,6 +154,7 @@ class RafiBot:
         self.capital = config.get('capital_inicial', 100.0)
 
         # Rastreia trades abertos: {ticket: {ts, entry, sl, tp, lot}}
+        # Preenchido no startup via _restaurar_posicoes_abertas() para sobreviver a reinícios.
         self._posicoes: dict = {}
 
         # Controle de perda diária e P&L acumulado do dia
@@ -297,6 +298,9 @@ class RafiBot:
         if saldo_real is not None:
             self.capital = saldo_real   # usa saldo real mesmo que seja $0
         logger.info(f"Saldo da conta: ${self.capital:.2f}")
+
+        # Restaura posições que estavam abertas antes de um eventual reinício
+        self._restaurar_posicoes_abertas()
 
         # Publica histórico inicial para o gráfico do dashboard aparecer imediatamente
         df_inicial = self.mt5.obter_candles('M5', n_candles=200)
@@ -1013,6 +1017,48 @@ class RafiBot:
     # ─────────────────────────────────────────────────────────────────────────
     # MONITORAMENTO DE POSIÇÕES
     # ─────────────────────────────────────────────────────────────────────────
+
+    def _restaurar_posicoes_abertas(self) -> None:
+        """
+        Reconstrói self._posicoes com as posições que o MT5 já tem abertas.
+
+        Chamado no startup, após conectar ao MT5. Garante que posições abertas
+        antes de um reinício do bot continuem sendo monitoradas — sem isso,
+        quando o SL/TP bater, o bot não detecta o fechamento e o trade fica
+        preso como 'pending' no Supabase para sempre.
+
+        Não envia nenhuma ordem nem altera parâmetros de risco.
+        """
+        posicoes_mt5 = self.mt5.posicoes_abertas()
+        if not posicoes_mt5:
+            return
+
+        restauradas = 0
+        for p in posicoes_mt5:
+            ticket = p['ticket']
+            if ticket in self._posicoes:
+                continue  # já rastreada (não deveria acontecer no startup)
+
+            self._posicoes[ticket] = {
+                'ts':          int(time.time()),
+                'entry':       p['preco_entrada'],
+                'stop_loss':   p['stop_loss'],
+                'take_profit': p['take_profit'],
+                'lot':         p['lote'],
+                'direcao':     p['sinal'],
+                # sem rafi/bb_width — desconhecidos após reinício
+            }
+            restauradas += 1
+            logger.info(
+                f"[Restore] Posição #{ticket} restaurada do MT5 — "
+                f"{p['sinal'].upper()} @ {p['preco_entrada']:.5f}"
+            )
+
+        if restauradas:
+            publicar_log(
+                f"{restauradas} posição(ões) restaurada(s) do MT5 após reinício",
+                level='warn',
+            )
 
     def _monitorar_posicoes(self) -> None:
         """

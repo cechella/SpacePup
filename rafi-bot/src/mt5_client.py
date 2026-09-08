@@ -292,14 +292,33 @@ class ClienteMT5:
             logger.error(f"Falha ao enviar ordem: retcode={codigo}")
             return None
 
+        # Alguns brokers (ex.: Pepperstone) retornam resultado.price = 0.0
+        # no OrderSendResult. O preço real de execução fica no histórico de deals.
+        # Aguardamos até 1s para o deal aparecer antes de usar o fallback.
+        preco_real = resultado.price
+        if preco_real == 0.0:
+            import time as _time
+            ticket_ordem = resultado.order
+            for _ in range(10):
+                _time.sleep(0.1)
+                deals = mt5.history_deals_get(position=ticket_ordem)
+                if deals:
+                    preco_real = deals[0].price
+                    break
+            if preco_real == 0.0:
+                logger.warning(
+                    f"Preço de execução não encontrado via deals para ticket #{ticket_ordem} "
+                    f"— usando resultado.price como fallback"
+                )
+
         logger.info(
             f"Ordem enviada: {sinal.upper()} {lote} {self.par} "
-            f"@ {resultado.price:.5f} | SL: {stop_loss:.5f} | TP: {take_profit:.5f} "
+            f"@ {preco_real:.5f} | SL: {stop_loss:.5f} | TP: {take_profit:.5f} "
             f"| Ticket: {resultado.order}"
         )
         return {
             'ticket'       : resultado.order,
-            'preco_entrada': resultado.price,
+            'preco_entrada': preco_real,
             'sucesso'      : True,
         }
 
