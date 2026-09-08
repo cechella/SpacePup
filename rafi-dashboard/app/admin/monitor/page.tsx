@@ -551,7 +551,7 @@ export default function MonitorPage() {
       )}
 
       {/* ── Main content ───────────────────────────────────────────────────── */}
-      <main style={{ maxWidth: 1280, margin: '0 auto', padding: '20px 20px 40px' }}>
+      <main style={{ width: '100%', padding: '20px 24px 40px' }}>
 
         {/* ── 5 KPI cards ────────────────────────────────────────────────── */}
         <div style={{
