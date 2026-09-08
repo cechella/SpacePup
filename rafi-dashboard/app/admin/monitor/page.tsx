@@ -64,6 +64,7 @@ interface Trade {
   stop_loss: number; take_profit: number; lot: number
   result: 'win' | 'loss' | 'pending'
   rafi: number | null; pnl: number | null; time: number; label: string
+  close_price?: number | null
 }
 interface BotLog {
   id: string; level: 'info' | 'warn' | 'error' | 'signal'; message: string
@@ -77,7 +78,8 @@ function secondsAgo(iso: string) {
   if (d < 3600) return `${Math.floor(d / 60)}min atrás`
   return `${Math.floor(d / 3600)}h atrás`
 }
-function fmtUSD(v: number, plus = false) {
+function fmtUSD(v: number | null | undefined, plus = false) {
+  if (v == null || isNaN(v)) return '—'
   const s = `$${Math.abs(v).toFixed(2)}`
   if (!plus) return v < 0 ? `-${s}` : s
   return v >= 0 ? `+${s}` : `-${s}`
@@ -112,7 +114,7 @@ function EquityCurve({ trades }: { trades: Trade[] }) {
   let cum = 0
   const pts = closed.map(t => {
     const comm = (t.lot ?? 0.1) * 7
-    if (t.pnl !== null) { cum += t.pnl - comm } else {
+    if (t.pnl != null) { cum += t.pnl - comm } else {
       const R = Math.abs(t.entry - t.stop_loss) * (t.lot ?? 0.1) * 100000
       cum += t.result === 'win' ? R * 1.5 - comm : -R - comm
     }
@@ -553,14 +555,12 @@ export default function MonitorPage() {
       {/* ── Main content ───────────────────────────────────────────────────── */}
       <main style={{ width: '100%', padding: '20px 24px 40px' }}>
 
-        {/* ── 5 KPI cards ────────────────────────────────────────────────── */}
+        {/* ── 6 KPI cards ────────────────────────────────────────────────── */}
         <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20,
+          display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 20,
         }}>
           {/* Saldo */}
-          <div className="kpi-card" style={{
-            ...card, padding: '14px 16px', transition: 'border-color .2s',
-          }}>
+          <div className="kpi-card" style={{ ...card, padding: '14px 16px', transition: 'border-color .2s' }}>
             <div style={lbl}>Saldo</div>
             <div style={{ fontSize: 22, fontWeight: 700, color: C.tx, ...mono, lineHeight: 1.1 }}>
               {fmtUSD(bal)}
@@ -588,23 +588,31 @@ export default function MonitorPage() {
                 color: wr === null ? C.t3 : wr >= 55 ? C.teal : wr >= 45 ? C.am : C.re }}>
                 {wr !== null ? `${wr}%` : '—'}
               </span>
-              <span style={{ fontSize: 10, color: C.t2, ...mono }}>
-                {wins}W / {losses}L
-              </span>
-            </div>
-            <div style={{ fontSize: 10, color: C.t2, marginTop: 4 }}>
-              PF: <span style={{
-                color: pf === null ? C.t3 : pf >= 1.5 ? C.teal : pf >= 1 ? C.am : C.re,
-                fontWeight: 700, ...mono,
-              }}>
-                {pf !== null ? pf.toFixed(2) : '—'}
-              </span>
+              <span style={{ fontSize: 10, color: C.t2, ...mono }}>{wins}W / {losses}L</span>
             </div>
             {streak > 1 && streakType && (
-              <div style={{ fontSize: 9, color: streakType === 'win' ? C.teal : C.re, marginTop: 4 }}>
-                Sequência: {streak}× {streakType === 'win' ? 'ganhos' : 'perdas'}
+              <div style={{ fontSize: 9, color: streakType === 'win' ? C.teal : C.re, marginTop: 6 }}>
+                Seq: {streak}× {streakType === 'win' ? 'ganhos' : 'perdas'}
               </div>
             )}
+          </div>
+
+          {/* Profit Factor — card próprio ──────────────────────────────── */}
+          <div className="kpi-card" style={{
+            ...card, padding: '14px 16px', transition: 'border-color .2s',
+            borderColor: pf !== null && pf >= 1.5 ? `${C.teal}30` : C.bd,
+          }}>
+            <div style={{ ...lbl, color: pf !== null && pf >= 1.5 ? C.teal : C.t2 }}>Profit Factor</div>
+            <div style={{ fontSize: 22, fontWeight: 700, ...mono, lineHeight: 1.1,
+              color: pf === null ? C.t3 : pf >= 1.5 ? C.teal : pf >= 1 ? C.am : C.re }}>
+              {pf !== null ? pf.toFixed(2) : '—'}
+            </div>
+            <div style={{ fontSize: 9, color: C.t3, marginTop: 4, ...mono }}>
+              Ganhos <span style={{ color: C.gr }}>{fmtUSD(grossWins, true)}</span>
+            </div>
+            <div style={{ fontSize: 9, color: C.t3, ...mono }}>
+              Perdas <span style={{ color: C.re }}>{grossLosses > 0 ? `−${fmtUSD(grossLosses)}` : '—'}</span>
+            </div>
           </div>
 
           {/* Lucro Líquido */}
@@ -692,9 +700,26 @@ export default function MonitorPage() {
                     RAFI: <span style={{ color: C.teal, ...mono }}>{openPos.rafi.toFixed(2)}</span>
                   </div>
                 )}
-                <div style={{ marginTop: 10, fontSize: 9, color: C.t3, ...mono }}>
+                <div style={{ marginTop: 6, fontSize: 9, color: C.t3, ...mono }}>
                   {fmtTime(openPos.time)}
                 </div>
+                {/* Encerrar Posição */}
+                <button
+                  onClick={() => {
+                    if (confirm(`Encerrar posição ${openPos.direction === 'buy' ? 'COMPRA' : 'VENDA'} @ ${openPos.entry?.toFixed(5)}?`)) {
+                      enviarComando(`close_position:${openPos.id}`)
+                    }
+                  }}
+                  disabled={cmdSent}
+                  style={{
+                    width: '100%', marginTop: 14, padding: '8px', borderRadius: 8,
+                    background: `${C.re}12`, border: `1px solid ${C.re}40`,
+                    color: C.re, fontSize: 12, fontWeight: 700, cursor: cmdSent ? 'not-allowed' : 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    opacity: cmdSent ? .5 : 1, letterSpacing: '0.04em',
+                  }}>
+                  ■ Encerrar Posição
+                </button>
               </>
             ) : (
               <div style={{
@@ -852,47 +877,50 @@ export default function MonitorPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
               <thead>
                 <tr style={{ background: C.s2 }}>
-                  {['Data', 'Dir', 'Entrada', 'SL', 'TP', 'Lote', 'RAFI', 'P&L Bruto', 'Comissão', 'Líquido'].map(h => (
+                  {[
+                    { h: 'Data',       align: 'left'   },
+                    { h: 'Dir',        align: 'center' },
+                    { h: 'Entrada',    align: 'right'  },
+                    { h: 'Saída',      align: 'right'  },
+                    { h: 'SL',         align: 'right'  },
+                    { h: 'TP',         align: 'right'  },
+                    { h: 'Lote',       align: 'right'  },
+                    { h: 'RAFI',       align: 'right'  },
+                    { h: 'Resultado',  align: 'center' },
+                    { h: 'P&L Bruto',  align: 'right'  },
+                    { h: 'Comissão',   align: 'right'  },
+                    { h: 'Líquido',    align: 'right'  },
+                    { h: 'Ação',       align: 'center' },
+                  ].map(({ h, align }) => (
                     <th key={h} style={{
-                      padding: '8px 10px', textAlign: h === 'Dir' ? 'center' : 'right',
+                      padding: '8px 10px', textAlign: align as any,
                       fontSize: 9, fontWeight: 600, color: C.t2, letterSpacing: '.08em',
                       textTransform: 'uppercase', whiteSpace: 'nowrap',
                       borderBottom: `1px solid ${C.bd}`,
-                      ...(h === 'Data' ? { textAlign: 'left' } : {}),
                     }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filteredTrades.length === 0 && (
-                  <tr>
-                    <td colSpan={10} style={{
-                      padding: '32px', textAlign: 'center', color: C.t3, fontSize: 11,
-                    }}>
-                      Nenhum trade fechado
-                    </td>
-                  </tr>
-                )}
-                {filteredTrades.map(t => {
-                  const isWin = t.result === 'win'
-                  const comm  = (t.lot ?? 0.1) * 7
-                  const net   = t.pnl !== null ? t.pnl - comm : null
-                  const rowColor = isWin ? C.gr : C.re
+                {/* Posições abertas no topo */}
+                {pending.map(t => {
+                  const comm    = (t.lot ?? 0.1) * 7
+                  const floatEst = status ? (status.equity - status.balance) : null
                   return (
-                    <tr key={t.id} className="trade-row">
+                    <tr key={t.id} className="trade-row" style={{ background: `${C.teal}05` }}>
                       <td style={{ padding: '7px 10px', color: C.t2, ...mono, whiteSpace: 'nowrap' }}>
                         {fmtTime(t.time)}
                       </td>
                       <td style={{ padding: '7px 10px', textAlign: 'center' }}>
-                        <span style={{
-                          fontSize: 10, fontWeight: 800, color: rowColor,
-                          ...mono, display: 'block',
-                        }}>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: t.direction === 'buy' ? C.teal : C.re, ...mono }}>
                           {t.direction === 'buy' ? '▲' : '▼'}
                         </span>
                       </td>
                       <td style={{ padding: '7px 10px', textAlign: 'right', color: C.tx, ...mono }}>
                         {t.entry?.toFixed(5)}
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', color: C.am, ...mono, fontSize: 10 }}>
+                        em aberto
                       </td>
                       <td style={{ padding: '7px 10px', textAlign: 'right', color: C.re, ...mono }}>
                         {t.stop_loss?.toFixed(5)}
@@ -904,19 +932,117 @@ export default function MonitorPage() {
                         {(t.lot ?? 0.1).toFixed(2)}
                       </td>
                       <td style={{ padding: '7px 10px', textAlign: 'right', ...mono,
-                        color: t.rafi !== null ? (Math.abs(t.rafi) >= 2.5 ? C.teal : C.am) : C.t3 }}>
-                        {t.rafi !== null ? t.rafi.toFixed(2) : '—'}
+                        color: t.rafi != null ? (Math.abs(t.rafi) >= 2.5 ? C.teal : C.am) : C.t3 }}>
+                        {t.rafi != null ? t.rafi.toFixed(2) : '—'}
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'center' }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: C.am, ...mono,
+                          padding: '2px 6px', borderRadius: 4, background: `${C.am}12`,
+                          border: `1px solid ${C.am}30` }}>
+                          ABERTO
+                        </span>
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', color: floatEst != null ? (floatEst >= 0 ? C.gr : C.re) : C.t3, ...mono }}>
+                        {floatEst != null ? fmtUSD(floatEst, true) + '*' : '—'}
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', color: C.re, ...mono }}>
+                        −{fmtUSD(comm)}
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', color: C.am, ...mono, fontWeight: 700 }}>
+                        {floatEst != null ? fmtUSD(floatEst - comm, true) + '*' : '—'}
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'center' }}>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Encerrar ${t.direction === 'buy' ? 'COMPRA' : 'VENDA'} @ ${t.entry?.toFixed(5)}?`)) {
+                              enviarComando(`close_position:${t.id}`)
+                            }
+                          }}
+                          disabled={cmdSent}
+                          style={{
+                            fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                            background: `${C.re}12`, border: `1px solid ${C.re}35`,
+                            color: C.re, cursor: cmdSent ? 'not-allowed' : 'pointer',
+                            whiteSpace: 'nowrap',
+                          }}>
+                          Encerrar
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+                {filteredTrades.length === 0 && pending.length === 0 && (
+                  <tr>
+                    <td colSpan={13} style={{ padding: '32px', textAlign: 'center', color: C.t3, fontSize: 11 }}>
+                      Nenhum trade
+                    </td>
+                  </tr>
+                )}
+                {filteredTrades.map(t => {
+                  const isWin    = t.result === 'win'
+                  const comm     = (t.lot ?? 0.1) * 7
+                  const grossPnl = t.pnl != null ? t.pnl : null
+                  const net      = grossPnl != null ? grossPnl - comm : null
+                  // Saída estimada: close_price do banco, ou TP/SL conforme resultado
+                  const exitPrice = t.close_price != null
+                    ? t.close_price
+                    : isWin ? t.take_profit : t.stop_loss
+                  const resultLabel  = isWin ? 'STOP GAIN' : 'STOP LOSS'
+                  const resultColor  = isWin ? C.teal : C.re
+                  return (
+                    <tr key={t.id} className="trade-row">
+                      <td style={{ padding: '7px 10px', color: C.t2, ...mono, whiteSpace: 'nowrap' }}>
+                        {fmtTime(t.time)}
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'center' }}>
+                        <span style={{ fontSize: 10, fontWeight: 800,
+                          color: t.direction === 'buy' ? C.teal : C.re, ...mono }}>
+                          {t.direction === 'buy' ? '▲' : '▼'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', color: C.tx, ...mono }}>
+                        {t.entry?.toFixed(5)}
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', color: resultColor, ...mono }}>
+                        {exitPrice?.toFixed(5) ?? '—'}
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', color: C.re, ...mono }}>
+                        {t.stop_loss?.toFixed(5)}
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', color: C.teal, ...mono }}>
+                        {t.take_profit?.toFixed(5)}
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', color: C.t2, ...mono }}>
+                        {(t.lot ?? 0.1).toFixed(2)}
                       </td>
                       <td style={{ padding: '7px 10px', textAlign: 'right', ...mono,
-                        color: t.pnl !== null ? (t.pnl >= 0 ? C.gr : C.re) : C.t3 }}>
-                        {t.pnl !== null ? fmtUSD(t.pnl, true) : '—'}
+                        color: t.rafi != null ? (Math.abs(t.rafi) >= 2.5 ? C.teal : C.am) : C.t3 }}>
+                        {t.rafi != null ? t.rafi.toFixed(2) : '—'}
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'center' }}>
+                        <span style={{
+                          fontSize: 9, fontWeight: 700, ...mono,
+                          padding: '2px 6px', borderRadius: 4,
+                          color: resultColor,
+                          background: `${resultColor}12`,
+                          border: `1px solid ${resultColor}30`,
+                        }}>
+                          {resultLabel}
+                        </span>
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', ...mono,
+                        color: grossPnl != null ? (grossPnl >= 0 ? C.gr : C.re) : C.t3 }}>
+                        {fmtUSD(grossPnl, true)}
                       </td>
                       <td style={{ padding: '7px 10px', textAlign: 'right', color: C.re, ...mono }}>
                         −{fmtUSD(comm)}
                       </td>
                       <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 700, ...mono,
-                        color: net !== null ? (net >= 0 ? C.teal : C.re) : C.t3 }}>
-                        {net !== null ? fmtUSD(net, true) : '—'}
+                        color: net != null ? (net >= 0 ? C.teal : C.re) : C.t3 }}>
+                        {fmtUSD(net, true)}
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'center', color: C.t3, fontSize: 10 }}>
+                        —
                       </td>
                     </tr>
                   )
@@ -925,8 +1051,9 @@ export default function MonitorPage() {
               {filteredTrades.length > 0 && (
                 <tfoot>
                   <tr style={{ background: C.s2, borderTop: `1px solid ${C.bd}` }}>
-                    <td colSpan={7} style={{ padding: '7px 10px', fontSize: 10, color: C.t2 }}>
-                      {filteredTrades.length} trade{filteredTrades.length !== 1 ? 's' : ''}
+                    <td colSpan={9} style={{ padding: '7px 10px', fontSize: 10, color: C.t2 }}>
+                      {filteredTrades.length} trade{filteredTrades.length !== 1 ? 's' : ''} fechados
+                      {pending.length > 0 && ` · ${pending.length} aberto${pending.length > 1 ? 's' : ''}`}
                     </td>
                     <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 700, ...mono,
                       color: filteredTrades.reduce((s, t) => s + (t.pnl ?? 0), 0) >= 0 ? C.gr : C.re }}>
@@ -935,17 +1062,20 @@ export default function MonitorPage() {
                     <td style={{ padding: '7px 10px', textAlign: 'right', color: C.re, ...mono }}>
                       −{fmtUSD(filteredTrades.reduce((s, t) => s + (t.lot ?? 0.1) * 7, 0))}
                     </td>
-                    <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 700, ...mono, color: C.teal }}>
+                    <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 700, ...mono }}>
                       {(() => {
-                        const net = filteredTrades.reduce((s, t) =>
-                          s + (t.pnl ?? 0) - (t.lot ?? 0.1) * 7, 0)
+                        const net = filteredTrades.reduce((s, t) => s + (t.pnl ?? 0) - (t.lot ?? 0.1) * 7, 0)
                         return <span style={{ color: net >= 0 ? C.teal : C.re }}>{fmtUSD(net, true)}</span>
                       })()}
                     </td>
+                    <td />
                   </tr>
                 </tfoot>
               )}
             </table>
+          </div>
+          <div style={{ padding: '6px 16px', fontSize: 9, color: C.t3 }}>
+            * Float estimado · Saída = preço de fechamento reportado pelo MT5 (ou TP/SL estimado)
           </div>
         </div>
 
