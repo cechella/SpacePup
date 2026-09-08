@@ -186,6 +186,15 @@ class RafiBot:
         # Timestamp (Unix) do último sinal emitido em modo autoscan — controla gap mínimo
         self._autoscan_ultimo_ts: int = 0
 
+        # ── Estado de diagnóstico do ciclo (reiniciado a cada análise) ───────────
+        self._ultimo_motivo_rejeicao: str = ''   # publicado no log "sem sinal"
+        self._forming_signal:    bool  = False   # sinal em formação
+        self._forming_direction: str   = 'buy'
+        self._forming_rafi:      float = 0.0
+        self._forming_tf_count:  int   = 0
+        self._forming_bb_open:   bool  = False
+        self._forming_price:     float = 0.0
+
         # Sobrescreve config.yaml com valores salvos no dashboard (/admin/config)
         cfg_supa = carregar_config_supabase(profile='live')
         if cfg_supa:
@@ -615,6 +624,10 @@ class RafiBot:
             logger.debug(f"Máximo de posições atingido ({max_pos}) — aguardando.")
             return
 
+        # Reinicia estado de diagnóstico do ciclo
+        self._forming_signal         = False
+        self._ultimo_motivo_rejeicao = ''
+
         # 5. Obtém candles M5 (500 candles ≈ 41h de histórico)
         df = self.mt5.obter_candles('M5', n_candles=500)
         if df is None or len(df) < 50:
@@ -648,19 +661,23 @@ class RafiBot:
         sinal  = self._verificar_sinal(df, indice_forca, bb, niveis_sr)
         if sinal is None:
             logger.debug("Sem sinal de entrada.")
+            motivo = self._ultimo_motivo_rejeicao or 'Aguardando setup'
             publicar_log(
-                f"Ciclo M5 — sem sinal | RAFI={rafi_v:.2f} | "
-                f"Saldo=${self.capital:.2f} | Pos={len(posicoes_abertas)}",
+                f"Ciclo M5 — sem sinal | {motivo} | RAFI={rafi_v:.2f} | Saldo=${self.capital:.2f}",
                 level='info',
             )
-            # Atualiza gauge do dashboard com RAFI atual (mesmo sem sinal)
             publicar_heartbeat(
                 status='waiting', balance=self.capital,
                 equity=self.mt5.equity_atual() or self.capital,
                 open_positions=len(posicoes_abertas),
                 pnl_hoje=self._pnl_hoje, par=self.par,
                 server=self._conta_server, account=self._conta_account,
-                forming_signal=False, forming_rafi=rafi_v,
+                forming_signal    = self._forming_signal,
+                forming_direction = self._forming_direction,
+                forming_rafi      = self._forming_rafi if self._forming_signal else rafi_v,
+                forming_tf_count  = self._forming_tf_count,
+                forming_bb_open   = self._forming_bb_open,
+                forming_price     = self._forming_price,
                 config_hash=self._config_hash,
                 ml_modelo_carregado = _info_ml.get('disponivel', False),
                 ml_modo             = _status_ml.get('modo', 'OBSERVAÇÃO'),
@@ -753,13 +770,16 @@ class RafiBot:
         ma50   = float(df['close'].rolling(ma_l).mean().iloc[-1])
         diff   = ma20 - ma50
         if abs(diff) < ma_thr:
-            return None   # mercado lateral
+            self._ultimo_motivo_rejeicao = (
+                f"Lateral (MA{ma_r}-MA{ma_l}={diff:+.5f} < {ma_thr:.4f})"
+            )
+            return None
         direcao = 'compra' if diff > 0 else 'venda'
 
         # ── Filtro 2: RAFI ≥ limiar (padrão 2.50) ────────────────────────────
         forca_limiar = float(self.cfg['forca_limiar'])
         if rafi_atual < forca_limiar:
-            # Sinal em formação: RAFI entre 1.75 e limiar
+            # Sinal em formação: RAFI entre 1.75 e limiar → sinaliza no heartbeat
             LIMIAR_FORMANDO = 1.75
             if LIMIAR_FORMANDO <= rafi_atual < forca_limiar:
                 sr_lb    = int(self.cfg['sr_lookback'])
@@ -769,22 +789,24 @@ class RafiBot:
                 f_price  = resist2 if f_dir == 'buy' else suporte2
                 bb_curr_width2 = float(bb['bb_superior'].iloc[-1] - bb['bb_inferior'].iloc[-1])
                 bb_prev_width2 = float(bb['bb_superior'].iloc[-2] - bb['bb_inferior'].iloc[-2])
-                publicar_heartbeat(
-                    status='waiting', balance=self.capital,
-                    equity=self.mt5.equity_atual() or self.capital,
-                    open_positions=len(self.mt5.posicoes_abertas()),
-                    pnl_hoje=self._pnl_hoje, par=self.par,
-                    server=self._conta_server, account=self._conta_account,
-                    forming_signal=True, forming_direction=f_dir,
-                    forming_rafi=rafi_atual, forming_tf_count=2,
-                    forming_bb_open=bool(bb_curr_width2 > bb_prev_width2 * 1.05),
-                    forming_price=f_price,
-                    config_hash=self._config_hash,
+                # Armazena estado no objeto — consolidado no heartbeat do ciclo principal
+                self._forming_signal    = True
+                self._forming_direction = f_dir
+                self._forming_rafi      = rafi_atual
+                self._forming_tf_count  = 2
+                self._forming_bb_open   = bool(bb_curr_width2 > bb_prev_width2 * 1.05)
+                self._forming_price     = f_price
+                self._ultimo_motivo_rejeicao = (
+                    f"RAFI em formação: {rafi_atual:.2f} (falta {forca_limiar - rafi_atual:.2f})"
                 )
                 publicar_log(
                     f"Sinal em formação: {f_dir.upper()} | RAFI={rafi_atual:.2f} "
                     f"(falta {forca_limiar - rafi_atual:.2f}) | Nível={f_price:.5f}",
                     level='info',
+                )
+            else:
+                self._ultimo_motivo_rejeicao = (
+                    f"RAFI insuficiente: {rafi_atual:.2f} < {forca_limiar:.2f}"
                 )
             return None
 
@@ -797,15 +819,23 @@ class RafiBot:
             prev_ratio = bb_prev_width / bb_mid if bb_mid else 0
             curr_ratio = bb_curr_width / bb_mid if bb_mid else 0
             if prev_ratio >= squeeze_ratio:
+                self._ultimo_motivo_rejeicao = (
+                    f"BB sem squeeze: prev_ratio={prev_ratio:.5f} >= {squeeze_ratio:.4f}"
+                )
                 return None
             if curr_ratio <= prev_ratio * 1.05:
+                self._ultimo_motivo_rejeicao = (
+                    f"BB sem expansão: curr={curr_ratio:.5f} <= prev*1.05={prev_ratio*1.05:.5f}"
+                )
                 return None
 
         # ── Filtro 4: Cor do candle confirma direção ──────────────────────────
         candle_verde = float(c['close']) >= float(c['open'])
         if direcao == 'compra' and not candle_verde:
+            self._ultimo_motivo_rejeicao = "Candle vermelho em modo compra"
             return None
         if direcao == 'venda' and candle_verde:
+            self._ultimo_motivo_rejeicao = "Candle verde em modo venda"
             return None
 
         # ── Filtro 5: Rompimento de S/R (rolling high/low dos últimos N candles) ─
@@ -815,8 +845,16 @@ class RafiBot:
         rolling_low  = float(df['low'].iloc[-(sr_lb+1):-1].min())
 
         if direcao == 'compra' and close_atual <= rolling_high:
+            self._ultimo_motivo_rejeicao = (
+                f"Sem rompimento: close={close_atual:.5f} <= resist={rolling_high:.5f} "
+                f"(falta {(rolling_high-close_atual)*10000:.1f}p)"
+            )
             return None
         if direcao == 'venda' and close_atual >= rolling_low:
+            self._ultimo_motivo_rejeicao = (
+                f"Sem rompimento: close={close_atual:.5f} >= suporte={rolling_low:.5f} "
+                f"(falta {(close_atual-rolling_low)*10000:.1f}p)"
+            )
             return None
 
         # ── Stop na estrutura: swing_stop dos últimos N candles ───────────────
@@ -920,6 +958,10 @@ class RafiBot:
                 f"prev_ratio={prev_ratio:.5f} >= limite={squeeze_ratio:.4f} "
                 f"(BB largura={bb_w_prev*10000:.1f} pips)"
             )
+            self._ultimo_motivo_rejeicao = (
+                f"BB não estreita: ratio={prev_ratio:.5f} (precisa < {squeeze_ratio:.4f}) "
+                f"| largura={bb_w_prev*10000:.1f}p"
+            )
             return None
 
         # Filtro 2: expansão no candle atual
@@ -927,6 +969,9 @@ class RafiBot:
             logger.debug(
                 f"[{ts_label}] AUTOSCAN REJEITADO — BB sem expansão: "
                 f"curr={curr_ratio:.5f} <= prev*{expansao_min}={prev_ratio*expansao_min:.5f}"
+            )
+            self._ultimo_motivo_rejeicao = (
+                f"BB sem expansão: curr={curr_ratio:.5f} <= prev*{expansao_min:.2f}={prev_ratio*expansao_min:.5f}"
             )
             return None
 
@@ -985,11 +1030,25 @@ class RafiBot:
                 'forca_rompimento': support - close,
             }
 
-        # Passou BB squeeze + expansão mas não rompeu S/R — log detalhado para diagnóstico
+        # Passou BB squeeze + expansão mas não rompeu S/R — sinal em formação
+        dist_resist = close - resistance
+        dist_suport = support - close
+        f_dir       = 'buy' if dist_resist > dist_suport else 'sell'
+        f_price     = resistance if f_dir == 'buy' else support
+        self._forming_signal    = True
+        self._forming_direction = f_dir
+        self._forming_rafi      = 0.0   # autoscan não usa RAFI
+        self._forming_bb_open   = True
+        self._forming_price     = f_price
+        self._ultimo_motivo_rejeicao = (
+            f"BB OK mas sem rompimento S/R | "
+            f"falta {max(dist_resist, dist_suport)*10000:.1f}p | "
+            f"min={min_breakout*10000:.1f}p"
+        )
         logger.debug(
             f"[{ts_label}] AUTOSCAN BB OK mas sem rompimento S/R | "
-            f"close={close:.5f} | resist={resistance:.5f} (+{(close-resistance)*10000:.1f}p) | "
-            f"suport={support:.5f} ({(support-close)*10000:.1f}p) | "
+            f"close={close:.5f} | resist={resistance:.5f} (+{dist_resist*10000:.1f}p) | "
+            f"suport={support:.5f} ({dist_suport*10000:.1f}p) | "
             f"min_break={min_breakout*10000:.1f}p | candle={'verde' if close>=open_ else 'vermelho'}"
         )
         return None
