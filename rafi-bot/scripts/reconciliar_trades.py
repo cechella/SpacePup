@@ -116,10 +116,21 @@ def reconciliar(dry_run: bool, dias: int) -> None:
     # ── Conecta ao Supabase ────────────────────────────────────────────────────
     supa = criar_supabase()
 
+    # ── Descobre quais colunas opcionais existem na tabela ────────────────────
+    # pnl e close_price podem não existir em instalações antigas — testa antes de usar
+    colunas_opcionais = []
+    for col in ('pnl', 'close_price'):
+        try:
+            supa.table('rafi_trades').select(col).limit(1).execute()
+            colunas_opcionais.append(col)
+        except Exception:
+            print(f"  [INFO] Coluna '{col}' não existe na tabela — será ignorada no UPDATE")
+
     # ── Busca trades pendentes no Supabase ─────────────────────────────────────
+    select_cols = 'id,direction,entry,stop_loss,take_profit,lot,time,result'
     resp = (
         supa.table('rafi_trades')
-        .select('id,direction,entry,stop_loss,take_profit,lot,time,result,pnl')
+        .select(select_cols)
         .eq('result', 'pending')
         .order('time', desc=False)
         .execute()
@@ -187,12 +198,16 @@ def reconciliar(dry_run: bool, dias: int) -> None:
         )
 
         if not dry_run:
-            patch = {
-                'result':      resultado,
-                'pnl':         lucro_broker,
-                'close_price': preco_saida,
-                'updated_at':  datetime.utcnow().isoformat(),
+            patch: dict = {
+                'result':     resultado,
+                'updated_at': datetime.utcnow().isoformat(),
             }
+            # Só inclui colunas que existem na tabela
+            if 'pnl' in colunas_opcionais:
+                patch['pnl'] = lucro_broker
+            if 'close_price' in colunas_opcionais:
+                patch['close_price'] = preco_saida
+
             # Corrige entry=0 se o MT5 tiver o preço real nos deals de abertura
             if (trade.get('entry') or 0) == 0:
                 deal_abertura = next(
