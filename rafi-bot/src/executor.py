@@ -153,6 +153,10 @@ class RafiBot:
         self.mt5     = ClienteMT5(config)
         self.capital = config.get('capital_inicial', 100.0)
 
+        # Aplica o nível de log definido no config (padrão INFO; use DEBUG para diagnóstico autoscan)
+        nivel_log = config.get('log_nivel', 'INFO').upper()
+        logging.getLogger().setLevel(getattr(logging, nivel_log, logging.INFO))
+
         # Rastreia trades abertos: {ticket: {ts, entry, sl, tp, lot}}
         # Preenchido no startup via _restaurar_posicoes_abertas() para sobreviver a reinícios.
         self._posicoes: dict = {}
@@ -847,11 +851,14 @@ class RafiBot:
           4. VENDA:  close < min_low(sr_lookback)  e close <  open (candle vermelho)
           5. Rompimento mínimo: (close - resistance) >= min_breakout
           6. Stop: candle_low - stop_offset (compra) / candle_high + stop_offset (venda)
+
+        Log de diagnóstico: cada filtro rejeitado é registrado em DEBUG para auditoria.
         """
         if bb is None or len(bb) < 2:
             return None
 
-        sr_lb         = int(self.cfg.get('sr_lookback', 20))
+        # autoscan_sr_lookback é o parâmetro otimizado (grid 26 anos); sr_lookback é fallback
+        sr_lb         = int(self.cfg.get('autoscan_sr_lookback', self.cfg.get('sr_lookback', 10)))
         min_breakout  = float(self.cfg.get('autoscan_min_breakout', 0.00003))
         stop_offset   = float(self.cfg.get('autoscan_stop_offset', 0.00015))
         expansao_min  = float(self.cfg.get('bb_squeeze_expansao_min', 1.05))
@@ -863,10 +870,17 @@ class RafiBot:
         if len(df) < n_needed:
             return None
 
+        ts_label = str(df.index[-1])[:16]
+
         # Gap mínimo: verifica se passaram candles suficientes desde o último sinal
         candle_ts = int(df.index[-1].timestamp())
         segundos_gap = min_gap * 300  # M5 = 300s por candle
-        if candle_ts - self._autoscan_ultimo_ts < segundos_gap:
+        segundos_decorridos = candle_ts - self._autoscan_ultimo_ts
+        if segundos_decorridos < segundos_gap:
+            logger.debug(
+                f"[{ts_label}] AUTOSCAN REJEITADO — gap insuficiente: "
+                f"{segundos_decorridos//60}min < {segundos_gap//60}min mínimo"
+            )
             return None
 
         # BB ratios: width = upper - lower; mid = média
@@ -879,9 +893,19 @@ class RafiBot:
 
         # Filtro 1: squeeze no candle anterior
         if prev_ratio >= squeeze_ratio:
+            logger.debug(
+                f"[{ts_label}] AUTOSCAN REJEITADO — BB sem squeeze: "
+                f"prev_ratio={prev_ratio:.5f} >= limite={squeeze_ratio:.4f} "
+                f"(BB largura={bb_w_prev*10000:.1f} pips)"
+            )
             return None
+
         # Filtro 2: expansão no candle atual
         if curr_ratio <= prev_ratio * expansao_min:
+            logger.debug(
+                f"[{ts_label}] AUTOSCAN REJEITADO — BB sem expansão: "
+                f"curr={curr_ratio:.5f} <= prev*{expansao_min}={prev_ratio*expansao_min:.5f}"
+            )
             return None
 
         c      = df.iloc[-1]
@@ -907,7 +931,8 @@ class RafiBot:
             tp = p(entry + risco * ratio_rr)
             logger.info(
                 f"SINAL AUTOSCAN COMPRA | Entry: {entry:.5f} | SL: {stop:.5f} | TP: {tp:.5f} "
-                f"| BB_ratio: prev={prev_ratio:.5f} curr={curr_ratio:.5f}"
+                f"| BB_ratio: prev={prev_ratio:.5f} curr={curr_ratio:.5f} "
+                f"| romp={((close-resistance)*10000):.1f}p | SR_lb={sr_lb}c"
             )
             self._autoscan_ultimo_ts = candle_ts
             return {
@@ -927,7 +952,8 @@ class RafiBot:
             tp = p(entry - risco * ratio_rr)
             logger.info(
                 f"SINAL AUTOSCAN VENDA | Entry: {entry:.5f} | SL: {stop:.5f} | TP: {tp:.5f} "
-                f"| BB_ratio: prev={prev_ratio:.5f} curr={curr_ratio:.5f}"
+                f"| BB_ratio: prev={prev_ratio:.5f} curr={curr_ratio:.5f} "
+                f"| romp={((support-close)*10000):.1f}p | SR_lb={sr_lb}c"
             )
             self._autoscan_ultimo_ts = candle_ts
             return {
@@ -937,6 +963,13 @@ class RafiBot:
                 'forca_rompimento': support - close,
             }
 
+        # Passou BB squeeze + expansão mas não rompeu S/R — log detalhado para diagnóstico
+        logger.debug(
+            f"[{ts_label}] AUTOSCAN BB OK mas sem rompimento S/R | "
+            f"close={close:.5f} | resist={resistance:.5f} (+{(close-resistance)*10000:.1f}p) | "
+            f"suport={support:.5f} ({(support-close)*10000:.1f}p) | "
+            f"min_break={min_breakout*10000:.1f}p | candle={'verde' if close>=open_ else 'vermelho'}"
+        )
         return None
 
     # ─────────────────────────────────────────────────────────────────────────
