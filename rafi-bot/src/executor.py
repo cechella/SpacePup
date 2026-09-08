@@ -857,8 +857,8 @@ class RafiBot:
         if bb is None or len(bb) < 2:
             return None
 
-        # autoscan_sr_lookback é o parâmetro otimizado (grid 26 anos); sr_lookback é fallback
-        sr_lb         = int(self.cfg.get('autoscan_sr_lookback', self.cfg.get('sr_lookback', 10)))
+        # sr_lookback é controlado pelo Admin Panel (Supabase) — não usar autoscan_sr_lookback aqui
+        sr_lb         = int(self.cfg.get('sr_lookback', 10))
         min_breakout  = float(self.cfg.get('autoscan_min_breakout', 0.00003))
         stop_offset   = float(self.cfg.get('autoscan_stop_offset', 0.00015))
         expansao_min  = float(self.cfg.get('bb_squeeze_expansao_min', 1.05))
