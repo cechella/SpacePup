@@ -80,6 +80,19 @@ ARQUIVO_STOP = Path('STOP')           # crie este arquivo para parar o bot
 INTERVALO_S  = 5                      # segundos entre verificações de candle
 MAGIC_NUMBER = 20250101               # identificador das ordens do bot no MT5
 
+# Parâmetros obrigatórios: devem existir no config.yaml (ou serem sobrepostos pelo Supabase).
+# O bot não inicia se algum estiver ausente — evita valores fantasmas embutidos no código.
+PARAMS_OBRIGATORIOS = [
+    'estrategia_modo',
+    'sr_lookback', 'swing_stop_lookback',
+    'ma_rapida', 'ma_lenta', 'ma_threshold',
+    'forca_limiar',
+    'bb_periodo', 'bb_desvios', 'bb_filtro_ativo',
+    'bb_limiar_estreita', 'bb_squeeze_expansao_min',
+    'autoscan_min_breakout', 'autoscan_min_gap_candles', 'autoscan_stop_offset',
+    'ratio_risco_retorno', 'max_trades_simultaneos', 'risco_maximo_diario',
+]
+
 
 def carregar_config(caminho: str = 'config.yaml') -> dict:
     """Carrega e retorna o arquivo de configuração YAML."""
@@ -200,6 +213,15 @@ class RafiBot:
                 if chave_supa in cfg_supa and cfg_supa[chave_supa] is not None:
                     self.cfg[chave_cfg] = cfg_supa[chave_supa]
             logger.info("Config carregada do Supabase (dashboard /admin/config)")
+
+        # Valida que todos os parâmetros obrigatórios estão presentes (Admin → Supabase → config.yaml).
+        # Falha rápida: melhor abortar com mensagem clara do que operar com valor embutido silencioso.
+        ausentes = [p for p in PARAMS_OBRIGATORIOS if p not in self.cfg or self.cfg[p] is None]
+        if ausentes:
+            raise ValueError(
+                f"Parâmetros obrigatórios ausentes no config (verifique config.yaml / Admin Panel): "
+                f"{ausentes}"
+            )
 
         # Broker ativo: lê do Supabase qual corretora está habilitada
         # --broker xm | --broker pepperstone seleciona qual usar quando múltiplas estão ativas
@@ -588,7 +610,7 @@ class RafiBot:
 
         # 5. Verifica número máximo de posições abertas
         posicoes_abertas = self.mt5.posicoes_abertas()
-        max_pos          = self.cfg.get('max_trades_simultaneos', 1)
+        max_pos          = self.cfg['max_trades_simultaneos']
         if len(posicoes_abertas) >= max_pos:
             logger.debug(f"Máximo de posições atingido ({max_pos}) — aguardando.")
             return
@@ -603,7 +625,7 @@ class RafiBot:
         indice_forca = calcular_indice_forca(df, periodo=14)  # igual ao backtest (default)
         bb           = calcular_bollinger(df, periodo=8, desvios=2.0)
         pivotos      = detectar_pivotos(df, janela=5)
-        niveis_sr    = niveis_sr_ativos(df, pivotos, lookback=self.cfg.get('sr_lookback', 20))
+        niveis_sr    = niveis_sr_ativos(df, pivotos, lookback=self.cfg['sr_lookback'])
 
         # 7. Publica o último candle fechado no Supabase (alimenta o gráfico ao vivo)
         try:
@@ -659,7 +681,7 @@ class RafiBot:
             candles_ate_sinal = candles_lista,
             direcao           = dir_int,
             forca_rompimento  = sinal.get('forca_rompimento', 0.00005),
-            rr_ratio          = float(self.cfg.get('ratio_risco_retorno', 1.3)),
+            rr_ratio          = float(self.cfg['ratio_risco_retorno']),
             wr_rolling20      = self._monitor.wr_rolling(),
         )
         sinal['probabilidade_ml'] = prob_ml
@@ -703,7 +725,7 @@ class RafiBot:
         Retorna dict com {direcao, entry, stop_loss, take_profit, rafi, bb_width}
         ou None se não há sinal.
         """
-        modo = self.cfg.get('estrategia_modo', 'rafi')
+        modo = self.cfg['estrategia_modo']
 
         if modo == 'autoscan':
             return self._verificar_sinal_autoscan(df, bb)
@@ -713,9 +735,9 @@ class RafiBot:
             return None
 
         n_needed = max(
-            self.cfg.get('ma_lenta', 50),
-            self.cfg.get('sr_lookback', 50),
-            self.cfg.get('swing_stop_lookback', 150),
+            self.cfg['ma_lenta'],
+            self.cfg['sr_lookback'],
+            self.cfg['swing_stop_lookback'],
         ) + 2
         if len(df) < n_needed:
             return None
@@ -724,9 +746,9 @@ class RafiBot:
         rafi_atual = float(indice_forca.iloc[-1]) if indice_forca is not None else 0.0
 
         # ── Filtro 1: Tendência M5 — MA20 vs MA50 ────────────────────────────
-        ma_r   = int(self.cfg.get('ma_rapida', 20))
-        ma_l   = int(self.cfg.get('ma_lenta', 50))
-        ma_thr = float(self.cfg.get('ma_threshold', 0.0003))
+        ma_r   = int(self.cfg['ma_rapida'])
+        ma_l   = int(self.cfg['ma_lenta'])
+        ma_thr = float(self.cfg['ma_threshold'])
         ma20   = float(df['close'].rolling(ma_r).mean().iloc[-1])
         ma50   = float(df['close'].rolling(ma_l).mean().iloc[-1])
         diff   = ma20 - ma50
@@ -735,12 +757,12 @@ class RafiBot:
         direcao = 'compra' if diff > 0 else 'venda'
 
         # ── Filtro 2: RAFI ≥ limiar (padrão 2.50) ────────────────────────────
-        forca_limiar = float(self.cfg.get('forca_limiar', 2.50))
+        forca_limiar = float(self.cfg['forca_limiar'])
         if rafi_atual < forca_limiar:
             # Sinal em formação: RAFI entre 1.75 e limiar
             LIMIAR_FORMANDO = 1.75
             if LIMIAR_FORMANDO <= rafi_atual < forca_limiar:
-                sr_lb    = int(self.cfg.get('sr_lookback', 50))
+                sr_lb    = int(self.cfg['sr_lookback'])
                 resist2  = float(df['high'].iloc[-(sr_lb+1):-1].max())
                 suporte2 = float(df['low'].iloc[-(sr_lb+1):-1].min())
                 f_dir    = 'buy' if direcao == 'compra' else 'sell'
@@ -769,9 +791,9 @@ class RafiBot:
         # ── Filtro 3: Bollinger squeeze → abrindo (se ativo) ─────────────────
         bb_prev_width = float(bb['bb_superior'].iloc[-2] - bb['bb_inferior'].iloc[-2])
         bb_curr_width = float(bb['bb_superior'].iloc[-1] - bb['bb_inferior'].iloc[-1])
-        if self.cfg.get('bb_filtro_ativo', True):
+        if self.cfg['bb_filtro_ativo']:
             bb_mid = float(bb['bb_media'].iloc[-1])
-            squeeze_ratio = float(self.cfg.get('bb_limiar_estreita', 0.0012))
+            squeeze_ratio = float(self.cfg['bb_limiar_estreita'])
             prev_ratio = bb_prev_width / bb_mid if bb_mid else 0
             curr_ratio = bb_curr_width / bb_mid if bb_mid else 0
             if prev_ratio >= squeeze_ratio:
@@ -787,7 +809,7 @@ class RafiBot:
             return None
 
         # ── Filtro 5: Rompimento de S/R (rolling high/low dos últimos N candles) ─
-        sr_lb       = int(self.cfg.get('sr_lookback', 50))
+        sr_lb       = int(self.cfg['sr_lookback'])
         close_atual = float(c['close'])
         rolling_high = float(df['high'].iloc[-(sr_lb+1):-1].max())
         rolling_low  = float(df['low'].iloc[-(sr_lb+1):-1].min())
@@ -798,9 +820,9 @@ class RafiBot:
             return None
 
         # ── Stop na estrutura: swing_stop dos últimos N candles ───────────────
-        sw_lb        = int(self.cfg.get('swing_stop_lookback', 150))
+        sw_lb        = int(self.cfg['swing_stop_lookback'])
         p            = lambda v: round(v, 5)
-        ratio_rr     = float(self.cfg.get('ratio_risco_retorno', 1.5))
+        ratio_rr     = float(self.cfg['ratio_risco_retorno'])
 
         if direcao == 'compra':
             nivel_sr = rolling_high
@@ -858,15 +880,15 @@ class RafiBot:
             return None
 
         # sr_lookback é controlado pelo Admin Panel (Supabase) — não usar autoscan_sr_lookback aqui
-        sr_lb         = int(self.cfg.get('sr_lookback', 10))
-        min_breakout  = float(self.cfg.get('autoscan_min_breakout', 0.00003))
-        stop_offset   = float(self.cfg.get('autoscan_stop_offset', 0.00015))
-        expansao_min  = float(self.cfg.get('bb_squeeze_expansao_min', 1.05))
-        squeeze_ratio = float(self.cfg.get('bb_limiar_estreita', 0.0012))
-        ratio_rr      = float(self.cfg.get('ratio_risco_retorno', 1.5))
-        min_gap       = int(self.cfg.get('autoscan_min_gap_candles', 8))
+        sr_lb         = int(self.cfg['sr_lookback'])
+        min_breakout  = float(self.cfg['autoscan_min_breakout'])
+        stop_offset   = float(self.cfg['autoscan_stop_offset'])
+        expansao_min  = float(self.cfg['bb_squeeze_expansao_min'])
+        squeeze_ratio = float(self.cfg['bb_limiar_estreita'])
+        ratio_rr      = float(self.cfg['ratio_risco_retorno'])
+        min_gap       = int(self.cfg['autoscan_min_gap_candles'])
 
-        n_needed = sr_lb + int(self.cfg.get('bb_periodo', 8)) + 2
+        n_needed = sr_lb + int(self.cfg['bb_periodo']) + 2
         if len(df) < n_needed:
             return None
 
@@ -1029,7 +1051,7 @@ class RafiBot:
             'probabilidade_ml': sinal.get('probabilidade_ml'),
             'ml_aprovado':     sinal.get('ml_aprovado'),
             'forca_rompimento': sinal.get('forca_rompimento', 0.0),
-            'rr_ratio':        float(self.cfg.get('ratio_risco_retorno', 1.3)),
+            'rr_ratio':        float(self.cfg['ratio_risco_retorno']),
         }
 
         # ── Sincroniza com Supabase (aparece no admin) ────────────────────────
@@ -1191,7 +1213,7 @@ class RafiBot:
             logger.info(f"Ordem manual {direcao.upper()} recebida do dashboard")
 
             # Verifica limite de posições
-            if len(self.mt5.posicoes_abertas()) >= self.cfg.get('max_trades_simultaneos', 1):
+            if len(self.mt5.posicoes_abertas()) >= self.cfg['max_trades_simultaneos']:
                 logger.warning("Máximo de posições atingido — ordem manual ignorada.")
                 return
 
@@ -1202,7 +1224,7 @@ class RafiBot:
             c = df.iloc[-1]
             lote = lote_por_faixa(self.capital)
             p = lambda v: round(v, 5)
-            rr = self.cfg.get('ratio_risco_retorno', 1.5)
+            rr = self.cfg['ratio_risco_retorno']
 
             if direcao == 'compra':
                 stop  = p(float(c['low']) - 0.00015)
@@ -1276,7 +1298,7 @@ class RafiBot:
         """
         if self.capital <= 0:
             return False   # conta vazia — aguarda depósito, não bloqueia
-        limite_pct = self.cfg.get('risco_maximo_diario', 5.0)
+        limite_pct = self.cfg['risco_maximo_diario']
         limite_usd = self.capital * (limite_pct / 100)
         return self._perda_hoje >= limite_usd
 
