@@ -176,6 +176,9 @@ export default function ConfigPage() {
   const [syncing,  setSyncing]  = useState(false)
   const [syncDone, setSyncDone] = useState(false)
 
+  // BLOCO 4: chaves que vieram do Supabase (distintas das defaults do config.yaml)
+  const [liveSupaKeys, setLiveSupaKeys] = useState<Set<string>>(new Set())
+
   // Status do bot ao vivo — para mostrar config_hash e confirmar que a config chegou
   const [botStatus, setBotStatus] = useState<{ config_hash?: string; status?: string; balance?: number; updated_at?: string } | null>(null)
   // Hash do config live calculado server-side (mesmo algoritmo que o bot) — substitui o hardcoded
@@ -226,7 +229,10 @@ export default function ConfigPage() {
           const sim  = data.find(r => r.profile === 'simulator')
           const live = data.find(r => r.profile === 'live')
           if (sim)  { setSimCfg({ ...DEFAULTS, ...sim });  setSimLastSaved(sim.updated_at) }
-          if (live) { setLiveCfg({ ...DEFAULTS, ...live }); setLiveLastSaved(live.updated_at) }
+          if (live) {
+            setLiveCfg({ ...DEFAULTS, ...live }); setLiveLastSaved(live.updated_at)
+            setLiveSupaKeys(new Set(Object.keys(live)))
+          }
         }
       } catch { setError('Tabela rafi_bot_config não encontrada — execute o SQL no Supabase') }
       try {
@@ -500,15 +506,28 @@ export default function ConfigPage() {
               <div style={{ color: C.t3, marginBottom: 8 }}>
                 {'# ═══════════════════════════════════════════════════'}
               </div>
-              {snap.map(({ k, v, obrigatorio }) => (
-                <div key={k} style={{ display: 'flex', gap: 8 }}>
-                  <span style={{ color: obrigatorio ? C.cy : C.t2, minWidth: `${maxLen + 2}ch` }}>
-                    {pad(k)}
-                  </span>
-                  <span style={{ color: C.t3 }}>{'='}</span>
-                  <span style={{ color: C.am, fontWeight: 700 }}>{v}</span>
-                </div>
-              ))}
+              {snap.map(({ k, v, obrigatorio }) => {
+                const fromSupa = liveSupaKeys.has(k)
+                return (
+                  <div key={k} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span style={{ color: obrigatorio ? C.cy : C.t2, minWidth: `${maxLen + 2}ch` }}>
+                      {pad(k)}
+                    </span>
+                    <span style={{ color: C.t3 }}>{'='}</span>
+                    <span style={{ color: C.am, fontWeight: 700 }}>{v}</span>
+                    {/* BLOCO 4: badge de origem do parâmetro */}
+                    <span style={{
+                      fontSize: 7, padding: '1px 5px', borderRadius: 3, letterSpacing: '0.05em',
+                      fontFamily: 'monospace', fontWeight: 700,
+                      background: fromSupa ? `${C.bl}18` : `${C.am}12`,
+                      border: `1px solid ${fromSupa ? C.bl : C.am}40`,
+                      color: fromSupa ? C.bl : C.am,
+                    }}>
+                      {fromSupa ? '🔵 Supabase' : '🟡 config.yaml'}
+                    </span>
+                  </div>
+                )
+              })}
               <div style={{ color: C.t3, marginTop: 8 }}>
                 {'# ═══════════════════════════════════════════════════'}
               </div>
@@ -529,6 +548,8 @@ export default function ConfigPage() {
             <div style={{ marginTop: 8, fontSize: 8, color: C.t3, lineHeight: 1.7 }}>
               Campos em <span style={{ color: C.cy }}>ciano</span> = obrigatórios para o modo selecionado ·
               Campos em <span style={{ color: C.t2 }}>cinza</span> = opcionais/ignorados neste modo ·
+              <span style={{ color: C.bl }}>🔵 Supabase</span> = valor vem do Admin Panel ·
+              <span style={{ color: C.am }}>🟡 config.yaml</span> = usando default do arquivo ·
               Salve "Bot ao Vivo" e reinicie o bot na VM para aplicar · o hash do bot deve igualar ao do Supabase
             </div>
           </div>

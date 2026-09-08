@@ -283,13 +283,21 @@ export default function MonitorPage() {
 
   // ── Metrics ────────────────────────────────────────────────────────────────
   const now      = Date.now()
-  const isOnline = status ? (now - new Date(status.updated_at).getTime()) < 420_000 : false
+  // BLOCO 1: semáforo de saúde em 3 estados
+  const hbAge     = status ? (now - new Date(status.updated_at).getTime()) : Infinity
+  const botHealth = hbAge < 180_000 ? 'green' : hbAge < 600_000 ? 'yellow' : 'red'
+  const isOnline  = botHealth !== 'red'
+  const healthColor = botHealth === 'green' ? C.teal : botHealth === 'yellow' ? C.am : C.re
   const statusLabel =
-    !status   ? 'SEM DADOS' : !isOnline ? 'OFFLINE' :
+    !status             ? 'SEM DADOS' :
+    botHealth === 'red' ? 'OFFLINE'   :
+    botHealth === 'yellow' ? 'ATENÇÃO' :
     status.status === 'running' ? 'EM POSIÇÃO' :
     status.status === 'waiting' ? 'AGUARDANDO' : 'PARADO'
   const statusColor =
-    !status   ? C.t3 : !isOnline ? C.re :
+    !status             ? C.t3 :
+    botHealth === 'red' ? C.re :
+    botHealth === 'yellow' ? C.am :
     status.status === 'running' ? C.teal :
     status.status === 'waiting' ? C.am : C.re
 
@@ -346,8 +354,18 @@ export default function MonitorPage() {
     ? Math.min(100, ((iaCount - prevMilestone) / (nextMilestone - prevMilestone)) * 100)
     : 100
 
+  // BLOCO 2: último ciclo rejeitado — extrai motivo do log "sem sinal"
+  const ultimoRejeicao = useMemo(() => {
+    const log = botLogs.find(l => l.message.includes('sem sinal'))
+    if (!log) return null
+    const match = log.message.match(/sem sinal\s*\|\s*(.+?)\s*\|/)
+    return {
+      motivo: match?.[1] ?? 'Aguardando setup',
+      ts: log.created_at,
+    }
+  }, [botLogs])
+
   // Forming signal
-  const showForming  = !!(status?.forming_signal)
   const formingDir   = status?.forming_direction ?? 'buy'
   const formingRafi  = status?.forming_rafi ?? 0
   const formingTf    = status?.forming_tf_count ?? 0
@@ -446,22 +464,22 @@ export default function MonitorPage() {
 
         <div style={{ width: 1, height: 28, background: C.bd, margin: '0 8px', flexShrink: 0 }} />
 
-        {/* AO VIVO badge */}
+        {/* AO VIVO badge — semáforo 3 estados */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 5, padding: '3px 8px', borderRadius: 6,
-          background: isOnline ? `${C.teal}15` : `${C.re}15`,
-          border: `1px solid ${isOnline ? C.teal : C.re}40`,
+          background: `${healthColor}15`,
+          border: `1px solid ${healthColor}40`,
         }}>
           <span style={{
             width: 6, height: 6, borderRadius: '50%',
-            background: isOnline ? C.teal : C.re,
-            animation: isOnline ? 'pulse 1.8s ease-in-out infinite' : 'none',
+            background: healthColor,
+            animation: botHealth === 'green' ? 'pulse 1.8s ease-in-out infinite' : 'none',
             display: 'inline-block',
           }} />
-          <span style={{ fontSize: 10, fontWeight: 700, color: isOnline ? C.teal : C.re, ...mono }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: healthColor, ...mono }}>
             {statusLabel}
           </span>
-          {status && isOnline && (
+          {status && (
             <span style={{ fontSize: 9, color: C.t3, ...mono }}>· {secondsAgo(status.updated_at)}</span>
           )}
         </div>
@@ -518,7 +536,7 @@ export default function MonitorPage() {
         </button>
       </nav>
 
-      {/* ── Forming signal banner ──────────────────────────────────────────── */}
+      {/* ── Forming signal banner (BLOCO 3) ──────────────────────────────── */}
       {showForming && (
         <div style={{
           background: formingDir === 'buy' ? `${C.teal}12` : `${C.re}12`,
@@ -532,17 +550,32 @@ export default function MonitorPage() {
           }}>
             {formingDir === 'buy' ? '▲ SINAL EM FORMAÇÃO — COMPRA' : '▼ SINAL EM FORMAÇÃO — VENDA'}
           </span>
-          <span style={{ fontSize: 10, color: C.t2, ...mono }}>
-            RAFI {formingRafi.toFixed(2)}
-          </span>
-          <span style={{ fontSize: 10, color: C.t2 }}>·</span>
-          <span style={{ fontSize: 10, color: formingTf >= 3 ? C.teal : C.am }}>
-            {formingTf}/3 TF alinhados
-          </span>
-          <span style={{ fontSize: 10, color: C.t2 }}>·</span>
-          <span style={{ fontSize: 10, color: formingBb ? C.teal : C.t3 }}>
-            BB {formingBb ? '✓ abrindo' : '— fechado'}
-          </span>
+          {/* Modo autoscan: RAFI=0, BB squeeze + expansão detectada */}
+          {formingRafi === 0 ? (
+            <>
+              <span style={{ fontSize: 9, fontWeight: 700, color: C.bl, padding: '1px 6px',
+                borderRadius: 4, background: `${C.bl}15`, border: `1px solid ${C.bl}30`, ...mono }}>
+                AUTOSCAN
+              </span>
+              <span style={{ fontSize: 10, color: C.teal }}>
+                BB squeeze ✓ · expansão ✓
+              </span>
+            </>
+          ) : (
+            <>
+              <span style={{ fontSize: 10, color: C.t2, ...mono }}>
+                RAFI {formingRafi.toFixed(2)}
+              </span>
+              <span style={{ fontSize: 10, color: C.t2 }}>·</span>
+              <span style={{ fontSize: 10, color: formingTf >= 3 ? C.teal : C.am }}>
+                {formingTf}/3 TF alinhados
+              </span>
+              <span style={{ fontSize: 10, color: C.t2 }}>·</span>
+              <span style={{ fontSize: 10, color: formingBb ? C.teal : C.t3 }}>
+                BB {formingBb ? '✓ abrindo' : '— fechado'}
+              </span>
+            </>
+          )}
           {formingPrice > 0 && (
             <>
               <span style={{ fontSize: 10, color: C.t2 }}>·</span>
@@ -843,6 +876,32 @@ export default function MonitorPage() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* ── BLOCO 2: Último Ciclo Rejeitado ──────────────────────────── */}
+        <div style={{
+          ...card, marginBottom: 20, padding: '12px 20px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          flexWrap: 'wrap', gap: 12,
+          borderColor: ultimoRejeicao ? `${C.am}40` : C.bd,
+          background: ultimoRejeicao ? `${C.am}06` : C.s1,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+            <span style={{ fontSize: 9, fontWeight: 600, color: C.am, flexShrink: 0,
+              textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              Último Ciclo Rejeitado
+            </span>
+            <span style={{ fontSize: 11, color: ultimoRejeicao ? C.tx : C.t3,
+              flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              ...mono }}>
+              {ultimoRejeicao?.motivo ?? 'Aguardando primeiro ciclo…'}
+            </span>
+          </div>
+          {ultimoRejeicao && (
+            <span style={{ fontSize: 9, color: C.t3, flexShrink: 0, ...mono }}>
+              {secondsAgo(ultimoRejeicao.ts)}
+            </span>
+          )}
         </div>
 
         {/* ── Trades table ───────────────────────────────────────────────── */}
