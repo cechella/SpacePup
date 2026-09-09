@@ -245,17 +245,22 @@ class RafiBot:
             self._broker_login    = creds.get('login')
             self._broker_senha    = creds.get('senha')
             self._broker_servidor = broker_supa.get('servidor') or creds.get('servidor')
+            # Caminho do terminal64.exe do broker — necessário quando múltiplos MT5 rodam simultaneamente
+            self._broker_mt5_path = creds.get('mt5_path')
             # Símbolo correto por corretora (EURUSD# vs EURUSD)
             self.par            = broker_supa.get('simbolo') or creds.get('simbolo') or self.par
             self.cfg['par']     = self.par
             self.mt5.par        = self.par
             logger.info(f"Broker ativo (Supabase): {bid} | Símbolo: {self.par}")
+            if self._broker_mt5_path:
+                logger.info(f"MT5 path: {self._broker_mt5_path}")
         else:
             # Fallback: usa o par do config.yaml sem autenticação separada
-            self._broker_id       = config.get('corretora', 'xm').lower()
+            self._broker_id       = config.get('corretora', 'pepperstone').lower()
             self._broker_login    = None
             self._broker_senha    = None
             self._broker_servidor = None
+            self._broker_mt5_path = None
             logger.warning("rafi_brokers indisponível — usando par do config.yaml (fallback)")
 
         # Monitor de performance ML — rastreia WR/PF rolling e aciona retreino
@@ -324,9 +329,10 @@ class RafiBot:
 
         publicar_log(f"Bot RAFI iniciado — conectando ao MT5 ({self._broker_id})", level='info')
         if not self.mt5.conectar(
-            login    = self._broker_login,
-            senha    = self._broker_senha,
-            servidor = self._broker_servidor,
+            login     = self._broker_login,
+            senha     = self._broker_senha,
+            servidor  = self._broker_servidor,
+            mt5_path  = self._broker_mt5_path,
         ):
             logger.error("Não foi possível conectar ao MT5. Verifique o terminal.")
             publicar_log("ERRO: Não foi possível conectar ao MT5", level='error')

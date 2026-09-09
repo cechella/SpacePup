@@ -50,21 +50,31 @@ class ClienteMT5:
     def conectar(self,
                   login: Optional[int] = None,
                   senha: Optional[str] = None,
-                  servidor: Optional[str] = None) -> bool:
+                  servidor: Optional[str] = None,
+                  mt5_path: Optional[str] = None) -> bool:
         """
         Inicializa e autentica no terminal MT5.
 
         Parâmetros são opcionais — se omitidos, usa as credenciais
         já configuradas no terminal MT5 aberto.
+
+        mt5_path: caminho completo para terminal64.exe do broker específico.
+        Obrigatório quando múltiplos terminais MT5 rodam simultaneamente (um por broker).
+        Ex.: r"C:\Program Files\Exness MT5 Terminal\terminal64.exe"
         """
         if not MT5_DISPONIVEL:
             logger.warning("MT5 não disponível — simulação ativa")
             return False
 
-        # initialize() sem credenciais: conecta ao processo MT5 já aberto.
-        # O terminal gerencia a autenticação com a corretora de forma independente.
-        # Não passamos login/senha aqui para não interferir na sessão ativa.
-        if not mt5.initialize():
+        # Quando mt5_path é fornecido, aponta para o terminal64.exe do broker correto.
+        # Sem isso, mt5.initialize() conecta ao único processo MT5 em execução,
+        # o que falha quando 3 terminais estão abertos simultaneamente.
+        kwargs = {}
+        if mt5_path:
+            kwargs['path'] = mt5_path
+            logger.info(f"MT5 inicializando com path: {mt5_path}")
+
+        if not mt5.initialize(**kwargs):
             logger.error(f"Falha ao inicializar MT5: {mt5.last_error()}")
             return False
 
