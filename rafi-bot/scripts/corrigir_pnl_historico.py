@@ -17,22 +17,25 @@ import os
 import sys
 import logging
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
-# Adiciona o src ao path
+# Adiciona o src ao path para importar os módulos do bot
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)-8s | %(message)s')
 logger = logging.getLogger(__name__)
 
-# Carrega variáveis de ambiente do .env
+# Carrega .env — tenta múltiplos nomes de variável usados no projeto
 env_path = Path(__file__).parent.parent / '.env'
 if env_path.exists():
     for line in env_path.read_text(encoding='utf-8').splitlines():
         line = line.strip()
         if line and not line.startswith('#') and '=' in line:
             k, v = line.split('=', 1)
-            os.environ.setdefault(k.strip(), v.strip())
+            k = k.strip(); v = v.strip().strip('"').strip("'")
+            os.environ.setdefault(k, v)
+else:
+    logger.warning(f".env não encontrado em {env_path}")
 
 try:
     import MetaTrader5 as mt5
@@ -40,15 +43,12 @@ except ImportError:
     logger.error("MetaTrader5 não instalado ou não disponível neste ambiente.")
     sys.exit(1)
 
-from supabase import create_client
+# Usa o cliente Supabase já configurado pelo módulo do bot
+from src.supabase_sync import cliente as supa
 
-SUPA_URL = os.environ.get('SUPABASE_URL', '')
-SUPA_KEY = os.environ.get('SUPABASE_KEY', '')
-if not SUPA_URL or not SUPA_KEY:
-    logger.error("SUPABASE_URL e SUPABASE_KEY não encontrados no .env")
+if supa is None:
+    logger.error("Cliente Supabase não inicializado — verifique SUPABASE_URL e SUPABASE_KEY no .env")
     sys.exit(1)
-
-supa = create_client(SUPA_URL, SUPA_KEY)
 
 
 def pnl_real_do_mt5(position_ticket: int) -> dict | None:
