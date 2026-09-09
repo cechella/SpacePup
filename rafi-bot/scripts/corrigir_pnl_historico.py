@@ -44,8 +44,9 @@ except ImportError:
     sys.exit(1)
 
 # Usa o cliente Supabase já configurado pelo módulo do bot
-from src.supabase_sync import cliente as supa
+from src.supabase_sync import _get_cliente
 
+supa = _get_cliente()
 if supa is None:
     logger.error("Cliente Supabase não inicializado — verifique SUPABASE_URL e SUPABASE_KEY no .env")
     sys.exit(1)
