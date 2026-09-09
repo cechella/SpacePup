@@ -223,6 +223,25 @@ class ClienteMT5:
         info = mt5.account_info()
         return float(info.balance) if info else None
 
+    def pnl_real_posicao(self, ticket: int) -> Optional[dict]:
+        """Retorna P&L real de uma posição fechada via histórico de deals do MT5.
+        Mais confiável que diff de saldo (evita race-condition no polling do capital).
+        Retorna dict {bruto, commission, swap, liquido} ou None se deals não encontrados."""
+        if not MT5_DISPONIVEL or not self.conectado:
+            return None
+        try:
+            deals = mt5.history_deals_get(position=ticket)
+            if not deals:
+                return None
+            bruto      = round(sum(d.profit     for d in deals), 2)
+            commission = round(sum(d.commission for d in deals), 2)
+            swap       = round(sum(d.swap       for d in deals), 2)
+            return {'bruto': bruto, 'commission': commission, 'swap': swap,
+                    'liquido': round(bruto + commission + swap, 2)}
+        except Exception as e:
+            logger.debug(f"Erro ao ler deals do ticket #{ticket}: {e}")
+            return None
+
     def equity_atual(self) -> Optional[float]:
         """Retorna o equity atual (balance + P&L flutuante das posições abertas)."""
         if not MT5_DISPONIVEL or not self.conectado:

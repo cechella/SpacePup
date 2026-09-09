@@ -1190,9 +1190,13 @@ class RafiBot:
             if ticket in tickets_abertos:
                 continue  # ainda aberta — aguarda
 
-            # Posição foi fechada — calcula P&L real pelo saldo
+            # Posição foi fechada — usa histórico de deals (evita race-condition no saldo)
             cap_novo  = self.mt5.capital_atual()
-            pnl_trade = (cap_novo - self.capital) if cap_novo is not None else 0.0
+            pnl_info  = self.mt5.pnl_real_posicao(ticket)
+            if pnl_info is not None:
+                pnl_trade = pnl_info['liquido']   # bruto + commission + swap do MT5
+            else:
+                pnl_trade = (cap_novo - self.capital) if cap_novo is not None else 0.0
             resultado = 'win' if pnl_trade > 0 else 'loss'
 
             logger.info(
