@@ -366,6 +366,7 @@ export default function MonitorPage() {
   }, [botLogs])
 
   // Forming signal
+  const showForming  = status?.forming_signal === true
   const formingDir   = status?.forming_direction ?? 'buy'
   const formingRafi  = status?.forming_rafi ?? 0
   const formingTf    = status?.forming_tf_count ?? 0
