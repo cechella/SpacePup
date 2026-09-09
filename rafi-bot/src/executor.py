@@ -662,8 +662,10 @@ class RafiBot:
         if sinal is None:
             logger.debug("Sem sinal de entrada.")
             motivo = self._ultimo_motivo_rejeicao or 'Aguardando setup'
+            _modo  = self.cfg.get('estrategia_modo', 'rafi')
+            _extra = '' if _modo == 'autoscan' else f' | RAFI={rafi_v:.2f}'
             publicar_log(
-                f"Ciclo M5 — sem sinal | {motivo} | RAFI={rafi_v:.2f} | Saldo=${self.capital:.2f}",
+                f"Ciclo M5 — sem sinal | {motivo}{_extra} | Saldo=${self.capital:.2f}",
                 level='info',
             )
             publicar_heartbeat(
