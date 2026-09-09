@@ -771,3 +771,276 @@ def salvar_config_supabase(
     except Exception as e:
         logger.error(f"[Supabase] Erro ao salvar config: {e}")
         return False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BROKER HEALTH ENGINE — funções Supabase (sem fallback hardcoded)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def carregar_config_broker_health() -> dict:
+    """
+    Carrega TODOS os parâmetros do Broker Health Engine do Supabase
+    (tabela broker_health_config).
+
+    Retorna dicionário {chave: valor_float}.
+
+    CRÍTICO: Se o Supabase estiver indisponível ou a tabela estiver vazia,
+    lança RuntimeError — o bot DEVE parar, sem fallback hardcoded.
+    """
+    cliente = _get_cliente()
+    if not cliente:
+        raise RuntimeError(
+            "Supabase indisponível — impossível carregar broker_health_config. "
+            "Bot não pode operar sem os parâmetros de health. Verifique as "
+            "variáveis SUPABASE_URL e SUPABASE_KEY."
+        )
+
+    try:
+        resp = cliente.table('broker_health_config').select('chave,valor').execute()
+    except Exception as e:
+        raise RuntimeError(
+            f"Falha ao consultar broker_health_config no Supabase: {e}. "
+            f"Bot parando por segurança."
+        )
+
+    if not resp.data:
+        raise RuntimeError(
+            "broker_health_config está vazia no Supabase. "
+            "Execute o script migrate_broker_health.sql antes de iniciar o bot."
+        )
+
+    config = {row['chave']: float(row['valor']) for row in resp.data}
+    logger.debug(f"[Supabase] broker_health_config carregada: {len(config)} parâmetros")
+    return config
+
+
+def publicar_metricas_broker(metricas) -> bool:
+    """
+    Publica um snapshot de MetricasBroker na tabela broker_health_metrics.
+    Retorna True se publicado com sucesso, False em caso de erro.
+    """
+    cliente = _get_cliente()
+    if not cliente:
+        logger.warning("[Supabase] Métricas de broker não publicadas — cliente indisponível")
+        return False
+
+    payload = {
+        'broker_id'              : metricas.broker_id,
+        'coletado_em'            : metricas.coletado_em.isoformat(),
+        'connection_status'      : metricas.connection_status,
+        'heartbeat_latency_ms'   : metricas.heartbeat_latency_ms,
+        'api_response_time_ms'   : metricas.api_response_time_ms,
+        'disconnect_count'       : metricas.disconnect_count,
+        'reconnect_frequency'    : metricas.reconnect_frequency,
+        'uptime_pct'             : metricas.uptime_pct,
+        'order_execution_time_ms': metricas.order_execution_time_ms,
+        'fill_rate_pct'          : metricas.fill_rate_pct,
+        'partial_fill_rate_pct'  : metricas.partial_fill_rate_pct,
+        'reject_rate_pct'        : metricas.reject_rate_pct,
+        'requote_rate_pct'       : metricas.requote_rate_pct,
+        'timeout_rate_pct'       : metricas.timeout_rate_pct,
+        'api_error_rate_pct'     : metricas.api_error_rate_pct,
+        'spread_pips'            : metricas.spread_pips,
+        'effective_spread_pips'  : metricas.effective_spread_pips,
+        'slippage_pips'          : metricas.slippage_pips,
+        'commission_per_lot'     : metricas.commission_per_lot,
+        'pnl_liquido_medio_usd'  : metricas.pnl_liquido_medio_usd,
+        'pnl_por_pip_usd'        : metricas.pnl_por_pip_usd,
+        'custo_total_pips'       : metricas.custo_total_pips,
+        'free_margin_usd'        : metricas.free_margin_usd,
+        'margin_level_pct'       : metricas.margin_level_pct,
+        'price_feed_delay_ms'    : metricas.price_feed_delay_ms,
+        'price_feed_stability'   : metricas.price_feed_stability,
+        'metricas_indisponiveis' : metricas.metricas_indisponiveis,
+    }
+
+    try:
+        cliente.table('broker_health_metrics').insert(payload).execute()
+        return True
+    except Exception as e:
+        logger.error(f"[Supabase] Erro ao publicar métricas de {metricas.broker_id}: {e}")
+        return False
+
+
+def publicar_health_score(score) -> bool:
+    """
+    Publica um HealthScore calculado na tabela broker_health_scores.
+    Retorna True se publicado com sucesso.
+    """
+    cliente = _get_cliente()
+    if not cliente:
+        logger.warning("[Supabase] Health score não publicado — cliente indisponível")
+        return False
+
+    payload = {
+        'broker_id'           : score.broker_id,
+        'calculado_em'        : score.calculado_em.isoformat(),
+        'health_score'        : score.health_score,
+        'dim_pnl'             : score.dim_pnl,
+        'dim_spread'          : score.dim_spread,
+        'dim_execucao'        : score.dim_execucao,
+        'dim_conectividade'   : score.dim_conectividade,
+        'dim_margem'          : score.dim_margem,
+        'dim_estabilidade'    : score.dim_estabilidade,
+        'amostra_insuficiente': score.amostra_insuficiente,
+        'anomalia_ativa'      : score.anomalia_ativa,
+    }
+
+    try:
+        cliente.table('broker_health_scores').insert(payload).execute()
+        return True
+    except Exception as e:
+        logger.error(f"[Supabase] Erro ao publicar health score de {score.broker_id}: {e}")
+        return False
+
+
+def publicar_estado_broker(broker_id: str, estado: str, circuit_breaker: str,
+                            health_score: float, consecutivos_ok: int,
+                            consecutivos_ruim: int, quarentena_ate,
+                            override_manual: Optional[str],
+                            motivo_estado: str) -> bool:
+    """
+    Atualiza (upsert) o estado atual do broker em broker_health_state e
+    sincroniza health_score + health_estado em rafi_brokers.
+
+    Usa upsert para garantir que a linha exista (criada pela migração).
+    Retorna True se bem-sucedido.
+    """
+    cliente = _get_cliente()
+    if not cliente:
+        logger.warning(f"[Supabase] Estado de {broker_id} não publicado — cliente indisponível")
+        return False
+
+    agora = datetime.utcnow().isoformat()
+
+    state_payload = {
+        'broker_id'        : broker_id,
+        'estado'           : estado,
+        'circuit_breaker'  : circuit_breaker,
+        'health_score'     : health_score,
+        'consecutivos_ok'  : consecutivos_ok,
+        'consecutivos_ruim': consecutivos_ruim,
+        'quarentena_ate'   : quarentena_ate.isoformat() if quarentena_ate else None,
+        'override_manual'  : override_manual,
+        'motivo_estado'    : motivo_estado,
+        'atualizado_em'    : agora,
+    }
+
+    try:
+        (cliente.table('broker_health_state')
+                .upsert(state_payload, on_conflict='broker_id')
+                .execute())
+
+        # Sincroniza snapshot no cartão do broker (rafi_brokers)
+        (cliente.table('rafi_brokers')
+                .update({'health_score': health_score, 'health_estado': estado})
+                .eq('id', broker_id)
+                .execute())
+
+        return True
+    except Exception as e:
+        logger.error(f"[Supabase] Erro ao publicar estado de {broker_id}: {e}")
+        return False
+
+
+def carregar_estado_broker(broker_id: str) -> Optional[dict]:
+    """
+    Carrega o estado persistido de um broker do Supabase (broker_health_state).
+    Retorna dict com 'estado', 'circuit_breaker', etc., ou None se não encontrado.
+    """
+    cliente = _get_cliente()
+    if not cliente:
+        return None
+
+    try:
+        resp = (cliente.table('broker_health_state')
+                       .select('*')
+                       .eq('broker_id', broker_id)
+                       .single()
+                       .execute())
+        return resp.data
+    except Exception as e:
+        logger.debug(f"[Supabase] Estado de {broker_id} não encontrado: {e}")
+        return None
+
+
+def carregar_ultima_metrica_broker(broker_id: str) -> Optional[object]:
+    """
+    Retorna a MetricasBroker mais recente do broker, reconstruída a partir do
+    registro mais novo em broker_health_metrics.
+    Retorna None se não houver métricas.
+    """
+    from .broker_telemetry import MetricasBroker
+    from datetime import timezone
+
+    cliente = _get_cliente()
+    if not cliente:
+        return None
+
+    try:
+        resp = (cliente.table('broker_health_metrics')
+                       .select('*')
+                       .eq('broker_id', broker_id)
+                       .order('coletado_em', desc=True)
+                       .limit(1)
+                       .single()
+                       .execute())
+        if not resp.data:
+            return None
+
+        r = resp.data
+        m = MetricasBroker(broker_id=broker_id)
+
+        # Converte timestamp
+        from datetime import datetime
+        coletado = r.get('coletado_em')
+        if coletado:
+            try:
+                m.coletado_em = datetime.fromisoformat(coletado.replace('Z', '+00:00'))
+            except Exception:
+                m.coletado_em = datetime.now(timezone.utc)
+
+        # Mapeia campos do banco para o dataclass
+        for campo in [
+            'connection_status', 'heartbeat_latency_ms', 'api_response_time_ms',
+            'disconnect_count', 'reconnect_frequency', 'uptime_pct',
+            'order_execution_time_ms', 'fill_rate_pct', 'partial_fill_rate_pct',
+            'reject_rate_pct', 'requote_rate_pct', 'timeout_rate_pct', 'api_error_rate_pct',
+            'spread_pips', 'effective_spread_pips', 'slippage_pips', 'commission_per_lot',
+            'pnl_liquido_medio_usd', 'pnl_por_pip_usd', 'custo_total_pips',
+            'free_margin_usd', 'margin_level_pct', 'price_feed_delay_ms', 'price_feed_stability',
+        ]:
+            valor = r.get(campo)
+            if valor is not None:
+                setattr(m, campo, valor)
+
+        m.metricas_indisponiveis = r.get('metricas_indisponiveis') or []
+        return m
+
+    except Exception as e:
+        logger.debug(f"[Supabase] Sem métricas recentes para {broker_id}: {e}")
+        return None
+
+
+def carregar_todos_brokers_enabled() -> list:
+    """
+    Retorna lista de dicts com todos os brokers habilitados no Supabase
+    (rafi_brokers onde enabled = true).
+
+    Usada pelo broker_coordinator para montar o ranking cross-broker.
+    Retorna lista vazia em caso de erro (não lança exceção — apenas avisa).
+    """
+    cliente = _get_cliente()
+    if not cliente:
+        logger.warning("[Supabase] Não foi possível carregar lista de brokers — cliente indisponível")
+        return []
+
+    try:
+        resp = (cliente.table('rafi_brokers')
+                       .select('id,nome,health_score,health_estado,allocation_pct,broker_priority')
+                       .eq('enabled', True)
+                       .execute())
+        return resp.data or []
+    except Exception as e:
+        logger.error(f"[Supabase] Erro ao carregar brokers habilitados: {e}")
+        return []

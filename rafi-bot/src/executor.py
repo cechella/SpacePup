@@ -63,6 +63,8 @@ from .supabase_sync import (
     atualizar_backtest_run,
     publicar_config_hash_startup,
 )
+from . import supabase_sync as _supabase_sync_mod
+from .broker_coordinator import BrokerCoordinator
 
 # ── Configuração de logging ───────────────────────────────────────────────────
 logging.basicConfig(
@@ -281,6 +283,17 @@ class RafiBot:
         # Força gravação do hash no Supabase via UPDATE dedicado (não depende do heartbeat)
         publicar_config_hash_startup(self._config_hash)
 
+        # ── Broker Health Engine ──────────────────────────────────────────────
+        # Coordenador de saúde do broker — inicia telemetria em background e
+        # avalia o estado operacional a cada ciclo de candle.
+        # Inicializado aqui mas só ativado (iniciar()) após a conexão MT5.
+        self._health = BrokerCoordinator(
+            broker_id=self._broker_id,
+            mt5_client=self.mt5,
+            simbolo=self.par,
+            supabase_sync=_supabase_sync_mod,
+        )
+
         # Informa status do modelo ML no startup
         info_ml = modelo_info()
         if info_ml.get('disponivel'):
@@ -337,6 +350,16 @@ class RafiBot:
         # Restaura posições que estavam abertas antes de um eventual reinício
         self._restaurar_posicoes_abertas()
 
+        # Inicia o Broker Health Engine (telemetria em background + estado inicial)
+        try:
+            self._health.iniciar()
+            logger.info(f"[{self._broker_id}] Broker Health Engine iniciado")
+        except RuntimeError as e:
+            logger.error(f"HALT: {e}")
+            publicar_log(f"HALT: Broker Health Engine não iniciou — {e}", level='error')
+            self.mt5.desconectar()
+            return
+
         # Publica histórico inicial para o gráfico do dashboard aparecer imediatamente
         df_inicial = self.mt5.obter_candles('M5', n_candles=200)
         if df_inicial is not None:
@@ -376,6 +399,14 @@ class RafiBot:
 
                 # Reset diário
                 self._verificar_reset_diario()
+
+                # Ciclo de health do broker (avalia score e estado a cada candle M5)
+                try:
+                    self._health.executar_ciclo_health()
+                except RuntimeError as e:
+                    logger.error(f"HALT por indisponibilidade do Supabase: {e}")
+                    publicar_log(f"HALT: {e}", level='error')
+                    break
 
                 # Ciclo principal
                 self._ciclo()
@@ -424,6 +455,7 @@ class RafiBot:
         except KeyboardInterrupt:
             logger.info("Ctrl+C — encerrando bot.")
         finally:
+            self._health.parar()
             self.mt5.desconectar()
             logger.info("Bot encerrado.")
 
