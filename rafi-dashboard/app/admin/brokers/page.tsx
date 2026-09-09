@@ -133,7 +133,7 @@ export default function BrokersPage() {
       <div style={{ background: C.s1, border: `1px solid ${C.bd}`, borderLeft: `3px solid ${C.bl}`, borderRadius: 6, padding: '10px 14px', fontSize: 12, color: C.t2, marginBottom: 20, lineHeight: 1.6 }}>
         <strong style={{ color: C.bl }}>Como funciona:</strong> cada corretora tem um toggle Liga/Desliga independente.
         Múltiplas podem estar ativas ao mesmo tempo — para rodar simultâneas, inicie dois processos no VPS:
-        <code style={{ color: C.tx, marginLeft: 6 }}>py -m src.executor --broker xm</code> e
+        <code style={{ color: C.tx, marginLeft: 6 }}>py -m src.executor --broker exness</code> e
         <code style={{ color: C.tx, marginLeft: 6 }}>py -m src.executor --broker pepperstone</code>
       </div>
 
