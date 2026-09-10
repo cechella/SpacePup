@@ -1106,3 +1106,73 @@ def carregar_todos_brokers_enabled() -> list:
     except Exception as e:
         logger.error(f"[Supabase] Erro ao carregar brokers habilitados: {e}")
         return []
+
+
+# ── Upload de dados para Supabase Storage ─────────────────────────────────────
+
+def verificar_upload_pendente() -> Optional[dict]:
+    """
+    Verifica se há uma solicitação de upload de dados pendente no dashboard.
+
+    Retorna dict com {id, arquivo, broker} ou None se não houver pendência.
+    O status 'pending' é criado pelo admin dashboard e consumido aqui.
+    """
+    cliente = _get_cliente()
+    if cliente is None:
+        return None
+
+    try:
+        res = (
+            cliente.table('rafi_uploads')
+            .select('id,arquivo,broker')
+            .eq('status', 'pending')
+            .order('created_at')
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return None
+
+        row = res.data[0]
+        logger.info(f"[Supabase] Upload de dados pendente: {row.get('arquivo')} (broker: {row.get('broker')})")
+        return row
+    except Exception as e:
+        logger.debug(f"[Supabase] Erro ao verificar upload pendente: {e}")
+        return None
+
+
+def atualizar_status_upload(upload_id: str, status: str,
+                            progress_pct: int = 0,
+                            storage_path: Optional[str] = None,
+                            tamanho_bytes: Optional[int] = None,
+                            error_msg: Optional[str] = None) -> bool:
+    """
+    Atualiza o status de uma linha em rafi_uploads.
+
+    status: 'pending' | 'running' | 'done' | 'error'
+    """
+    cliente = _get_cliente()
+    if cliente is None:
+        return False
+
+    try:
+        campos: dict = {
+            'status':       status,
+            'progress_pct': progress_pct,
+            'updated_at':   datetime.utcnow().isoformat(),
+        }
+        if storage_path is not None:
+            campos['storage_path'] = storage_path
+        if tamanho_bytes is not None:
+            campos['tamanho_bytes'] = tamanho_bytes
+        if error_msg is not None:
+            campos['error_msg'] = error_msg
+
+        (cliente.table('rafi_uploads')
+                .update(campos)
+                .eq('id', upload_id)
+                .execute())
+        return True
+    except Exception as e:
+        logger.error(f"[Supabase] Erro ao atualizar status upload: {e}")
+        return False

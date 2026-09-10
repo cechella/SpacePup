@@ -23,6 +23,7 @@ Kill switch: pressione Ctrl+C ou crie o arquivo STOP na pasta raiz.
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import time
 import logging
@@ -63,6 +64,8 @@ from .supabase_sync import (
     verificar_backtest_pendente,
     atualizar_backtest_run,
     publicar_config_hash_startup,
+    verificar_upload_pendente,
+    atualizar_status_upload,
 )
 from . import supabase_sync as _supabase_sync_mod
 from .broker_coordinator import BrokerCoordinator
@@ -286,6 +289,9 @@ class RafiBot:
         # Controle de backtest em background (evita dois simultâneos)
         self._backtest_em_andamento = False
 
+        # Controle de upload de dados em background (evita dois simultâneos)
+        self._upload_em_andamento = False
+
         # Hash do config efetivo (pós-overrides) — exibido no dashboard para rastreabilidade
         self._config_hash = calcular_hash_config(self.cfg)
         # Força gravação do hash no Supabase via UPDATE dedicado (não depende do heartbeat)
@@ -425,6 +431,12 @@ class RafiBot:
                     _bt_pendente = verificar_backtest_pendente()
                     if _bt_pendente:
                         self._iniciar_backtest_background(_bt_pendente)
+
+                # Verifica upload de dados solicitado pelo admin (roda em thread separada)
+                if not self._upload_em_andamento:
+                    _upload_pendente = verificar_upload_pendente()
+                    if _upload_pendente:
+                        self._iniciar_upload_background(_upload_pendente)
 
                 # Aguarda próximo candle M5, publicando candle em formação a cada 30s
                 agora   = time.time()
@@ -642,6 +654,75 @@ class RafiBot:
                 self._backtest_em_andamento = False
 
         t = threading.Thread(target=_worker, daemon=True, name=f'bt-{run["id"][:8]}')
+        t.start()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # UPLOAD DE DADOS PARA SUPABASE STORAGE (disparado pelo admin dashboard)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _iniciar_upload_background(self, solicitacao: dict) -> None:
+        """
+        Executa o upload de dados históricos em thread daemon para não bloquear o trading.
+
+        solicitacao: dict com {id, arquivo, broker} do Supabase (rafi_uploads).
+        Chama o script upload_dados_supabase.py como subprocesso para reaproveitar
+        toda a lógica de compressão e upload já implementada nele.
+        """
+
+        def _worker() -> None:
+            upload_id = solicitacao['id']
+            broker    = solicitacao.get('broker', 'pepperstone')
+            try:
+                self._upload_em_andamento = True
+                atualizar_status_upload(upload_id, 'running', progress_pct=2)
+                logger.info(f"[Upload] Iniciando upload de dados (broker: {broker})")
+                publicar_log(f"Upload de dados iniciado para Supabase Storage (broker: {broker})", level='info')
+
+                # Localiza o script relativo à raiz do rafi-bot
+                script = Path(__file__).parent.parent / 'scripts' / 'upload_dados_supabase.py'
+                if not script.exists():
+                    raise FileNotFoundError(f"Script não encontrado: {script}")
+
+                # Passa SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY do ambiente atual
+                env = os.environ.copy()
+                # Garante que a key correta está disponível (supabase_sync usa SUPABASE_KEY)
+                if 'SUPABASE_SERVICE_ROLE_KEY' not in env and 'SUPABASE_KEY' in env:
+                    env['SUPABASE_SERVICE_ROLE_KEY'] = env['SUPABASE_KEY']
+
+                cmd = [
+                    sys.executable, str(script),
+                    '--broker',    broker,
+                    '--upload-id', upload_id,
+                ]
+                logger.info(f"[Upload] Executando: {' '.join(cmd)}")
+
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    env=env,
+                )
+
+                # Loga saída linha a linha para acompanhamento
+                for linha in proc.stdout:
+                    logger.info(f"[Upload] {linha.rstrip()}")
+
+                proc.wait()
+                if proc.returncode != 0:
+                    raise RuntimeError(f"Script de upload encerrou com código {proc.returncode}")
+
+                logger.info("[Upload] Upload concluído com sucesso")
+                publicar_log("Upload de dados concluído — arquivo disponível no Supabase Storage", level='info')
+
+            except Exception as exc:
+                logger.error(f"[Upload] Erro: {exc}")
+                atualizar_status_upload(upload_id, 'error', error_msg=str(exc)[:500])
+                publicar_log(f"Erro no upload de dados: {exc}", level='error')
+            finally:
+                self._upload_em_andamento = False
+
+        t = threading.Thread(target=_worker, daemon=True, name=f'upload-{solicitacao["id"][:8]}')
         t.start()
 
     # ─────────────────────────────────────────────────────────────────────────

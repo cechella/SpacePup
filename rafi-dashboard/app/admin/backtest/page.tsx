@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Play, Clock, CheckCircle2, XCircle, AlertCircle,
   ChevronDown, ChevronUp, RefreshCw, Loader2,
-  TrendingUp, BarChart2, Zap,
+  TrendingUp, BarChart2, Zap, Upload, Database, HardDrive,
 } from 'lucide-react'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -317,6 +317,268 @@ function RunCard({ run, onDelete }: { run: BacktestRun; onDelete?: () => void })
   )
 }
 
+// ─── Tipos: upload de dados ───────────────────────────────────────────────────
+
+type UploadStatus = 'pending' | 'running' | 'done' | 'error' | 'cancelled'
+
+interface UploadRow {
+  id:            string
+  arquivo:       string
+  broker:        string
+  status:        UploadStatus
+  progress_pct:  number
+  storage_path:  string | null
+  tamanho_bytes: number | null
+  error_msg:     string | null
+  created_at:    string
+  updated_at:    string
+}
+
+// ─── Seção: Dados de Mercado ──────────────────────────────────────────────────
+
+function DadosMercado() {
+  const [uploads, setUploads]         = useState<UploadRow[]>([])
+  const [enviando, setEnviando]       = useState(false)
+  const [broker, setBroker]           = useState('pepperstone')
+  const [erro, setErro]               = useState('')
+  const [sucesso, setSucesso]         = useState('')
+  const pollingRef                    = useRef<NodeJS.Timeout | null>(null)
+
+  const fetchUploads = useCallback(async () => {
+    try {
+      const res  = await fetch('/api/uploads')
+      const data = await res.json()
+      if (data.uploads) setUploads(data.uploads)
+    } catch { /* silencioso */ }
+  }, [])
+
+  useEffect(() => { fetchUploads() }, [fetchUploads])
+
+  // Polling enquanto há upload ativo
+  useEffect(() => {
+    const ativo = uploads.some(u => u.status === 'pending' || u.status === 'running')
+    if (ativo) {
+      if (!pollingRef.current) {
+        pollingRef.current = setInterval(fetchUploads, 3000)
+      }
+    } else {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current)
+        pollingRef.current = null
+      }
+    }
+    return () => { if (pollingRef.current) clearInterval(pollingRef.current) }
+  }, [uploads, fetchUploads])
+
+  async function handleUpload() {
+    setErro(''); setSucesso('')
+    setEnviando(true)
+    try {
+      const res  = await fetch('/api/uploads', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ broker }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Erro ao criar upload')
+      setSucesso(`Upload solicitado — o bot na VM irá compactar e enviar em breve (ID: ${data.upload_id?.slice(0, 8)}…)`)
+      fetchUploads()
+    } catch (e: unknown) {
+      setErro(e instanceof Error ? e.message : String(e))
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  async function handleCancel(upload_id: string) {
+    await fetch('/api/uploads', {
+      method:  'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ upload_id }),
+    })
+    fetchUploads()
+  }
+
+  const uploadAtivo = uploads.find(u => u.status === 'pending' || u.status === 'running')
+  const ultimo      = uploads[0]
+
+  function fmtBytes(b: number | null): string {
+    if (!b) return '—'
+    if (b > 1024 * 1024) return `${(b / 1024 / 1024).toFixed(0)} MB`
+    return `${(b / 1024).toFixed(0)} KB`
+  }
+
+  function uploadColor(s: UploadStatus): string {
+    switch (s) {
+      case 'done':      return '#22c55e'
+      case 'running':   return '#3b82f6'
+      case 'pending':   return '#f59e0b'
+      case 'error':     return '#ef4444'
+      case 'cancelled': return '#6b7280'
+    }
+  }
+
+  function uploadLabel(s: UploadStatus): string {
+    switch (s) {
+      case 'done':      return 'Concluído'
+      case 'running':   return 'Enviando…'
+      case 'pending':   return 'Aguardando bot'
+      case 'error':     return 'Erro'
+      case 'cancelled': return 'Cancelado'
+    }
+  }
+
+  const CORRETORAS_UPLOAD = [
+    { id: 'pepperstone', label: 'Pepperstone' },
+    { id: 'exness',      label: 'Exness'      },
+    { id: 'tickmill',    label: 'Tickmill'     },
+  ]
+
+  return (
+    <div style={{
+      background: '#111827',
+      border:     '1px solid rgba(255,255,255,0.08)',
+      borderRadius: 12,
+      padding:    '20px 24px',
+      marginBottom: 24,
+    }}>
+      {/* Título */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <HardDrive size={16} color="#6366f1" />
+        <span style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8',
+                       textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          Dados de Mercado
+        </span>
+        {ultimo && (
+          <span style={{
+            marginLeft: 'auto', fontSize: 11, padding: '2px 8px', borderRadius: 6,
+            background: `${uploadColor(ultimo.status)}20`,
+            border:     `1px solid ${uploadColor(ultimo.status)}40`,
+            color:      uploadColor(ultimo.status),
+          }}>
+            {uploadLabel(ultimo.status)}
+            {ultimo.storage_path && ` · ${ultimo.storage_path}`}
+            {ultimo.tamanho_bytes && ` · ${fmtBytes(ultimo.tamanho_bytes)}`}
+          </span>
+        )}
+      </div>
+
+      {/* Info */}
+      <p style={{ color: '#64748b', fontSize: 12, margin: '0 0 16px' }}>
+        Exporta os dados históricos EURUSD M5 do VPS para o Supabase Storage (gzip).
+        Após o envio, os backtests aqui no servidor usam automaticamente esses dados reais da corretora.
+      </p>
+
+      {/* Upload ativo */}
+      {uploadAtivo && (
+        <div style={{
+          background: uploadAtivo.status === 'running' ? 'rgba(59,130,246,0.08)' : 'rgba(251,191,36,0.08)',
+          border:     `1px solid ${uploadAtivo.status === 'running' ? 'rgba(59,130,246,0.3)' : 'rgba(251,191,36,0.3)'}`,
+          borderRadius: 8, padding: '12px 16px', marginBottom: 16,
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <Loader2 size={16}
+                   color={uploadAtivo.status === 'running' ? '#3b82f6' : '#fbbf24'}
+                   style={{ animation: 'spin 1s linear infinite' }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>
+              {uploadAtivo.status === 'running' ? 'Enviando dados…' : 'Upload aguardando o bot'}
+              {' '}— {uploadAtivo.broker}
+            </div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+              {uploadAtivo.progress_pct}% concluído
+            </div>
+          </div>
+          <div style={{ width: 100, height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{
+              width: `${uploadAtivo.progress_pct}%`, height: '100%',
+              background: uploadAtivo.status === 'running' ? '#3b82f6' : '#fbbf24',
+              borderRadius: 2, transition: 'width 0.5s ease',
+            }} />
+          </div>
+          {uploadAtivo.status === 'pending' && (
+            <button
+              onClick={() => handleCancel(uploadAtivo.id)}
+              style={{
+                background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
+                color: '#ef4444', borderRadius: 6, padding: '4px 10px',
+                fontSize: 11, cursor: 'pointer',
+              }}>
+              Cancelar
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Controles */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        {/* Corretora */}
+        <div style={{ display: 'flex', gap: 6 }}>
+          {CORRETORAS_UPLOAD.map(c => (
+            <button key={c.id} onClick={() => setBroker(c.id)}
+                    style={{
+                      padding: '6px 12px', borderRadius: 8, cursor: 'pointer',
+                      fontSize: 12, fontWeight: broker === c.id ? 600 : 400,
+                      background: broker === c.id ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.04)',
+                      border: `1px solid ${broker === c.id ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.1)'}`,
+                      color: broker === c.id ? '#a5b4fc' : '#64748b',
+                    }}>
+              {c.label}
+            </button>
+          ))}
+        </div>
+
+        <button
+          onClick={handleUpload}
+          disabled={enviando || !!uploadAtivo}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 7,
+            padding: '9px 18px', borderRadius: 8,
+            cursor: enviando || uploadAtivo ? 'not-allowed' : 'pointer',
+            background: enviando || uploadAtivo ? 'rgba(99,102,241,0.3)' : '#6366f1',
+            border: 'none', color: '#fff', fontWeight: 700, fontSize: 13,
+            opacity: enviando || uploadAtivo ? 0.7 : 1,
+          }}>
+          {enviando
+            ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
+            : <Upload size={14} />}
+          {enviando ? 'Solicitando…' : uploadAtivo ? 'Aguardando' : '📤 Enviar Dados ao Supabase'}
+        </button>
+
+        <button onClick={fetchUploads}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '8px 12px', borderRadius: 8,
+                  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+                  color: '#64748b', fontSize: 12, cursor: 'pointer',
+                }}>
+          <RefreshCw size={12} /> Atualizar
+        </button>
+      </div>
+
+      {/* Feedback */}
+      {erro    && <div style={{ marginTop: 12, padding: '8px 12px', background: 'rgba(239,68,68,0.1)',  border: '1px solid rgba(239,68,68,0.3)',  borderRadius: 6, fontSize: 12, color: '#ef4444' }}>{erro}</div>}
+      {sucesso && <div style={{ marginTop: 12, padding: '8px 12px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 6, fontSize: 12, color: '#22c55e' }}>{sucesso}</div>}
+
+      {/* Erro do último upload */}
+      {ultimo?.status === 'error' && ultimo.error_msg && (
+        <div style={{ marginTop: 12, padding: '8px 12px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 6, fontSize: 12, color: '#ef4444' }}>
+          Último erro: {ultimo.error_msg}
+        </div>
+      )}
+
+      {/* Instrução manual */}
+      <div style={{ marginTop: 14, padding: '10px 14px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, fontSize: 11, color: '#475569', fontFamily: 'monospace' }}>
+        <div style={{ color: '#64748b', marginBottom: 4, fontFamily: 'inherit', fontSize: 11 }}>Alternativa: executar manualmente no VPS</div>
+        <div>cd C:\SpacePup\rafi-bot</div>
+        <div>set SUPABASE_URL=https://xxxx.supabase.co</div>
+        <div>set SUPABASE_SERVICE_ROLE_KEY=eyJ...</div>
+        <div>py scripts\upload_dados_supabase.py --broker pepperstone</div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function BacktestPage() {
@@ -436,9 +698,12 @@ export default function BacktestPage() {
         display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#fbbf24',
       }}>
         <Zap size={15} />
-        O bot precisa estar <strong>RODANDO na VM</strong> para executar o backtest.
-        O run fica com status "Aguardando bot" até o próximo ciclo M5 do executor.
+        O bot precisa estar <strong>RODANDO na VM</strong> para executar o backtest e os uploads.
+        Ações ficam com status "Aguardando bot" até o próximo ciclo M5 do executor.
       </div>
+
+      {/* Dados de Mercado — upload de CSV real da corretora */}
+      <DadosMercado />
 
       {/* Run ativo (status banner) */}
       {runAtivo && (
