@@ -176,9 +176,9 @@ def imprimir_relatorio_combinado(resultados: list[tuple[dict, dict, list]],
         wr        = rel.get('win_rate_pct', 0)
         pf        = rel.get('profit_factor', 0)
         n_trades  = rel.get('total_trades', 0)
-        dd        = rel.get('drawdown_maximo_pct', 0)
-        ganhos    = rel.get('total_ganhos', 0)
-        perdas    = rel.get('total_perdas', 0)
+        dd        = rel.get('drawdown_max_pct', 0)
+        ganhos    = rel.get('ganhos', 0)      # nº de trades vencedores
+        perdas    = rel.get('perdas', 0)      # nº de trades perdedores
 
         # Custo total de comissão
         comissao_total = sum(
