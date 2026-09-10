@@ -231,10 +231,18 @@ export default function ConfigPage() {
       const data = await res.json()
       if (data.ok) {
         if (unlockTarget === 'simulator') setSimLocked(false)
-        if (unlockTarget === 'live')      setLiveLocked(false)
+        // Só desbloqueia o painel live se não havia faixa pendente (senha pedida pelo painel, não pela tabela)
+        if (unlockTarget === 'live' && pendingFaixaOrdem === null) setLiveLocked(false)
         setAdminPassword(passwordInput)   // guarda em memória para autenticar saves
         setShowPasswordModal(false)
+        const senha = passwordInput
         setPasswordInput('')
+        // Se havia uma faixa aguardando autenticação, salva agora
+        if (pendingFaixaOrdem !== null) {
+          const ordemPendente = pendingFaixaOrdem
+          setPendingFaixaOrdem(null)
+          salvarFaixaComSenha(ordemPendente, senha)
+        }
       } else {
         setPasswordError(data.error || 'Senha incorreta')
       }
@@ -250,6 +258,8 @@ export default function ConfigPage() {
   const [faixasEditando, setFaixasEditando] = useState<Record<number, Partial<FaixaLote>>>({})
   const [faixasSaving, setFaixasSaving] = useState<Record<number, boolean>>({})
   const [faixasSaved,  setFaixasSaved]  = useState<Record<number, boolean>>({})
+  // Faixa aguardando autenticação — quando senha não foi inserida ainda
+  const [pendingFaixaOrdem, setPendingFaixaOrdem] = useState<number | null>(null)
 
   // Atualiza status do bot e hash live do Supabase — chamado no mount e a cada 30s
   const atualizarStatusBot = useCallback(async () => {
@@ -334,7 +344,7 @@ export default function ConfigPage() {
     salvarDb('live', liveCfg)
   }
 
-  const salvarFaixa = async (ordem: number) => {
+  const salvarFaixaComSenha = async (ordem: number, senha: string) => {
     const edit = faixasEditando[ordem]
     if (!edit) return
     const faixa = faixas.find(f => f.ordem === ordem)
@@ -348,7 +358,7 @@ export default function ConfigPage() {
         : faixa.capital_max
       const res = await fetch('/api/admin/save-faixa', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+        headers: { 'Content-Type': 'application/json', 'x-admin-password': senha },
         body: JSON.stringify({ ordem, lote: novoLote, capital_min: novoMin, capital_max: novoMax }),
       })
       if (!res.ok) {
@@ -363,6 +373,19 @@ export default function ConfigPage() {
       setTimeout(() => setFaixasSaved(s => ({ ...s, [ordem]: false })), 2000)
     } catch (e) { setError(`Erro ao salvar faixa ${ordem}: ${e}`) }
     setFaixasSaving(s => ({ ...s, [ordem]: false }))
+  }
+
+  const salvarFaixa = (ordem: number) => {
+    if (!adminPassword) {
+      // Senha ainda não inserida: pede autenticação e guarda a faixa pendente
+      setPendingFaixaOrdem(ordem)
+      setUnlockTarget('live')
+      setPasswordInput('')
+      setPasswordError('')
+      setShowPasswordModal(true)
+      return
+    }
+    salvarFaixaComSenha(ordem, adminPassword)
   }
 
   const sincronizarLive = async () => {
