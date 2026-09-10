@@ -898,16 +898,15 @@ export default function ConfigPage() {
                               style={{ width: 68, background: 'transparent', border: `1px solid ${temEdit ? C.am+'60' : C.bd}`,
                                 color: C.t2, fontSize: 9, fontFamily: 'monospace', padding: '2px 4px', borderRadius: 3, outline: 'none' }} />
                           </td>
-                          {/* Capital Max */}
+                          {/* Capital Max — sempre input editável; vazio = ∞ (última faixa) */}
                           <td style={{ padding: '2px 6px' }}>
-                            {maxAtual === null ? (
-                              <span style={{ color: C.t3, fontSize: 9 }}>∞</span>
-                            ) : (
-                              <input type="number" value={maxAtual ?? ''} step={1} min={0}
-                                onChange={e => setFaixasEditando(ev => ({ ...ev, [f.ordem]: { ...ev[f.ordem], capital_max: e.target.value === '' ? null : parseFloat(e.target.value) } }))}
-                                style={{ width: 68, background: 'transparent', border: `1px solid ${temEdit ? C.am+'60' : C.bd}`,
-                                  color: C.t2, fontSize: 9, fontFamily: 'monospace', padding: '2px 4px', borderRadius: 3, outline: 'none' }} />
-                            )}
+                            <input type="number" value={maxAtual ?? ''} step={1} min={0}
+                              placeholder="∞"
+                              onChange={e => setFaixasEditando(ev => ({ ...ev, [f.ordem]: { ...ev[f.ordem], capital_max: e.target.value === '' ? null : parseFloat(e.target.value) } }))}
+                              style={{ width: 68, background: 'transparent',
+                                border: `1px solid ${temEdit ? C.am+'60' : C.bd}`,
+                                color: maxAtual === null ? C.t3 : C.t2,
+                                fontSize: 9, fontFamily: 'monospace', padding: '2px 4px', borderRadius: 3, outline: 'none' }} />
                           </td>
                           {/* Lote */}
                           <td style={{ padding: '2px 6px' }}>
