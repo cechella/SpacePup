@@ -131,6 +131,16 @@ def main() -> None:
                         help='Data final do backtest (YYYY-MM-DD). Ex: 2026-08-31')
     parser.add_argument('--rr', type=float, default=None,
                         help='Override ratio_risco_retorno. Ex: 3.0 ou 4.0')
+    parser.add_argument('--spread', type=float, default=None,
+                        help='Override spread_pips. Ex: 0.1 (Razor) ou 0.2 (Standard)')
+    parser.add_argument('--slippage', type=float, default=None,
+                        help='Override slippage_pips base. Ex: 0.3')
+    parser.add_argument('--comissao', type=float, default=None,
+                        help='Override comissao_por_lote RT. Ex: 6.0 (Razor) ou 7.0 (Exness Raw)')
+    parser.add_argument('--slippage-escalonado', action='store_true', dest='slippage_escalonado',
+                        help='Ativa slippage extra por tamanho de lote (realismo em lotes grandes)')
+    parser.add_argument('--nome-corretora', default=None, dest='nome_corretora',
+                        help='Nome da corretora para identificação no relatório. Ex: Pepperstone')
     args = parser.parse_args()
 
     # ── Carregar configurações ─────────────────────────────────
@@ -188,10 +198,17 @@ def main() -> None:
     if args.rr is not None:
         config['ratio_risco_retorno'] = args.rr
 
+    # Custos por corretora: CLI > config.yaml
+    if args.spread   is not None: config['spread_pips']        = args.spread
+    if args.slippage is not None: config['slippage_pips']       = args.slippage
+    if args.comissao is not None: config['comissao_por_lote']   = args.comissao
+    if args.slippage_escalonado:  config['slippage_escalonado'] = True
+
     log_arquivo = config.get('log_arquivo', 'logs/backtest.log')
     configurar_logging(args.log, log_arquivo)
     logger = logging.getLogger(__name__)
-    logger.info("=== Bot RAFI — Iniciando backtest ===")
+    nome_corretora = args.nome_corretora or 'N/A'
+    logger.info(f"=== Bot RAFI — Iniciando backtest | Corretora: {nome_corretora} ===")
     logger.info(f"Config hash: {config_hash} (arquivo: {args.config})")
 
     # ── Download automático do Supabase Storage ───────────────

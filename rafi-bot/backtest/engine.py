@@ -71,6 +71,8 @@ class Backtest:
         self.custo_total      = (self.spread_pips + self.slippage_pips) * 0.0001
         # Comissão Razor: $6/lote round trip cobrada na abertura ($3/lado)
         self.comissao_lote    = float(config.get('comissao_por_lote', 0.0))
+        # Slippage escalonado: quanto maior o lote, maior a derrapagem real na execução
+        self.slippage_escalonado = bool(config.get('slippage_escalonado', False))
         self.par              = config.get('par', 'EURUSD')
 
         # Registros
@@ -1032,6 +1034,19 @@ class Backtest:
                 preco_saida   = preco_base + self.custo_total / 2
                 variacao_pips = (preco_entrada - preco_saida) / 0.0001
             comissao_usd = self.comissao_lote * lote
+
+        # Slippage escalonado: lotes grandes têm derrapagem real maior na execução
+        # Tabela calibrada para ECN/STP de alta liquidez (Pepperstone/Tickmill/Exness)
+        if self.slippage_escalonado and lote > 1:
+            if lote <= 10:
+                slip_extra = 0.3
+            elif lote <= 50:
+                slip_extra = 0.8
+            else:
+                slip_extra = 1.5   # 50-100 lotes: mercado absorve com derrapagem real
+            # Slippage sempre contra o trader (entrada pior, saída pior)
+            custo_slip_extra = slip_extra * lote * 10.0 * 0.0001 * 10000
+            comissao_usd += round(custo_slip_extra, 2)
 
         # EURUSD: $10/pip por lote padrão (100.000 unidades)
         pnl_usd = round(variacao_pips * lote * 10.0 - comissao_usd, 2)
