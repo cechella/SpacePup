@@ -241,8 +241,8 @@ export default function BrokersPage() {
                 <input
                   type={type}
                   placeholder={placeholder}
-                  value={(credForm as Record<string, string>)[key]}
-                  onChange={e => setCredForm(f => ({ ...f, [key]: e.target.value }))}
+                  value={(credForm as unknown as Record<string, string>)[key]}
+                  onChange={e => setCredForm(f => ({ ...f, [key as keyof CredForm]: e.target.value }))}
                   style={{ width: '100%', boxSizing: 'border-box', background: C.s2, border: `1px solid ${C.bd}`, borderRadius: 6, padding: '8px 10px', color: C.tx, fontSize: 12, fontFamily: 'monospace' }}
                 />
               </div>
