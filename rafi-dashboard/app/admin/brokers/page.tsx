@@ -20,22 +20,6 @@ const C = {
   t3:  '#2d4a60',
 }
 
-// ── Tabela de lotes (compartilhada com config) ────────────────────────────
-const FAIXAS_LOTE = [
-  { min: 0,      max: 40,       lote:   0.10, pip: '$1/pip'   },
-  { min: 40,     max: 80,       lote:   0.20, pip: '$2/pip'   },
-  { min: 80,     max: 150,      lote:   0.40, pip: '$4/pip'   },
-  { min: 150,    max: 200,      lote:   0.70, pip: '$7/pip'   },
-  { min: 200,    max: 400,      lote:   1.00, pip: '$10/pip'  },
-  { min: 400,    max: 800,      lote:   2.00, pip: '$20/pip'  },
-  { min: 800,    max: 1500,     lote:   4.00, pip: '$40/pip'  },
-  { min: 1500,   max: 3000,     lote:   8.00, pip: '$80/pip'  },
-  { min: 3000,   max: 6000,     lote:  15.00, pip: '$150/pip' },
-  { min: 6000,   max: 10000,    lote:  30.00, pip: '$300/pip' },
-  { min: 10000,  max: 20000,    lote:  50.00, pip: '$500/pip' },
-  { min: 20000,  max: Infinity, lote: 100.00, pip: '$1k/pip'  },
-]
-
 interface Broker {
   id:           string
   nome:         string
@@ -63,6 +47,13 @@ interface CredForm {
   mt5_path:     string
 }
 
+interface FaixaLote {
+  ordem:       number
+  lote:        number
+  capital_min: number
+  capital_max: number | null
+}
+
 // ── Logo por corretora ───────────────────────────────────────────────────
 const LOGOS: Record<string, { label: string; cor: string; bg: string; bd: string }> = {
   xm:          { label: 'XM',  cor: C.gr, bg: '#0d2016', bd: '#1a4028' },
@@ -80,12 +71,25 @@ const MT5_PATHS: Record<string, string> = {
   tickmill:    "C:\\Program Files\\Tickmill UK MT5 Terminal\\terminal64.exe",
 }
 
+function lotePorSaldo(saldo: number, faixas: FaixaLote[]): string {
+  if (!faixas.length) return '0.10'
+  const f = faixas.find((x) =>
+    saldo >= x.capital_min && (x.capital_max === null || saldo < x.capital_max)
+  )
+  return f ? f.lote.toFixed(2) : '0.10'
+}
+
 // ── Componente principal ─────────────────────────────────────────────────
 export default function BrokersPage() {
   const [brokers, setBrokers]   = useState<Broker[]>([])
   const [loading, setLoading]   = useState(true)
   const [toggling, setToggling] = useState<string | null>(null)
   const [lastUpdate, setLastUpdate] = useState('')
+
+  // Dados dinâmicos do Supabase
+  const [faixas,   setFaixas]   = useState<FaixaLote[]>([])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [liveConfig, setLiveConfig] = useState<Record<string, any> | null>(null)
 
   // Modal de credenciais
   const [credBroker, setCredBroker] = useState<Broker | null>(null)
@@ -103,10 +107,21 @@ export default function BrokersPage() {
         setLastUpdate(new Date().toLocaleTimeString('pt-BR'))
       }
     } catch {
-      // silencioso — não bloqueia a UI
+      // silencioso
     } finally {
       setLoading(false)
     }
+  }, [])
+
+  // Busca config e faixas do Supabase uma vez ao montar
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/config').then(r => r.json()).catch(() => ({})),
+      fetch('/api/admin/save-faixa').then(r => r.json()).catch(() => ({})),
+    ]).then(([cfgRes, faixasRes]) => {
+      if (cfgRes.live) setLiveConfig(cfgRes.live)
+      if (faixasRes.faixas?.length) setFaixas(faixasRes.faixas)
+    })
   }, [])
 
   useEffect(() => {
@@ -208,12 +223,14 @@ export default function BrokersPage() {
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 12, marginBottom: 28 }}>
-          {brokers.map((b) => <BrokerCard key={b.id} broker={b} onToggle={toggle} toggling={toggling === b.id} onCred={abrirCred} />)}
+          {brokers.map((b) => (
+            <BrokerCard key={b.id} broker={b} faixas={faixas} onToggle={toggle} toggling={toggling === b.id} onCred={abrirCred} />
+          ))}
         </div>
       )}
 
-      {/* Config compartilhado */}
-      <SharedConfig />
+      {/* Config compartilhado — dados reais do Supabase */}
+      <SharedConfig liveConfig={liveConfig} faixas={faixas} />
 
       {/* Modal de credenciais MT5 */}
       {credBroker && (
@@ -291,10 +308,15 @@ export default function BrokersPage() {
 }
 
 // ── Card individual de corretora ──────────────────────────────────────────
-function BrokerCard({ broker, onToggle, toggling, onCred }: { broker: Broker; onToggle: (b: Broker) => void; toggling: boolean; onCred: (b: Broker) => void }) {
+function BrokerCard({ broker, faixas, onToggle, toggling, onCred }: {
+  broker: Broker
+  faixas: FaixaLote[]
+  onToggle: (b: Broker) => void
+  toggling: boolean
+  onCred: (b: Broker) => void
+}) {
   const logo   = getLogo(broker.id)
   const active = broker.enabled
-
   const pnlColor = broker.pnl_hoje > 0 ? C.gr : broker.pnl_hoje < 0 ? C.re : C.tx
 
   return (
@@ -305,13 +327,11 @@ function BrokerCard({ broker, onToggle, toggling, onCred }: { broker: Broker; on
       overflow: 'hidden',
       transition: 'border-color .2s',
     }}>
-      {/* Status bar */}
       <div style={{ height: 3, background: active ? C.gr : C.bd }} />
 
       <div style={{ padding: 16 }}>
         {/* Top row */}
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
-          {/* Identity */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
               width: 36, height: 36, borderRadius: 8, flexShrink: 0,
@@ -375,7 +395,7 @@ function BrokerCard({ broker, onToggle, toggling, onCred }: { broker: Broker; on
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ fontSize: 10, color: C.t2 }}>
-              {broker.simbolo} · {lotePorSaldo(broker.saldo ?? 0)}L
+              {broker.simbolo} · {lotePorSaldo(broker.saldo ?? 0, faixas)}L
             </div>
             <button onClick={() => onCred(broker)} title="Configurar conexão MT5"
               style={{ background: 'transparent', border: `1px solid ${C.bd}`, borderRadius: 5, padding: '3px 6px', cursor: 'pointer', color: broker.mt5_login ? C.cy : C.t3, display: 'flex', alignItems: 'center', gap: 3, fontSize: 9 }}>
@@ -397,42 +417,100 @@ function Metric({ label, value, color }: { label: string; value: string; color?:
   )
 }
 
-function lotePorSaldo(saldo: number): string {
-  const f = FAIXAS_LOTE.find((x) => saldo >= x.min && saldo < x.max)
-  return f ? f.lote.toFixed(2) : '0.10'
-}
+// ── Painel de configurações compartilhadas — dados reais do Supabase ────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function SharedConfig({ liveConfig, faixas }: { liveConfig: Record<string, any> | null; faixas: FaixaLote[] }) {
+  const cfg = liveConfig
 
-// ── Painel de configurações compartilhadas ────────────────────────────────
-function SharedConfig() {
+  // Helper para formatar valor com fallback
+  const val = (key: string, fallback = '—') => {
+    if (!cfg) return fallback
+    const v = cfg[key]
+    if (v === null || v === undefined) return fallback
+    return String(v)
+  }
+
+  const modo = val('estrategia_modo', 'autoscan')
+  const rr   = val('ratio_risco_retorno', '1.3')
+  const maxPos = val('max_trades_simultaneos', '1')
+  const bbPeriodo = val('bb_periodo', '6')
+  const bbLimiar  = val('bb_limiar_estreita', '0.0016')
+  const bbExpMin  = val('bb_squeeze_expansao_min', '1.05')
+  const srLookback = val('autoscan_sr_lookback', '10')
+  const minBreak   = val('autoscan_min_breakout', '0.00005')
+  const minGap     = val('autoscan_min_gap_candles', '5')
+  const stopOff    = val('autoscan_stop_offset', '0.00010')
+
+  // Formatar minBreak em pips
+  const minBreakPips = cfg?.autoscan_min_breakout != null
+    ? `${(cfg.autoscan_min_breakout * 10000).toFixed(1)} pips`
+    : '5 pips'
+
+  const stopOffPips = cfg?.autoscan_stop_offset != null
+    ? `${(cfg.autoscan_stop_offset * 10000).toFixed(1)} pip`
+    : '1 pip'
+
+  const minGapMin = cfg?.autoscan_min_gap_candles != null
+    ? `${cfg.autoscan_min_gap_candles} candles (${cfg.autoscan_min_gap_candles * 5} min)`
+    : '5 candles (25 min)'
+
+  const estrategiaRows = [
+    ['Modo',              modo.toUpperCase()],
+    ['BB Período',        bbPeriodo],
+    ['BB Squeeze (lim.)', `< ${bbLimiar}`],
+    ['BB Expansão mín.',  `${bbExpMin}×`],
+    ['S/R Lookback',      `${srLookback} candles`],
+    ['Rompimento mín.',   minBreakPips],
+    ['Gap entre sinais',  minGapMin],
+    ['Stop offset',       stopOffPips],
+    ['R:R',               `${rr}×`],
+    ['Máx. Posições',     maxPos],
+  ]
+
+  const backtestRows = [
+    ['Trades (OOS)',   '36.897'],
+    ['Win Rate (OOS)', '68.1%'],
+    ['Profit Factor',  '2.33'],
+    ['Período OOS',    'nov/2018–ago/2026'],
+  ]
+
+  const isLoading = !liveConfig && !faixas.length
+
   return (
     <div style={{ background: C.s1, border: `1px solid ${C.bd}`, borderRadius: 10, overflow: 'hidden', marginTop: 8 }}>
       <div style={{ background: C.s2, borderBottom: `1px solid ${C.bd}`, padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.tx }}>
           Parâmetros do Bot — válidos para todas as corretoras ativas
         </div>
-        <div style={{ fontSize: 9, color: C.t2 }}>edite em /admin/config</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {isLoading && <span style={{ fontSize: 9, color: C.t3 }}>carregando...</span>}
+          {!isLoading && liveConfig && (
+            <span style={{ fontSize: 9, color: C.gr }}>● Supabase live</span>
+          )}
+          <span style={{ fontSize: 9, color: C.t2 }}>edite em /admin/config</span>
+        </div>
       </div>
 
       <div style={{ padding: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
         {/* Estratégia */}
         <div>
-          <SectionTitle>Estratégia RAFI</SectionTitle>
-          {[
-            ['RAFI Limiar', '2.50'], ['MA Rápida', '20'], ['MA Lenta', '50'],
-            ['S/R Lookback', '50'], ['Swing Stop', '150'],
-            ['Bollinger Filtro', 'ATIVO'], ['R:R', '1.5×'], ['Máx. Posições', '1'],
-          ].map(([k, v]) => (
-            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
+          <SectionTitle>Estratégia Autoscan</SectionTitle>
+          {estrategiaRows.map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7, alignItems: 'baseline' }}>
               <span style={{ fontSize: 12, color: C.t2 }}>{k}</span>
-              <span style={{ fontSize: 12, color: v === 'ATIVO' || v === '2.50' || v.includes('×') ? C.gr : C.tx, fontWeight: 500 }}>{v}</span>
+              <span style={{
+                fontSize: 12,
+                color: k === 'Modo' ? C.cy : k === 'R:R' || k === 'Win Rate' ? C.gr : C.tx,
+                fontWeight: 500,
+              }}>{v}</span>
             </div>
           ))}
 
-          <SectionTitle style={{ marginTop: 14 }}>Backtest vencedor</SectionTitle>
-          {[['Trades', '56'], ['Win Rate', '~69%'], ['Retorno', '+$3.769']].map(([k, v]) => (
+          <SectionTitle style={{ marginTop: 14 }}>Backtest OOS (26 anos)</SectionTitle>
+          {backtestRows.map(([k, v]) => (
             <div key={k} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
               <span style={{ fontSize: 12, color: C.t2 }}>{k}</span>
-              <span style={{ fontSize: 12, color: k === 'Trades' ? C.tx : C.gr, fontWeight: 500 }}>{v}</span>
+              <span style={{ fontSize: 12, color: k === 'Trades (OOS)' || k === 'Período OOS' ? C.tx : C.gr, fontWeight: 500 }}>{v}</span>
             </div>
           ))}
         </div>
@@ -440,26 +518,38 @@ function SharedConfig() {
         {/* Tabela de lotes */}
         <div>
           <SectionTitle>Crescimento de Lote — automático por saldo</SectionTitle>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
-            <thead>
-              <tr>
-                {['Capital', 'Lote', 'Pip value'].map((h) => (
-                  <th key={h} style={{ textAlign: 'left', fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase', color: C.t2, padding: '4px 6px 8px', borderBottom: `1px solid ${C.bd}` }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {FAIXAS_LOTE.map((f, i) => (
-                <tr key={i}>
-                  <td style={{ padding: '5px 6px', color: C.tx, borderBottom: `1px solid #111b27` }}>
-                    ${f.min.toLocaleString('pt-BR')} – {f.max === Infinity ? '+' : `$${f.max.toLocaleString('pt-BR')}`}
-                  </td>
-                  <td style={{ padding: '5px 6px', color: C.gr, fontWeight: 700, borderBottom: `1px solid #111b27` }}>{f.lote.toFixed(2)}L</td>
-                  <td style={{ padding: '5px 6px', color: C.bl, borderBottom: `1px solid #111b27` }}>{f.pip}</td>
+          {faixas.length === 0 ? (
+            <div style={{ fontSize: 11, color: C.t3 }}>Carregando tabela do Supabase...</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
+              <thead>
+                <tr>
+                  {['Capital', 'Lote', 'Pip ~value'].map((h) => (
+                    <th key={h} style={{ textAlign: 'left', fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase', color: C.t2, padding: '4px 6px 8px', borderBottom: `1px solid ${C.bd}` }}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {faixas.map((f) => {
+                  const pipVal = `$${(f.lote * 10).toFixed(0)}/pip`
+                  const maxLabel = f.capital_max === null ? '+' : `$${f.capital_max.toLocaleString('pt-BR')}`
+                  return (
+                    <tr key={f.ordem}>
+                      <td style={{ padding: '5px 6px', color: C.tx, borderBottom: `1px solid #111b27` }}>
+                        ${f.capital_min.toLocaleString('pt-BR')} – {maxLabel}
+                      </td>
+                      <td style={{ padding: '5px 6px', color: C.gr, fontWeight: 700, borderBottom: `1px solid #111b27` }}>
+                        {f.lote.toFixed(2)}L
+                      </td>
+                      <td style={{ padding: '5px 6px', color: C.bl, borderBottom: `1px solid #111b27` }}>
+                        {pipVal}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>

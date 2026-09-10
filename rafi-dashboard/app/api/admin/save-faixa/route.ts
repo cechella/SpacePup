@@ -1,7 +1,7 @@
 /**
- * POST /api/admin/save-faixa
- * Salva uma faixa de lote no Supabase via service_role.
- * Requer header X-Admin-Password com a senha correta.
+ * GET  /api/admin/save-faixa  — retorna todas as faixas de lote (sem auth)
+ * POST /api/admin/save-faixa  — salva uma faixa no Supabase via service_role
+ *                               Requer header X-Admin-Password com a senha correta.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -11,6 +11,21 @@ function getServiceClient() {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) throw new Error('SUPABASE_SERVICE_ROLE_KEY não configurada')
   return createClient(url, key, { auth: { persistSession: false } })
+}
+
+export async function GET() {
+  try {
+    const supa = getServiceClient()
+    const { data, error } = await supa
+      .from('rafi_lote_faixas')
+      .select('ordem, lote, capital_min, capital_max')
+      .order('ordem')
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ faixas: data ?? [] })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : JSON.stringify(e)
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
 }
 
 export async function POST(req: NextRequest) {
