@@ -481,7 +481,7 @@ class RafiBot:
         """
         # Candles M5 por período (com margem de sessão/fim de semana)
         PERIODO_CANDLES = {
-            '1w': 2500, '1m': 9000, '3m': 27000, '6m': 54000, '1y': 108000,
+            '1w': 2500, '1m': 9000, '3m': 27000, '6m': 54000, '1y': 108000, '5y': 270000,
         }
 
         def _worker() -> None:
@@ -509,6 +509,22 @@ class RafiBot:
                     ]:
                         if k in cfg_supa and cfg_supa[k] is not None:
                             cfg_run[k] = cfg_supa[k]
+
+                # Override de R:R via campo rr_override do job (UI admin)
+                rr_override = run.get('rr_override')
+                if rr_override is not None:
+                    cfg_run['ratio_risco_retorno'] = float(rr_override)
+                    logger.info(f"[Backtest] R:R override: {rr_override}")
+
+                # Corretora solicitada (informacional — usa o terminal MT5 ativo do bot)
+                broker_req = run.get('broker', 'auto')
+                broker_ativo = self.cfg.get('corretora', 'auto')
+                if broker_req not in ('auto', broker_ativo):
+                    logger.warning(
+                        f"[Backtest] Corretora solicitada '{broker_req}' difere da ativa '{broker_ativo}'. "
+                        "Usando dados do terminal MT5 ativo."
+                    )
+                logger.info(f"[Backtest] Corretora: {broker_req} | Terminal ativo: {broker_ativo}")
 
                 capital = float(run.get('capital') or cfg_run.get('capital_inicial', 20.0))
                 cfg_run['capital_inicial'] = capital

@@ -19,6 +19,8 @@ interface BacktestRun {
   fim:          string | null
   capital:      number
   profile:      string
+  broker:       string | null
+  rr_override:  number | null
   status:       RunStatus
   config_hash:  string | null
   progress_pct: number
@@ -53,11 +55,19 @@ interface BacktestResultado {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const PERIODOS = [
-  { id: '1w', label: '1 Semana',  candles: '~2 mil' },
-  { id: '1m', label: '1 Mês',    candles: '~9 mil' },
-  { id: '3m', label: '3 Meses',  candles: '~27 mil' },
-  { id: '6m', label: '6 Meses',  candles: '~54 mil' },
-  { id: '1y', label: '1 Ano',    candles: '~108 mil' },
+  { id: '1w', label: '1 Semana', candles: '~2 mil' },
+  { id: '1m', label: '1 Mês',   candles: '~9 mil' },
+  { id: '3m', label: '3 Meses', candles: '~27 mil' },
+  { id: '6m', label: '6 Meses', candles: '~54 mil' },
+  { id: '1y', label: '1 Ano',   candles: '~108 mil' },
+  { id: '5y', label: '5 Anos',  candles: '~270 mil' },
+]
+
+const CORRETORAS = [
+  { id: 'auto',        label: 'Auto (ativa)' },
+  { id: 'pepperstone', label: 'Pepperstone' },
+  { id: 'exness',      label: 'Exness' },
+  { id: 'tickmill',    label: 'Tickmill' },
 ]
 
 function statusLabel(s: RunStatus) {
@@ -235,7 +245,13 @@ function RunCard({ run, onDelete }: { run: BacktestRun; onDelete?: () => void })
             )}
           </div>
           <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-            {dataBr(run.created_at)} · Capital: ${run.capital.toFixed(0)}
+            {dataBr(run.created_at)} · ${run.capital.toFixed(0)}
+            {run.broker && run.broker !== 'auto' && (
+              <span style={{ marginLeft: 6, color: '#475569' }}>{run.broker}</span>
+            )}
+            {run.rr_override != null && (
+              <span style={{ marginLeft: 6, color: '#f59e0b' }}>R:R {run.rr_override.toFixed(1)}</span>
+            )}
           </div>
         </div>
 
@@ -313,6 +329,8 @@ export default function BacktestPage() {
   const [periodo, setPeriodo]     = useState('1m')
   const [profile, setProfile]     = useState<'simulator' | 'live'>('simulator')
   const [capital, setCapital]     = useState<number>(20)
+  const [broker, setBroker]       = useState('auto')
+  const [rrOverride, setRrOverride] = useState<string>('')
 
   const pollingRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -353,10 +371,15 @@ export default function BacktestPage() {
     setError(''); setSuccess('')
     setSubmitting(true)
     try {
+      const rrNum = rrOverride !== '' ? parseFloat(rrOverride) : undefined
       const res  = await fetch('/api/backtest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ periodo, profile, capital }),
+        body: JSON.stringify({
+          periodo, profile, capital,
+          broker: broker !== 'auto' ? broker : undefined,
+          rr: rrNum && !isNaN(rrNum) ? rrNum : undefined,
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Erro ao criar backtest')
@@ -511,10 +534,54 @@ export default function BacktestPage() {
           </div>
         </div>
 
+        {/* Corretora + R:R override */}
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
+          <div style={{ flex: '1 1 200px' }}>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>Corretora (dados MT5)</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {CORRETORAS.map(c => (
+                <button key={c.id} onClick={() => setBroker(c.id)}
+                        style={{
+                          padding: '7px 12px', borderRadius: 8, cursor: 'pointer',
+                          fontWeight: broker === c.id ? 600 : 400, fontSize: 12,
+                          background: broker === c.id ? 'rgba(59,130,246,0.15)' : 'rgba(255,255,255,0.04)',
+                          border: `1px solid ${broker === c.id ? 'rgba(59,130,246,0.5)' : 'rgba(255,255,255,0.1)'}`,
+                          color: broker === c.id ? '#93c5fd' : '#64748b',
+                        }}>
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ flex: '0 0 160px' }}>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
+              R:R override <span style={{ color: '#374151' }}>(vazio = config)</span>
+            </div>
+            <input
+              type="number" min={0.5} max={10} step={0.1}
+              placeholder={`padrão config`}
+              value={rrOverride}
+              onChange={e => setRrOverride(e.target.value)}
+              style={{
+                width: '100%', padding: '9px 12px', borderRadius: 8,
+                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
+                color: '#e2e8f0', fontSize: 14, outline: 'none', boxSizing: 'border-box',
+              }}
+            />
+          </div>
+        </div>
+
         {/* Resumo + botão */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ flex: 1, fontSize: 12, color: '#64748b' }}>
-            Vai buscar {periodoInfo?.candles} candles M5 do MT5 · perfil <strong style={{ color: '#94a3b8' }}>{profile}</strong> · capital ${capital}
+            {periodoInfo?.candles} candles M5 ·{' '}
+            perfil <strong style={{ color: '#94a3b8' }}>{profile}</strong> ·{' '}
+            corretora <strong style={{ color: '#94a3b8' }}>{broker}</strong> ·{' '}
+            capital <strong style={{ color: '#94a3b8' }}>${capital}</strong>
+            {rrOverride !== '' && !isNaN(parseFloat(rrOverride)) && (
+              <> · R:R <strong style={{ color: '#f59e0b' }}>{parseFloat(rrOverride).toFixed(1)}</strong></>
+            )}
           </div>
           <button
             onClick={handleSubmit}

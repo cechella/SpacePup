@@ -19,7 +19,7 @@ export async function GET() {
     const supa = getServiceClient()
     const { data, error } = await supa
       .from('rafi_backtest_runs')
-      .select('id,created_at,periodo,inicio,fim,capital,profile,status,config_hash,progress_pct,resultado,error_msg,updated_at')
+      .select('id,created_at,periodo,inicio,fim,capital,profile,status,config_hash,progress_pct,resultado,error_msg,updated_at,broker,rr_override')
       .order('created_at', { ascending: false })
       .limit(50)
 
@@ -34,7 +34,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { periodo, inicio, fim, capital, profile } = body
+    const { periodo, inicio, fim, capital, profile, broker, rr } = body
 
     if (!periodo && !inicio) {
       return NextResponse.json({ error: 'periodo é obrigatório' }, { status: 400 })
@@ -60,14 +60,16 @@ export async function POST(req: NextRequest) {
     const { data, error } = await supa
       .from('rafi_backtest_runs')
       .insert({
-        periodo:    periodo ?? null,
-        inicio:     inicio  ?? null,
-        fim:        fim     ?? null,
-        capital:    capital ?? 20.0,
-        profile:    profile ?? 'simulator',
-        status:     'pending',
-        created_at: now,
-        updated_at: now,
+        periodo:     periodo     ?? null,
+        inicio:      inicio      ?? null,
+        fim:         fim         ?? null,
+        capital:     capital     ?? 20.0,
+        profile:     profile     ?? 'simulator',
+        broker:      broker      ?? 'auto',
+        rr_override: rr != null  ? Number(rr) : null,
+        status:      'pending',
+        created_at:  now,
+        updated_at:  now,
       })
       .select('id')
       .single()
