@@ -32,6 +32,26 @@ from backtest.engine import Backtest, BacktestCSV
 from backtest.report import gerar_relatorio, exportar_csv_detalhado
 
 
+# Faixas de lote para backtest offline.
+# Espelham a tabela rafi_lote_faixas do Supabase — atualizar aqui quando
+# atualizar no dashboard. O bot em produção (executor.py + risk_manager.py)
+# NUNCA usa estes valores: lê exclusivamente do Supabase.
+_FAIXAS_BACKTEST = [
+    (0,       20,          0.10),
+    (20,      50,          0.20),
+    (50,      100,         0.50),
+    (100,     200,         1.00),
+    (200,     500,         2.00),
+    (500,     1_000,       4.00),
+    (1_000,   2_000,       8.00),
+    (2_000,   5_000,      16.00),
+    (5_000,   10_000,     30.00),
+    (10_000,  20_000,     60.00),
+    (20_000,  50_000,    100.00),
+    (50_000,  999_999_999, 100.00),
+]
+
+
 CORRETORAS = [
     {
         'nome'      : 'Pepperstone Razor',
@@ -249,6 +269,13 @@ def main() -> None:
 
     if args.rr is not None:
         config['ratio_risco_retorno'] = args.rr
+
+    # Garante que as faixas de lote estão no config para o backtest offline.
+    # Se o config.yaml já tiver rafi_lote_faixas (sincronizado do Supabase),
+    # os valores dele prevalecem. Caso contrário usa _FAIXAS_BACKTEST acima.
+    if 'rafi_lote_faixas' not in config or not config['rafi_lote_faixas']:
+        config['rafi_lote_faixas'] = _FAIXAS_BACKTEST
+        logger.info("rafi_lote_faixas: usando tabela embutida no script (config.yaml sem a chave)")
 
     # Carrega CSV M5 uma vez (compartilhado pelas 3 corretoras)
     logger.info(f"Carregando dados M5: {args.m5}")

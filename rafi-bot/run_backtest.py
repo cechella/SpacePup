@@ -34,6 +34,23 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from backtest.engine import Backtest, BacktestCSV
 from backtest.report import gerar_relatorio, exportar_csv_detalhado
 
+# Faixas de lote para backtest offline (espelham rafi_lote_faixas no Supabase).
+# Usadas quando o config.yaml não tem a chave. O bot em produção nunca usa isto.
+_FAIXAS_BACKTEST = [
+    (0,       20,          0.10),
+    (20,      50,          0.20),
+    (50,      100,         0.50),
+    (100,     200,         1.00),
+    (200,     500,         2.00),
+    (500,     1_000,       4.00),
+    (1_000,   2_000,       8.00),
+    (2_000,   5_000,      16.00),
+    (5_000,   10_000,     30.00),
+    (10_000,  20_000,     60.00),
+    (20_000,  50_000,    100.00),
+    (50_000,  999_999_999, 100.00),
+]
+
 
 def configurar_logging(nivel: str = 'INFO', arquivo: str = 'logs/backtest.log') -> None:
     """Configura o logging para arquivo e console."""
@@ -203,6 +220,10 @@ def main() -> None:
     if args.slippage is not None: config['slippage_pips']       = args.slippage
     if args.comissao is not None: config['comissao_por_lote']   = args.comissao
     if args.slippage_escalonado:  config['slippage_escalonado'] = True
+
+    # Garante faixas de lote para backtest offline
+    if 'rafi_lote_faixas' not in config or not config['rafi_lote_faixas']:
+        config['rafi_lote_faixas'] = _FAIXAS_BACKTEST
 
     log_arquivo = config.get('log_arquivo', 'logs/backtest.log')
     configurar_logging(args.log, log_arquivo)
