@@ -36,6 +36,12 @@ parser = argparse.ArgumentParser(description="Baixa histórico MT5 para backtest
 parser.add_argument("--par", default=None,
                     help="Símbolo MT5 (ex: EURUSD ou EURUSD#). "
                          "Padrão: lê do config.yaml ou usa EURUSD.")
+parser.add_argument("--broker", default=None,
+                    help="Corretora (pepperstone, exness, tickmill). "
+                         "Usa mt5_path do config.yaml para conectar ao terminal correto.")
+parser.add_argument("--mt5_path", default=None,
+                    help="Caminho direto do terminal64.exe. "
+                         "Ex: 'C:\\Program Files\\MetaTrader 5\\terminal64.exe'")
 args, _ = parser.parse_known_args()
 
 # ── Símbolo: argumento > config.yaml > fallback EURUSD ───────
@@ -51,6 +57,28 @@ def _ler_par_config() -> str:
         return 'EURUSD'
 
 PAR         = args.par if args.par else _ler_par_config()
+
+# Resolve caminho do terminal MT5 a partir de --mt5_path ou --broker + config.yaml
+def _resolver_mt5_path() -> str | None:
+    if args.mt5_path:
+        return args.mt5_path
+    if args.broker:
+        try:
+            import yaml
+            cfg_path = os.path.join(os.path.dirname(__file__), '..', 'config.yaml')
+            with open(cfg_path, 'r', encoding='utf-8') as f:
+                cfg = yaml.safe_load(f)
+            broker_cfg = cfg.get('corretoras', {}).get(args.broker.lower(), {})
+            path = broker_cfg.get('mt5_path')
+            if path:
+                return path
+            print(f"AVISO: mt5_path não encontrado para '{args.broker}' no config.yaml")
+        except Exception as e:
+            print(f"AVISO: erro ao ler config.yaml para --broker: {e}")
+    return None
+
+MT5_PATH = _resolver_mt5_path()
+
 # Pega o máximo de histórico que o MT5 disponibilizar (Pepperstone: ~10 anos)
 DATA_INICIO = datetime(2000, 1, 1, tzinfo=timezone.utc)
 PASTA       = os.path.join(os.path.dirname(__file__), '..', 'data')
@@ -63,7 +91,11 @@ MINIMO_CANDLES = 25_000
 
 def inicializar_mt5() -> bool:
     """Inicializa conexão com o terminal MT5."""
-    if not mt5.initialize():
+    kwargs = {}
+    if MT5_PATH:
+        kwargs['path'] = MT5_PATH
+        print(f"Conectando ao terminal: {MT5_PATH}")
+    if not mt5.initialize(**kwargs):
         print(f"ERRO ao inicializar MT5: {mt5.last_error()}")
         return False
     info  = mt5.terminal_info()
