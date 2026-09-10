@@ -8,7 +8,7 @@ import {
   Zap, Clock, Award, X as XIcon, Layers, Upload,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { SCALE_TIERS, getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
+import { SCALE_TIERS, SCALE_TIER_LABELS, getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
 import { fetchTrades, upsertTrades, updateTradeResult } from '@/lib/trades-db'
 
 // ── Modal de preview do screenshot ───────────────────────────────────────────
@@ -336,10 +336,6 @@ function TradeRow({ t, onLabel, onSnapClick }: { t: ManualTrade; onLabel?: (id: 
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Labels para exibição na tabela do dashboard
-const SCALE_TIER_LABELS = [
-  '$100','$150','$200','$300','$600','$1.2k','$2.5k','$5k','$10k','$25k','$50k','$100k','$200k',
-]
-
 const getLot = getLotForCapital
 
 function fmtK(v: number): string {
@@ -478,9 +474,9 @@ function LotScalingWidget({ trades }: { trades: ManualTrade[] }) {
         </div>
         <div className="bg-[#0d1117] rounded-lg p-3 text-center">
           <div className="text-[9px] uppercase tracking-wider text-[#484f58] mb-1">Lote atual ($100)</div>
-          <div className="text-xl font-black font-mono text-[#f59e0b]">0.20L</div>
+          <div className="text-xl font-black font-mono text-[#f59e0b]">{getLotForCapital(100).toFixed(2)}L</div>
           <div className="text-[8px] text-[#484f58] mt-0.5">
-            +${(avgRewardP * 0.20 * 10).toFixed(0)}/WIN · -${(avgRiskP * 0.20 * 10).toFixed(0)}/LOSS
+            +${(avgRewardP * getLotForCapital(100) * 10).toFixed(0)}/WIN · -${(avgRiskP * getLotForCapital(100) * 10).toFixed(0)}/LOSS
           </div>
         </div>
       </div>

@@ -13,6 +13,7 @@ interface BotConfig {
   autoscan_min_gap_candles?: number
   autoscan_stop_offset?: number
   bb_squeeze_expansao_min?: number
+  autoscan_sr_lookback?: number
   sr_lookback?: number
   ratio_risco_retorno?: number
   risco_por_trade?: number
@@ -132,7 +133,7 @@ export default function StrategyPage() {
             <Row label="Gap mínimo entre trades" value={cfg?.autoscan_min_gap_candles ?? 5} unit="candles (25 min)" note="otimizado 26 anos" />
             <Row label="Buffer no stop" value={cfg?.autoscan_stop_offset !== undefined ? (cfg.autoscan_stop_offset * 10000).toFixed(1) : '1.0'} unit="pips" />
             <Row label="Expansão BB mínima" value={cfg?.bb_squeeze_expansao_min ?? 1.05} unit="×" />
-            <Row label="S/R lookback" value={cfg?.sr_lookback ?? 10} unit="candles" note="otimizado 26 anos" />
+            <Row label="S/R lookback" value={cfg?.autoscan_sr_lookback ?? cfg?.sr_lookback ?? 10} unit="candles" note="otimizado 26 anos" />
             <Row label="R:R ratio" value={cfg?.ratio_risco_retorno ?? 1.3} unit="×" note="OOS WR=68.1%" />
           </Section>
 

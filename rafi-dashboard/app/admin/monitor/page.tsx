@@ -113,10 +113,10 @@ function EquityCurve({ trades }: { trades: Trade[] }) {
 
   let cum = 0
   const pts = closed.map(t => {
-    const comm = (t.lot ?? 0.1) * 7
+    const comm = (t.lot ?? 0.1) * 6   // $6/lote RT (Pepperstone Razor $3×2)
     if (t.pnl != null) { cum += t.pnl - comm } else {
       const R = Math.abs(t.entry - t.stop_loss) * (t.lot ?? 0.1) * 100000
-      cum += t.result === 'win' ? R * 1.5 - comm : -R - comm
+      cum += t.result === 'win' ? R * 1.3 - comm : -R - comm  // R:R 1.3 (otimizado OOS)
     }
     return { cum, trade: t }
   })
