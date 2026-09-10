@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Globe, RefreshCw } from 'lucide-react'
+import { Globe, RefreshCw, Settings, Eye, EyeOff, Lock } from 'lucide-react'
 
 // ── Paleta ──────────────────────────────────────────────────────────────────
 const C = {
@@ -37,26 +37,47 @@ const FAIXAS_LOTE = [
 ]
 
 interface Broker {
-  id:          string
-  nome:        string
-  servidor:    string
-  login:       number
-  simbolo:     string
-  enabled:     boolean
-  saldo:       number
-  posicoes:    number
-  pnl_hoje:    number
-  status_text: string
-  updated_at:  string
+  id:           string
+  nome:         string
+  servidor:     string
+  login:        number
+  simbolo:      string
+  enabled:      boolean
+  saldo:        number
+  posicoes:     number
+  pnl_hoje:     number
+  status_text:  string
+  updated_at:   string
+  mt5_login?:   number | null
+  mt5_servidor?: string | null
+  mt5_simbolo?: string | null
+  mt5_path?:    string | null
+  mt5_senha?:   string | null
+}
+
+interface CredForm {
+  mt5_login:    string
+  mt5_senha:    string
+  mt5_servidor: string
+  mt5_simbolo:  string
+  mt5_path:     string
 }
 
 // ── Logo por corretora ───────────────────────────────────────────────────
 const LOGOS: Record<string, { label: string; cor: string; bg: string; bd: string }> = {
   xm:          { label: 'XM',  cor: C.gr, bg: '#0d2016', bd: '#1a4028' },
   pepperstone: { label: 'PP',  cor: C.bl, bg: '#0d1a28', bd: '#1a2a44' },
+  exness:      { label: 'EX',  cor: C.cy, bg: '#0a1a20', bd: '#1a3040' },
+  tickmill:    { label: 'TI',  cor: C.am, bg: '#1a1500', bd: '#302800' },
 }
 function getLogo(id: string) {
   return LOGOS[id] ?? { label: id.slice(0,2).toUpperCase(), cor: C.t2, bg: C.s3, bd: C.bd }
+}
+
+const MT5_PATHS: Record<string, string> = {
+  pepperstone: "C:\\Program Files\\MetaTrader 5\\terminal64.exe",
+  exness:      "C:\\Program Files\\MetaTrader 5 EXNESS\\terminal64.exe",
+  tickmill:    "C:\\Program Files\\Tickmill UK MT5 Terminal\\terminal64.exe",
 }
 
 // ── Componente principal ─────────────────────────────────────────────────
@@ -65,6 +86,13 @@ export default function BrokersPage() {
   const [loading, setLoading]   = useState(true)
   const [toggling, setToggling] = useState<string | null>(null)
   const [lastUpdate, setLastUpdate] = useState('')
+
+  // Modal de credenciais
+  const [credBroker, setCredBroker] = useState<Broker | null>(null)
+  const [credForm,   setCredForm]   = useState<CredForm>({ mt5_login: '', mt5_senha: '', mt5_servidor: '', mt5_simbolo: '', mt5_path: '' })
+  const [credSaving, setCredSaving] = useState(false)
+  const [credOk,     setCredOk]     = useState(false)
+  const [showSenha,  setShowSenha]  = useState(false)
 
   const fetchBrokers = useCallback(async () => {
     try {
@@ -86,6 +114,40 @@ export default function BrokersPage() {
     const iv = setInterval(fetchBrokers, 5000)
     return () => clearInterval(iv)
   }, [fetchBrokers])
+
+  const abrirCred = (broker: Broker) => {
+    setCredBroker(broker)
+    setCredOk(false)
+    setShowSenha(false)
+    setCredForm({
+      mt5_login:    String(broker.mt5_login ?? broker.login ?? ''),
+      mt5_senha:    '',
+      mt5_servidor: broker.mt5_servidor ?? broker.servidor ?? '',
+      mt5_simbolo:  broker.mt5_simbolo  ?? broker.simbolo  ?? '',
+      mt5_path:     broker.mt5_path     ?? MT5_PATHS[broker.id] ?? '',
+    })
+  }
+
+  const salvarCred = async () => {
+    if (!credBroker) return
+    setCredSaving(true)
+    try {
+      const body: Record<string, unknown> = {
+        id:           credBroker.id,
+        mt5_login:    credForm.mt5_login    ? Number(credForm.mt5_login) : null,
+        mt5_servidor: credForm.mt5_servidor || null,
+        mt5_simbolo:  credForm.mt5_simbolo  || null,
+        mt5_path:     credForm.mt5_path     || null,
+      }
+      if (credForm.mt5_senha) body.mt5_senha = credForm.mt5_senha
+      await fetch('/api/brokers', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      setCredOk(true)
+      await fetchBrokers()
+      setTimeout(() => setCredBroker(null), 1500)
+    } finally {
+      setCredSaving(false)
+    }
+  }
 
   const toggle = async (broker: Broker) => {
     setToggling(broker.id)
@@ -146,18 +208,90 @@ export default function BrokersPage() {
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 12, marginBottom: 28 }}>
-          {brokers.map((b) => <BrokerCard key={b.id} broker={b} onToggle={toggle} toggling={toggling === b.id} />)}
+          {brokers.map((b) => <BrokerCard key={b.id} broker={b} onToggle={toggle} toggling={toggling === b.id} onCred={abrirCred} />)}
         </div>
       )}
 
       {/* Config compartilhado */}
       <SharedConfig />
+
+      {/* Modal de credenciais MT5 */}
+      {credBroker && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setCredBroker(null)}>
+          <div style={{ background: C.s1, border: `1px solid ${C.bd}`, borderRadius: 12, width: 420, padding: 24 }}
+            onClick={e => e.stopPropagation()}>
+
+            {/* Header modal */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+              <Lock size={14} color={C.cy} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: C.tx, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                Conexão MT5 — {credBroker.nome}
+              </span>
+            </div>
+
+            {[
+              { label: 'Login MT5', key: 'mt5_login', type: 'number', placeholder: credBroker.login?.toString() ?? '12345678' },
+              { label: 'Servidor',  key: 'mt5_servidor', type: 'text', placeholder: credBroker.servidor ?? 'Broker-Live01' },
+              { label: 'Símbolo',   key: 'mt5_simbolo', type: 'text', placeholder: credBroker.simbolo ?? 'EURUSD' },
+              { label: 'MT5 Path',  key: 'mt5_path', type: 'text', placeholder: MT5_PATHS[credBroker.id] ?? '' },
+            ].map(({ label, key, type, placeholder }) => (
+              <div key={key} style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 10, color: C.t2, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 5 }}>{label}</div>
+                <input
+                  type={type}
+                  placeholder={placeholder}
+                  value={(credForm as Record<string, string>)[key]}
+                  onChange={e => setCredForm(f => ({ ...f, [key]: e.target.value }))}
+                  style={{ width: '100%', boxSizing: 'border-box', background: C.s2, border: `1px solid ${C.bd}`, borderRadius: 6, padding: '8px 10px', color: C.tx, fontSize: 12, fontFamily: 'monospace' }}
+                />
+              </div>
+            ))}
+
+            {/* Senha com show/hide */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 10, color: C.t2, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 5 }}>
+                Senha MT5 <span style={{ color: C.t3 }}>(deixe em branco para não alterar)</span>
+              </div>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showSenha ? 'text' : 'password'}
+                  placeholder="••••••••"
+                  value={credForm.mt5_senha}
+                  onChange={e => setCredForm(f => ({ ...f, mt5_senha: e.target.value }))}
+                  style={{ width: '100%', boxSizing: 'border-box', background: C.s2, border: `1px solid ${C.bd}`, borderRadius: 6, padding: '8px 36px 8px 10px', color: C.tx, fontSize: 12, fontFamily: 'monospace' }}
+                />
+                <button onClick={() => setShowSenha(v => !v)}
+                  style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', color: C.t2 }}>
+                  {showSenha ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+            </div>
+
+            {/* Botões */}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setCredBroker(null)}
+                style={{ flex: 1, padding: '9px 0', background: C.s3, border: `1px solid ${C.bd}`, borderRadius: 7, color: C.t2, fontSize: 12, cursor: 'pointer' }}>
+                Cancelar
+              </button>
+              <button onClick={salvarCred} disabled={credSaving}
+                style={{ flex: 2, padding: '9px 0', background: credOk ? C.gr : C.bl, border: 'none', borderRadius: 7, color: '#fff', fontSize: 12, fontWeight: 700, cursor: credSaving ? 'wait' : 'pointer', opacity: credSaving ? 0.7 : 1 }}>
+                {credOk ? '✓ Salvo!' : credSaving ? 'Salvando...' : 'Salvar Credenciais'}
+              </button>
+            </div>
+
+            <div style={{ marginTop: 12, fontSize: 10, color: C.t3, lineHeight: 1.5 }}>
+              🔒 Salvo via service role — senha nunca exposta no dashboard. Bot lê no próximo restart.
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 // ── Card individual de corretora ──────────────────────────────────────────
-function BrokerCard({ broker, onToggle, toggling }: { broker: Broker; onToggle: (b: Broker) => void; toggling: boolean }) {
+function BrokerCard({ broker, onToggle, toggling, onCred }: { broker: Broker; onToggle: (b: Broker) => void; toggling: boolean; onCred: (b: Broker) => void }) {
   const logo   = getLogo(broker.id)
   const active = broker.enabled
 
@@ -228,7 +362,7 @@ function BrokerCard({ broker, onToggle, toggling }: { broker: Broker; onToggle: 
           <Metric label="P&L Hoje"  value={active ? `${broker.pnl_hoje >= 0 ? '+' : ''}$${(broker.pnl_hoje ?? 0).toFixed(2)}` : '—'} color={active ? pnlColor : C.t2} />
         </div>
 
-        {/* Status pill + symbol */}
+        {/* Status pill + symbol + config button */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{
             fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
@@ -239,8 +373,14 @@ function BrokerCard({ broker, onToggle, toggling }: { broker: Broker; onToggle: 
           }}>
             {active ? `● ${broker.status_text || 'AGUARDANDO SINAL'}` : '○ DESLIGADA'}
           </div>
-          <div style={{ fontSize: 10, color: C.t2 }}>
-            {broker.simbolo} · {lotePorSaldo(broker.saldo ?? 0)}L
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ fontSize: 10, color: C.t2 }}>
+              {broker.simbolo} · {lotePorSaldo(broker.saldo ?? 0)}L
+            </div>
+            <button onClick={() => onCred(broker)} title="Configurar conexão MT5"
+              style={{ background: 'transparent', border: `1px solid ${C.bd}`, borderRadius: 5, padding: '3px 6px', cursor: 'pointer', color: broker.mt5_login ? C.cy : C.t3, display: 'flex', alignItems: 'center', gap: 3, fontSize: 9 }}>
+              <Settings size={10} /> {broker.mt5_login ? 'MT5 ✓' : 'Configurar'}
+            </button>
           </div>
         </div>
       </div>

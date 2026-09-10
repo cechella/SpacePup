@@ -57,6 +57,7 @@ from .supabase_sync import (
     publicar_log,
     carregar_config_supabase,
     carregar_broker_ativo,
+    carregar_credenciais_broker,
     publicar_status_broker,
     gravar_rafi_trade,
     verificar_backtest_pendente,
@@ -241,14 +242,16 @@ class RafiBot:
         if broker_supa:
             bid    = broker_supa['id']
             creds  = config.get('corretoras', {}).get(bid, {})
-            self._broker_id       = bid
-            self._broker_login    = creds.get('login')
-            self._broker_senha    = creds.get('senha')
-            self._broker_servidor = broker_supa.get('servidor') or creds.get('servidor')
+            self._broker_id = bid
+            # Credenciais: Supabase (admin dashboard) tem prioridade; fallback para config.yaml
+            supa_creds = carregar_credenciais_broker(bid) or {}
+            self._broker_login    = supa_creds.get('mt5_login')    or creds.get('login')
+            self._broker_senha    = supa_creds.get('mt5_senha')    or creds.get('senha')
+            self._broker_servidor = supa_creds.get('mt5_servidor') or broker_supa.get('servidor') or creds.get('servidor')
             # Caminho do terminal64.exe do broker — necessário quando múltiplos MT5 rodam simultaneamente
-            self._broker_mt5_path = creds.get('mt5_path')
+            self._broker_mt5_path = supa_creds.get('mt5_path')    or creds.get('mt5_path')
             # Símbolo correto por corretora (EURUSD# vs EURUSD)
-            self.par            = broker_supa.get('simbolo') or creds.get('simbolo') or self.par
+            self.par            = supa_creds.get('mt5_simbolo') or broker_supa.get('simbolo') or creds.get('simbolo') or self.par
             self.cfg['par']     = self.par
             self.mt5.par        = self.par
             logger.info(f"Broker ativo (Supabase): {bid} | Símbolo: {self.par}")

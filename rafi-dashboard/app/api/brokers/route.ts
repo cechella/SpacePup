@@ -53,3 +53,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
+
+// PATCH → salva credenciais MT5 { id, mt5_login, mt5_senha, mt5_servidor, mt5_simbolo, mt5_path }
+export async function PATCH(req: NextRequest) {
+  try {
+    const body = await req.json()
+    const { id, mt5_login, mt5_senha, mt5_servidor, mt5_simbolo, mt5_path } = body
+
+    if (!id) {
+      return NextResponse.json({ error: 'id é obrigatório' }, { status: 400 })
+    }
+
+    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+    if (mt5_login   !== undefined) patch.mt5_login   = mt5_login
+    if (mt5_senha   !== undefined) patch.mt5_senha   = mt5_senha
+    if (mt5_servidor !== undefined) patch.mt5_servidor = mt5_servidor
+    if (mt5_simbolo !== undefined) patch.mt5_simbolo = mt5_simbolo
+    if (mt5_path    !== undefined) patch.mt5_path    = mt5_path
+
+    const supa = getServiceClient()
+    const { error } = await supa.from('rafi_brokers').update(patch).eq('id', id)
+
+    if (error) throw error
+    return NextResponse.json({ ok: true })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
+}

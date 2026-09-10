@@ -477,7 +477,11 @@ def carregar_broker_ativo(broker_id: Optional[str] = None) -> Optional[dict]:
     if not cliente:
         return None
     try:
-        q = cliente.table('rafi_brokers').select('*').eq('enabled', True)
+        q = cliente.table('rafi_brokers').select(
+            'id,nome,servidor,login,simbolo,enabled,saldo,'
+            'posicoes,pnl_hoje,status_text,updated_at,'
+            'mt5_login,mt5_senha,mt5_servidor,mt5_simbolo,mt5_path'
+        ).eq('enabled', True)
         if broker_id:
             q = q.eq('id', broker_id)
         resp = q.limit(1).execute()
@@ -487,6 +491,36 @@ def carregar_broker_ativo(broker_id: Optional[str] = None) -> Optional[dict]:
         return None
     except Exception as e:
         logger.warning(f"rafi_brokers não disponível ({e}) — usando config.yaml")
+        return None
+
+
+def carregar_credenciais_broker(broker_id: str) -> Optional[dict]:
+    """
+    Carrega credenciais MT5 salvas pelo dashboard admin (mt5_login, mt5_senha,
+    mt5_servidor, mt5_simbolo, mt5_path) da tabela rafi_brokers.
+
+    Retorna dict apenas com campos preenchidos, ou None se indisponível.
+    O executor usa esses valores com prioridade sobre o config.yaml.
+    """
+    cliente = _get_cliente()
+    if not cliente:
+        return None
+    try:
+        resp = (
+            cliente.table('rafi_brokers')
+            .select('mt5_login,mt5_senha,mt5_servidor,mt5_simbolo,mt5_path')
+            .eq('id', broker_id)
+            .single()
+            .execute()
+        )
+        if resp.data:
+            creds = {k: v for k, v in resp.data.items() if v}
+            if creds:
+                logger.info(f"[Supabase] Credenciais MT5 de '{broker_id}' carregadas do dashboard")
+            return creds or None
+        return None
+    except Exception as e:
+        logger.debug(f"[Supabase] Credenciais de '{broker_id}' não disponíveis: {e}")
         return None
 
 
