@@ -221,7 +221,13 @@ export default function MonitorPage() {
         supa.from('rafi_bot_status').select('*').eq('id', selectedBroker).single(),
         supa.from('rafi_trades').select('*').order('time', { ascending: false }).limit(200),
       ])
-      if (st) setStatus(st as BotStatus)
+      if (st) {
+        setStatus(st as BotStatus)
+      } else {
+        // Fallback: bot ainda usa id='main' (código antigo na VPS)
+        const { data: stMain } = await supa.from('rafi_bot_status').select('*').eq('id', 'main').single()
+        if (stMain) setStatus(stMain as BotStatus)
+      }
       if (tr) setTrades(tr as Trade[])
     } catch {}
   }, [selectedBroker])
