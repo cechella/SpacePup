@@ -182,6 +182,12 @@ function EquityCurve({ trades }: { trades: Trade[] }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+const BROKERS = [
+  { id: 'pepperstone', label: 'Pepperstone', abbr: 'PP' },
+  { id: 'exness',      label: 'Exness',      abbr: 'EX' },
+  { id: 'tickmill',    label: 'Tickmill',    abbr: 'TI' },
+]
+
 export default function MonitorPage() {
   const [status,     setStatus]     = useState<BotStatus | null>(null)
   const [trades,     setTrades]     = useState<Trade[]>([])
@@ -192,6 +198,7 @@ export default function MonitorPage() {
   const [londonTime, setLondonTime] = useState('')
   const [botLogs,    setBotLogs]    = useState<BotLog[]>([])
   const [tradeFilter, setTradeFilter] = useState<'all' | 'wins' | 'losses' | 'today'>('all')
+  const [selectedBroker, setSelectedBroker] = useState('pepperstone')
   const prevPendingLen = useRef(0)
 
   // ── London clock ──────────────────────────────────────────────────────────
@@ -211,13 +218,13 @@ export default function MonitorPage() {
     if (!supa) return
     try {
       const [{ data: st }, { data: tr }] = await Promise.all([
-        supa.from('rafi_bot_status').select('*').eq('id', 'main').single(),
+        supa.from('rafi_bot_status').select('*').eq('id', selectedBroker).single(),
         supa.from('rafi_trades').select('*').order('time', { ascending: false }).limit(200),
       ])
       if (st) setStatus(st as BotStatus)
       if (tr) setTrades(tr as Trade[])
     } catch {}
-  }, [])
+  }, [selectedBroker])
 
   const fetchLogs = useCallback(async () => {
     if (!supa) return
@@ -490,6 +497,23 @@ export default function MonitorPage() {
           fontSize: 10, padding: '2px 8px', borderRadius: 6,
           border: `1px solid ${C.bl}30`, color: C.bl, background: C.cya, ...mono,
         }}>EURUSD · M5</span>
+
+        <div style={{ width: 1, height: 28, background: C.bd, margin: '0 4px', flexShrink: 0 }} />
+
+        {/* Seletor de broker */}
+        {BROKERS.map(b => (
+          <button key={b.id} onClick={() => setSelectedBroker(b.id)}
+            style={{
+              padding: '3px 10px', borderRadius: 6, fontSize: 10, fontWeight: 700,
+              cursor: 'pointer', border: '1px solid',
+              borderColor: selectedBroker === b.id ? `${C.teal}60` : C.bd,
+              background: selectedBroker === b.id ? `${C.teal}15` : C.s2,
+              color: selectedBroker === b.id ? C.teal : C.t2,
+              transition: 'all .15s',
+            }}>
+            {b.abbr}
+          </button>
+        ))}
 
         <div style={{ flex: 1 }} />
 

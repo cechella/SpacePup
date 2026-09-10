@@ -625,6 +625,7 @@ class RafiBot:
             server         = self._conta_server,
             account        = self._conta_account,
             config_hash    = self._config_hash,
+            broker_id      = self._broker_id,   # cada broker escreve na sua linha
             # ML status
             ml_modelo_carregado = _info_ml.get('disponivel', False),
             ml_modo             = _status_ml.get('modo', 'OBSERVAÇÃO'),
@@ -635,15 +636,16 @@ class RafiBot:
             ml_treinado_em      = _info_ml.get('treinado_em') or None,
             ml_threshold        = _info_ml.get('threshold', 0.65),
         )
-        # Atualiza card da corretora no /admin/brokers
+        # Atualiza card da corretora no /admin/brokers (valida terminal correto)
         publicar_status_broker(
-            broker_id   = self._broker_id,
-            saldo       = self.capital,
-            posicoes    = len(posicoes_abertas_hb),
-            pnl_hoje    = self._pnl_hoje,
-            status_text = ('OPERANDO' if posicoes_abertas_hb
-                           else 'PARADO' if self._limite_diario_atingido()
-                           else 'AGUARDANDO SINAL'),
+            broker_id      = self._broker_id,
+            saldo          = self.capital,
+            posicoes       = len(posicoes_abertas_hb),
+            pnl_hoje       = self._pnl_hoje,
+            status_text    = ('OPERANDO' if posicoes_abertas_hb
+                              else 'PARADO' if self._limite_diario_atingido()
+                              else 'AGUARDANDO SINAL'),
+            servidor_real  = self._conta_server,  # valida terminal MT5
         )
 
         # 4. Verifica limite diário de perda

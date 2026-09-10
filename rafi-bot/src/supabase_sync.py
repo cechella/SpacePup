@@ -189,6 +189,7 @@ def publicar_heartbeat(
     forming_bb_open:   bool             = False,
     forming_price:     Optional[float] = None,
     config_hash:       Optional[str]   = None,
+    broker_id:         str              = 'main',   # ID da linha no Supabase
     # ── campos ML (Fase 2) ────────────────────────────────────────────────
     ml_modelo_carregado: bool            = False,
     ml_modo:             str             = 'OBSERVAÇÃO',
@@ -204,6 +205,8 @@ def publicar_heartbeat(
 
     Chamado a cada ciclo para que o dashboard saiba que o bot está vivo.
     status: 'running' | 'waiting' | 'stopped' | 'error'
+    broker_id: ID único do broker ('pepperstone', 'exness', 'tickmill') —
+               cada processo escreve na sua própria linha, evitando conflitos.
     Os campos forming_* alimentam o card "Sinal em Formação" no admin.
     Os campos ml_* alimentam o painel de ML / Fase 2 no monitor.
     """
@@ -212,7 +215,7 @@ def publicar_heartbeat(
         return False
 
     row = {
-        'id':                'main',
+        'id':                broker_id,
         'status':            status,
         'balance':           round(balance, 2),
         'equity':            round(equity, 2),
@@ -488,22 +491,47 @@ def carregar_broker_ativo(broker_id: Optional[str] = None) -> Optional[dict]:
 
 
 def publicar_status_broker(
-    broker_id:   str,
-    saldo:       float,
-    posicoes:    int,
-    pnl_hoje:    float,
-    status_text: str,
+    broker_id:    str,
+    saldo:        float,
+    posicoes:     int,
+    pnl_hoje:     float,
+    status_text:  str,
+    servidor_real: Optional[str] = None,  # servidor MT5 real conectado
 ) -> bool:
     """
     Atualiza o card da corretora ativa no Supabase (saldo, posições, P&L).
 
     Chamado a cada heartbeat para que o dashboard mostre dados ao vivo
     no painel /admin/brokers.
+
+    servidor_real: nome do servidor MT5 ao qual o bot está de fato conectado.
+    Se não bater com o servidor esperado para este broker_id, grava
+    ERRO_TERMINAL (evita que dados de outro broker contaminem este card).
     """
     cliente = _get_cliente()
     if cliente is None:
         return False
     try:
+        # Valida terminal MT5 conectado antes de gravar saldo/posições
+        if servidor_real:
+            res = cliente.table('rafi_brokers').select('servidor').eq('id', broker_id).execute()
+            if res.data:
+                servidor_esperado = res.data[0].get('servidor', '')
+                if servidor_esperado and servidor_real not in servidor_esperado:
+                    logger.warning(
+                        f"[Supabase] {broker_id}: terminal errado! "
+                        f"conectado='{servidor_real}' esperado='{servidor_esperado}' "
+                        f"— gravando ERRO_TERMINAL, saldo zerado."
+                    )
+                    cliente.table('rafi_brokers').update({
+                        'saldo':       0.0,
+                        'posicoes':    0,
+                        'pnl_hoje':    0.0,
+                        'status_text': 'ERRO_TERMINAL',
+                        'updated_at':  datetime.utcnow().isoformat(),
+                    }).eq('id', broker_id).execute()
+                    return False
+
         cliente.table('rafi_brokers').update({
             'saldo':       round(saldo, 2),
             'posicoes':    posicoes,
