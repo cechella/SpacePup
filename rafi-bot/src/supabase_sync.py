@@ -1176,3 +1176,83 @@ def atualizar_status_upload(upload_id: str, status: str,
     except Exception as e:
         logger.error(f"[Supabase] Erro ao atualizar status upload: {e}")
         return False
+
+
+# ── Download de dados do Supabase Storage ─────────────────────────────────────
+
+def baixar_dados_storage(
+    broker:  str = 'pepperstone',
+    destino: str = 'data/EURUSD_M5.csv',
+) -> bool:
+    """
+    Baixa o CSV de dados históricos comprimido do Supabase Storage e
+    descomprime para `destino`.
+
+    O arquivo fica em: backtest-data/<broker>_EURUSD_M5.csv.gz
+    Requer SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY no ambiente (não usa
+    a chave anon — o bucket backtest-data é privado).
+
+    Retorna True se o download e descompressão foram bem-sucedidos.
+    """
+    import gzip
+    import shutil
+    import requests as _req
+
+    url_base = os.getenv('SUPABASE_URL', '').rstrip('/')
+    key      = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '') or os.getenv('SUPABASE_KEY', '')
+
+    if not url_base or not key or 'xxxx' in url_base:
+        logger.error("[Storage] SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY não configuradas")
+        return False
+
+    caminho_storage = f"{broker}_EURUSD_M5.csv.gz"
+    url_download    = f"{url_base}/storage/v1/object/backtest-data/{caminho_storage}"
+    headers         = {
+        'Authorization': f'Bearer {key}',
+        'apikey':        key,
+    }
+
+    os.makedirs(os.path.dirname(os.path.abspath(destino)), exist_ok=True)
+    caminho_gz = destino + '.gz'
+
+    logger.info(f"[Storage] Baixando {caminho_storage} → {destino}")
+
+    try:
+        resp = _req.get(url_download, headers=headers, stream=True, timeout=300)
+        if resp.status_code != 200:
+            logger.error(
+                f"[Storage] Erro HTTP {resp.status_code}: {resp.text[:300]}"
+            )
+            return False
+
+        tamanho_total = int(resp.headers.get('content-length', 0))
+        baixado = 0
+        with open(caminho_gz, 'wb') as f:
+            for chunk in resp.iter_content(chunk_size=4 * 1024 * 1024):
+                if chunk:
+                    f.write(chunk)
+                    baixado += len(chunk)
+                    if tamanho_total:
+                        pct = baixado / tamanho_total * 100
+                        logger.info(f"[Storage] Download: {baixado/1e6:.1f} MB / {tamanho_total/1e6:.1f} MB ({pct:.0f}%)")
+
+        logger.info(f"[Storage] Download concluído: {baixado/1e6:.1f} MB → descomprimindo...")
+
+        with gzip.open(caminho_gz, 'rb') as gz_in, open(destino, 'wb') as csv_out:
+            shutil.copyfileobj(gz_in, csv_out)
+
+        tamanho_csv = os.path.getsize(destino)
+        logger.info(f"[Storage] CSV pronto: {destino} ({tamanho_csv/1e6:.1f} MB)")
+
+    except Exception as e:
+        logger.error(f"[Storage] Falha no download: {e}")
+        return False
+    finally:
+        # Remove o arquivo .gz temporário
+        try:
+            if os.path.exists(caminho_gz):
+                os.remove(caminho_gz)
+        except Exception:
+            pass
+
+    return True

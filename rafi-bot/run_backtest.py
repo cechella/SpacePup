@@ -119,6 +119,12 @@ def main() -> None:
                         help='Salvar lista de trades em CSV (ex: logs/trades.csv)')
     parser.add_argument('--supabase', action='store_true',
                         help='Busca parâmetros do Simulador no Supabase (override do config.yaml)')
+    parser.add_argument('--storage', action='store_true',
+                        help='Baixa o CSV de dados do Supabase Storage antes do backtest '
+                             '(requer SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY)')
+    parser.add_argument('--broker-storage', default='pepperstone',
+                        dest='broker_storage',
+                        help='Corretora cujos dados serão baixados do Storage (default: pepperstone)')
     parser.add_argument('--inicio', default=None,
                         help='Data inicial do backtest (YYYY-MM-DD). Ex: 2026-08-01')
     parser.add_argument('--fim',    default=None,
@@ -187,6 +193,30 @@ def main() -> None:
     logger = logging.getLogger(__name__)
     logger.info("=== Bot RAFI — Iniciando backtest ===")
     logger.info(f"Config hash: {config_hash} (arquivo: {args.config})")
+
+    # ── Download automático do Supabase Storage ───────────────
+    # Se --storage for passado, baixa o CSV da Pepperstone (ou outro broker)
+    # antes de qualquer coisa. O caminho baixado sobrescreve --m5 se não
+    # tiver sido informado explicitamente.
+    if args.storage:
+        broker_dl = args.broker_storage
+        caminho_dl = os.path.join(
+            os.path.dirname(os.path.abspath(args.config)),
+            'data', f'{broker_dl}_EURUSD_M5.csv',
+        )
+        logger.info(f"[Storage] Iniciando download automático: {broker_dl}")
+        try:
+            from src.supabase_sync import baixar_dados_storage
+            ok = baixar_dados_storage(broker=broker_dl, destino=caminho_dl)
+        except Exception as e:
+            ok = False
+            logger.error(f"[Storage] Erro ao importar supabase_sync: {e}")
+        if not ok:
+            logger.error("[Storage] Download falhou — abortando backtest")
+            sys.exit(1)
+        if not args.m5:
+            args.m5 = caminho_dl
+            logger.info(f"[Storage] Usando dados baixados: {args.m5}")
 
     # ── Carregar ou gerar dados ────────────────────────────────
     if args.m5:

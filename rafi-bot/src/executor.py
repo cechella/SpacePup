@@ -543,7 +543,7 @@ class RafiBot:
                 config_hash = calcular_hash_config(cfg_run)
                 atualizar_backtest_run(run_id, 'running', config_hash=config_hash, progress=15)
 
-                # Dados históricos — MT5 ativo ou terminal da corretora selecionada
+                # Dados históricos — MT5 ativo, Storage ou terminal alternativo
                 usar_mt5_direto = broker_req in ('auto', None, broker_ativo)
                 if usar_mt5_direto:
                     logger.info(f"[Backtest] Buscando {n_candles:,} candles M5 do MT5 ativo ({broker_ativo})...")
@@ -551,31 +551,43 @@ class RafiBot:
                     if df_m5 is None or df_m5.empty:
                         raise RuntimeError("MT5 não retornou dados — verifique a conexão")
                 else:
-                    # Spawna subprocess isolado para conectar ao terminal da corretora
-                    # selecionada sem interferir na conexão MT5 do bot principal.
-                    import subprocess
+                    # Tenta Supabase Storage primeiro (arquivo histórico completo)
+                    # e só spawna subprocess MT5 se o Storage não tiver o arquivo.
                     temp_csv = os.path.abspath(
                         os.path.join(os.path.dirname(__file__), '..', 'data',
                                      f'bt_temp_{run_id[:8]}.csv')
                     )
-                    script_dl = os.path.abspath(
-                        os.path.join(os.path.dirname(__file__), '..', 'scripts', 'baixar_dados.py')
-                    )
-                    logger.info(f"[Backtest] Baixando dados da {broker_req} via subprocess → {temp_csv}")
                     atualizar_backtest_run(run_id, 'running', progress=20)
-                    proc = subprocess.run(
-                        [sys.executable, script_dl,
-                         '--broker', broker_req,
-                         '--output', temp_csv],
-                        capture_output=True, text=True, timeout=300,
-                        cwd=os.path.dirname(script_dl),
-                    )
-                    if proc.returncode != 0:
-                        detalhe = (proc.stderr or proc.stdout or '')[-600:]
-                        raise RuntimeError(
-                            f"Falha ao baixar dados da {broker_req}: {detalhe}"
+
+                    storage_ok = False
+                    try:
+                        from src.supabase_sync import baixar_dados_storage
+                        logger.info(f"[Backtest] Tentando Storage para '{broker_req}'…")
+                        storage_ok = baixar_dados_storage(broker=broker_req, destino=temp_csv)
+                    except Exception as e_st:
+                        logger.warning(f"[Backtest] Storage indisponível: {e_st}")
+
+                    if not storage_ok:
+                        # Fallback: subprocess que conecta ao terminal MT5 da corretora
+                        import subprocess
+                        script_dl = os.path.abspath(
+                            os.path.join(os.path.dirname(__file__), '..', 'scripts', 'baixar_dados.py')
                         )
-                    logger.info(f"[Backtest] Download {broker_req} concluído: {temp_csv}")
+                        logger.info(f"[Backtest] Baixando dados da {broker_req} via MT5 subprocess → {temp_csv}")
+                        proc = subprocess.run(
+                            [sys.executable, script_dl,
+                             '--broker', broker_req,
+                             '--output', temp_csv],
+                            capture_output=True, text=True, timeout=300,
+                            cwd=os.path.dirname(script_dl),
+                        )
+                        if proc.returncode != 0:
+                            detalhe = (proc.stderr or proc.stdout or '')[-600:]
+                            raise RuntimeError(
+                                f"Falha ao baixar dados da {broker_req}: {detalhe}"
+                            )
+                        logger.info(f"[Backtest] Download {broker_req} (MT5) concluído: {temp_csv}")
+
                     from backtest.engine import BacktestCSV
                     df_m5 = BacktestCSV._carregar_csv(temp_csv)
                     try:
