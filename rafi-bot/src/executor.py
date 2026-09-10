@@ -45,7 +45,7 @@ from .indicators   import (
     niveis_sr_ativos,
     rompimento_ocorreu,
 )
-from .risk_manager import lote_por_faixa
+from .risk_manager import lote_por_faixa, SupabaseIndisponivel
 from .ml.predictor import filtrar_sinal, MonitorPerformance, modelo_info
 from .supabase_sync import (
     sincronizar_trade,
@@ -424,7 +424,12 @@ class RafiBot:
                     break
 
                 # Ciclo principal
-                self._ciclo()
+                try:
+                    self._ciclo()
+                except SupabaseIndisponivel as e:
+                    logger.error(f"HALT por indisponibilidade do Supabase (faixas de lote): {e}")
+                    publicar_log(f"HALT: {e}", level='error')
+                    break
 
                 # Verifica backtest solicitado pelo admin (roda em thread separada)
                 if not self._backtest_em_andamento:

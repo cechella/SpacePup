@@ -8,10 +8,10 @@ Regras INEGOCIÁVEIS (Seção 2.5 do documento mestre):
   - Sem martingale, sem grid, sem dobrar após perda
   - Alavancagem máxima efetiva conservadora
 
-Escalonamento agressivo de lotes (definido em 2026-07):
-  Capital prova consistência → lote sobe de faixa automaticamente.
-  Condições para subir: semana positiva + drawdown semanal < 15% + sem 3 losses seguidos.
-  Condições para descer: drawdown semanal > 20%.
+Escalonamento de lotes: definido exclusivamente no admin dashboard → Supabase
+  (tabela rafi_lote_faixas). Zero valores hardcoded neste arquivo.
+  Se o Supabase estiver inacessível e não houver cache → SupabaseIndisponivel
+  é levantado e o bot para de operar até a conexão ser restabelecida.
 """
 
 import logging
@@ -22,37 +22,27 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# FALLBACK hardcoded — usado SOMENTE quando o Supabase não está disponível.
-# A fonte de verdade é a tabela rafi_lote_faixas no Supabase, editável pelo
-# admin dashboard (/admin/config). NUNCA edite os valores aqui diretamente —
-# faça a alteração no admin e ela se propaga automaticamente para o bot.
-# ─────────────────────────────────────────────────────────────────────────────
-_FAIXAS_FALLBACK: list[tuple[float, float, float]] = [
-    #  capital_min   capital_max    lote
-    (        0,            40,     0.10),
-    (       40,            80,     0.20),
-    (       80,           150,     0.40),
-    (      150,           200,     0.70),
-    (      200,           400,     1.00),
-    (      400,           800,     2.00),
-    (      800,         1_500,     4.00),
-    (    1_500,         3_000,     8.00),
-    (    3_000,         6_000,    15.00),
-    (    6_000,        10_000,    30.00),
-    (   10_000,        20_000,    50.00),
-    (   20_000,   float('inf'),  100.00),
-]
-
-# Cache em memória: (faixas, timestamp_da_última_busca)
-# Refresca do Supabase a cada 5 minutos para não sobrecarregar o banco.
+# Cache em memória das faixas carregadas do Supabase.
+# Refresca a cada 5 minutos. Se o Supabase estiver indisponível e o cache
+# estiver vazio → bot levanta SupabaseIndisponivel e para de operar.
+# Regra INEGOCIÁVEL: zero valores hardcoded — fonte única = Supabase/admin.
 _faixas_cache: list[tuple[float, float, float]] = []
 _faixas_ts: float = 0.0
 _CACHE_TTL = 300  # segundos
 
 
+class SupabaseIndisponivel(RuntimeError):
+    """Levantado quando o Supabase está inacessível e não há cache válido."""
+
+
 def _faixas_vigentes() -> list[tuple[float, float, float]]:
-    """Retorna as faixas do cache Supabase ou o fallback hardcoded."""
+    """
+    Retorna as faixas de lote do cache ou do Supabase.
+
+    Se o Supabase estiver indisponível:
+      - Cache ainda válido → usa o cache (bot continua com os valores já conhecidos)
+      - Cache vazio → levanta SupabaseIndisponivel (bot para, não opera sem dados)
+    """
     global _faixas_cache, _faixas_ts
     agora = time.monotonic()
     if agora - _faixas_ts < _CACHE_TTL and _faixas_cache:
@@ -65,27 +55,29 @@ def _faixas_vigentes() -> list[tuple[float, float, float]]:
             _faixas_ts = agora
             return _faixas_cache
     except Exception as e:
-        logger.debug(f"[RiskManager] Supabase indisponível para faixas: {e}")
-    # Fallback: usa hardcoded e não atualiza timestamp (próxima chamada tenta de novo)
-    return _faixas_fallback_ou_cache()
-
-
-def _faixas_fallback_ou_cache() -> list[tuple[float, float, float]]:
-    """Retorna cache anterior se existir, senão o fallback hardcoded."""
-    return _faixas_cache if _faixas_cache else _FAIXAS_FALLBACK
+        logger.warning(f"[RiskManager] Supabase indisponível para faixas: {e}")
+    # Sem Supabase: usa cache se existir, senão para o bot
+    if _faixas_cache:
+        logger.warning("[RiskManager] Supabase indisponível — usando cache de faixas anterior")
+        return _faixas_cache
+    raise SupabaseIndisponivel(
+        "Tabela rafi_lote_faixas inacessível e cache vazio — bot para até o Supabase voltar"
+    )
 
 
 def lote_por_faixa(capital: float) -> float:
     """
-    Retorna o lote correspondente ao capital atual.
+    Retorna o lote correspondente ao capital atual lendo do Supabase.
 
-    Lê da tabela rafi_lote_faixas no Supabase (com cache de 5 min).
-    Se o Supabase estiver indisponível, usa o fallback hardcoded acima.
+    Levanta SupabaseIndisponivel se o Supabase estiver inacessível e não
+    houver cache — garantindo que o bot nunca opere com valores desconhecidos.
     """
     for cap_min, cap_max, lote in _faixas_vigentes():
         if cap_min <= capital < cap_max:
             return lote
-    return 0.01  # capital abaixo da primeira faixa → lote mínimo
+    raise SupabaseIndisponivel(
+        f"Capital {capital:.2f} não encontrado em nenhuma faixa — verifique rafi_lote_faixas"
+    )
 
 
 def recarregar_faixas_lote() -> None:
