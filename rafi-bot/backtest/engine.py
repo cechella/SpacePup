@@ -75,6 +75,13 @@ class Backtest:
         self.slippage_escalonado = bool(config.get('slippage_escalonado', False))
         self.par              = config.get('par', 'EURUSD')
 
+        # Faixas de lote do config.yaml — usadas no backtest sem precisar do Supabase.
+        # Em produção (executor.py) lote_por_faixa() consulta o Supabase diretamente.
+        raw = config.get('rafi_lote_faixas', [])
+        self.faixas: list[tuple[float, float, float]] | None = (
+            [(float(f[0]), float(f[1]), float(f[2])) for f in raw] if raw else None
+        )
+
         # Registros
         self.trades: list[dict] = []
         self.equity_curve: list = [(self.df_m5.index[0], capital)]
@@ -766,7 +773,7 @@ class Backtest:
                      else round(entrada - risco * ratio_rr, 5)
 
                 # Sizing: tabela faixa pura (sem ajuste semanal) — idêntico ao browser
-                lote = lote_por_faixa(max(0.0, self.capital))
+                lote = lote_por_faixa(max(0.0, self.capital), faixas=self.faixas)
 
                 risco_usd = round(risco_pips * lote * 10.0, 2)
                 self.gestor.abrir_trade()

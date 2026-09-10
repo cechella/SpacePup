@@ -65,14 +65,21 @@ def _faixas_vigentes() -> list[tuple[float, float, float]]:
     )
 
 
-def lote_por_faixa(capital: float) -> float:
+def lote_por_faixa(capital: float,
+                   faixas: Optional[list[tuple[float, float, float]]] = None) -> float:
     """
-    Retorna o lote correspondente ao capital atual lendo do Supabase.
+    Retorna o lote correspondente ao capital atual.
 
-    Levanta SupabaseIndisponivel se o Supabase estiver inacessível e não
-    houver cache — garantindo que o bot nunca opere com valores desconhecidos.
+    Se `faixas` for passado (ex.: pelo backtest a partir do config.yaml),
+    usa essas faixas diretamente sem consultar o Supabase — permite rodar
+    backtests offline. Em produção (faixas=None), lê do Supabase/cache.
+
+    Levanta SupabaseIndisponivel se o Supabase estiver inacessível, não
+    houver cache e faixas=None — garantindo que o bot nunca opere com
+    valores desconhecidos.
     """
-    for cap_min, cap_max, lote in _faixas_vigentes():
+    fonte = faixas if faixas is not None else _faixas_vigentes()
+    for cap_min, cap_max, lote in fonte:
         if cap_min <= capital < cap_max:
             return lote
     raise SupabaseIndisponivel(
