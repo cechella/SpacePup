@@ -748,7 +748,18 @@ class RafiBot:
 
     def _ciclo(self) -> None:
         """Executa um ciclo completo de análise e decisão."""
-        logger.debug("─── Novo ciclo ───")
+        # Heartbeat local: registra no log a cada candle M5 (5 min) para auditoria de uptime.
+        # Arquivo separado permite checar uptime sem abrir o log principal completo.
+        _agora_utc = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        _n_pos     = len(self._posicoes)
+        logger.info(f"─── Ciclo M5 | {_agora_utc} UTC | saldo=${self.capital:.2f} | pos={_n_pos} ───")
+        try:
+            import os as _os
+            _os.makedirs('logs', exist_ok=True)
+            with open('logs/heartbeat.log', 'a', encoding='utf-8') as _hb:
+                _hb.write(f"{_agora_utc}Z | saldo=${self.capital:.2f} | pos={_n_pos} | broker={self._broker_id}\n")
+        except Exception:
+            pass  # nunca interrompe o ciclo por falha de log
 
         # 1. Atualiza capital
         cap_atual = self.mt5.capital_atual()
@@ -829,7 +840,8 @@ class RafiBot:
 
         # 6. Calcula indicadores
         indice_forca = calcular_indice_forca(df, periodo=14)  # igual ao backtest (default)
-        bb           = calcular_bollinger(df, periodo=8, desvios=2.0)
+        # bb_periodo lido do config (padrão 8) — alinhado com backtest
+        bb           = calcular_bollinger(df, periodo=int(self.cfg.get('bb_periodo', 8)), desvios=2.0)
         pivotos      = detectar_pivotos(df, janela=5)
         niveis_sr    = niveis_sr_ativos(df, pivotos, lookback=self.cfg['sr_lookback'])
 
@@ -1112,8 +1124,9 @@ class RafiBot:
         if bb is None or len(bb) < 2:
             return None
 
-        # sr_lookback é controlado pelo Admin Panel (Supabase) — não usar autoscan_sr_lookback aqui
-        sr_lb         = int(self.cfg['sr_lookback'])
+        # Usa autoscan_sr_lookback (padrão 10c = 50 min) idêntico ao backtest.
+        # Fallback: sr_lookback do config se autoscan_sr_lookback não estiver no Supabase.
+        sr_lb         = int(self.cfg.get('autoscan_sr_lookback', self.cfg.get('sr_lookback', 10)))
         min_breakout  = float(self.cfg['autoscan_min_breakout'])
         stop_offset   = float(self.cfg['autoscan_stop_offset'])
         expansao_min  = float(self.cfg['bb_squeeze_expansao_min'])
@@ -1508,7 +1521,7 @@ class RafiBot:
                 }
 
             indice_forca = calcular_indice_forca(df, periodo=14)  # igual ao backtest (default)
-            bb = calcular_bollinger(df, periodo=8, desvios=2.0)
+            bb = calcular_bollinger(df, periodo=int(self.cfg.get('bb_periodo', 8)), desvios=2.0)
             self._executar_sinal(sinal_dict, df, indice_forca, bb)
 
     def _publicar_historico_inicial(self, df) -> None:
