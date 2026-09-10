@@ -4,8 +4,8 @@
 
 $raiz = $PSScriptRoot
 
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$raiz'; py -m src.executor --broker exness" -WindowStyle Normal
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$raiz'; py -m src.executor --broker tickmill" -WindowStyle Normal
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$raiz'; py -m src.executor --broker pepperstone" -WindowStyle Normal
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$host.UI.RawUI.WindowTitle = 'BOT EXNESS'; cd '$raiz'; py -m src.executor --broker exness" -WindowStyle Normal
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$host.UI.RawUI.WindowTitle = 'BOT TICKMILL'; cd '$raiz'; py -m src.executor --broker tickmill" -WindowStyle Normal
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$host.UI.RawUI.WindowTitle = 'BOT PEPPERSTONE'; cd '$raiz'; py -m src.executor --broker pepperstone" -WindowStyle Normal
 
 Write-Host "3 bots iniciados! Verifique as janelas abertas." -ForegroundColor Green
