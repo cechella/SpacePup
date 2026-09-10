@@ -42,6 +42,9 @@ parser.add_argument("--broker", default=None,
 parser.add_argument("--mt5_path", default=None,
                     help="Caminho direto do terminal64.exe. "
                          "Ex: 'C:\\Program Files\\MetaTrader 5\\terminal64.exe'")
+parser.add_argument("--output", default=None,
+                    help="Caminho de saída do CSV. "
+                         "Padrão: data/EURUSD_M5.csv")
 args, _ = parser.parse_known_args()
 
 # ── Símbolo: argumento > config.yaml > fallback EURUSD ───────
@@ -82,7 +85,7 @@ MT5_PATH = _resolver_mt5_path()
 # Pega o máximo de histórico que o MT5 disponibilizar (Pepperstone: ~10 anos)
 DATA_INICIO = datetime(2000, 1, 1, tzinfo=timezone.utc)
 PASTA       = os.path.join(os.path.dirname(__file__), '..', 'data')
-ARQUIVO_M5  = os.path.join(PASTA, "EURUSD_M5.csv")
+ARQUIVO_M5  = args.output if args.output else os.path.join(PASTA, "EURUSD_M5.csv")
 
 # Mínimo de candles para avisar que o histórico está incompleto
 # 1 ano × 260 dias úteis × 96 candles/dia = ~25.000 candles
