@@ -123,6 +123,8 @@ def main() -> None:
                         help='Data inicial do backtest (YYYY-MM-DD). Ex: 2026-08-01')
     parser.add_argument('--fim',    default=None,
                         help='Data final do backtest (YYYY-MM-DD). Ex: 2026-08-31')
+    parser.add_argument('--rr', type=float, default=None,
+                        help='Override ratio_risco_retorno. Ex: 3.0 ou 4.0')
     args = parser.parse_args()
 
     # ── Carregar configurações ─────────────────────────────────
@@ -175,6 +177,10 @@ def main() -> None:
 
     # Capital: CLI > config.yaml > default 100
     capital = args.capital if args.capital is not None else float(config.get('capital_inicial', 100.0))
+
+    # R:R: CLI > config.yaml
+    if args.rr is not None:
+        config['ratio_risco_retorno'] = args.rr
 
     log_arquivo = config.get('log_arquivo', 'logs/backtest.log')
     configurar_logging(args.log, log_arquivo)
