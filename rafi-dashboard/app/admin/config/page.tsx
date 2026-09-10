@@ -200,6 +200,47 @@ export default function ConfigPage() {
   // Modal de confirmação para salvar ao vivo
   const [showModal, setShowModal] = useState(false)
 
+  // Modal de senha para desbloquear edição
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const [passwordInput,     setPasswordInput]     = useState('')
+  const [passwordError,     setPasswordError]     = useState('')
+  const [passwordChecking,  setPasswordChecking]  = useState(false)
+  // Qual perfil está tentando desbloquear ('simulator' | 'live')
+  const [unlockTarget, setUnlockTarget] = useState<'simulator' | 'live' | null>(null)
+
+  async function tentarDesbloquear(profile: 'simulator' | 'live') {
+    setUnlockTarget(profile)
+    setPasswordInput('')
+    setPasswordError('')
+    setShowPasswordModal(true)
+  }
+
+  async function confirmarSenha() {
+    if (!passwordInput.trim()) { setPasswordError('Digite a senha'); return }
+    setPasswordChecking(true)
+    setPasswordError('')
+    try {
+      const res = await fetch('/api/admin/verify-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: passwordInput }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        if (unlockTarget === 'simulator') setSimLocked(false)
+        if (unlockTarget === 'live')      setLiveLocked(false)
+        setShowPasswordModal(false)
+        setPasswordInput('')
+      } else {
+        setPasswordError(data.error || 'Senha incorreta')
+      }
+    } catch {
+      setPasswordError('Erro de conexão — tente novamente')
+    } finally {
+      setPasswordChecking(false)
+    }
+  }
+
   // Tabela de faixas de lote — carregada do Supabase
   const [faixas, setFaixas] = useState<FaixaLote[]>([])
   const [faixasEditando, setFaixasEditando] = useState<Record<number, Partial<FaixaLote>>>({})
@@ -343,6 +384,56 @@ export default function ConfigPage() {
           onConfirm={confirmarSalvarLive}
           onCancel={() => setShowModal(false)}
         />
+      )}
+
+      {/* Modal de senha para desbloquear edição */}
+      {showPasswordModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000,
+          background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={e => { if (e.target === e.currentTarget) { setShowPasswordModal(false); setPasswordInput('') } }}>
+          <div style={{ background: C.s1, border: `1px solid ${C.bd}`, borderRadius: 10,
+            padding: '28px 32px', width: 340, boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: C.am, marginBottom: 6 }}>🔐 Senha de Acesso</div>
+            <div style={{ fontSize: 10, color: C.t2, marginBottom: 18 }}>
+              Digite a senha para desbloquear edição do perfil{' '}
+              <strong style={{ color: unlockTarget === 'live' ? C.re : C.cy }}>
+                {unlockTarget === 'live' ? 'LIVE' : 'SIMULADOR'}
+              </strong>
+            </div>
+            <input
+              type="password"
+              autoFocus
+              value={passwordInput}
+              onChange={e => { setPasswordInput(e.target.value); setPasswordError('') }}
+              onKeyDown={e => { if (e.key === 'Enter') confirmarSenha(); if (e.key === 'Escape') setShowPasswordModal(false) }}
+              placeholder="Digite a senha…"
+              style={{ width: '100%', boxSizing: 'border-box', padding: '10px 14px',
+                background: C.s2, border: `1px solid ${passwordError ? C.re : C.bd}`,
+                borderRadius: 6, color: C.tx, fontSize: 13, outline: 'none',
+                fontFamily: 'monospace', letterSpacing: '0.1em' }}
+            />
+            {passwordError && (
+              <div style={{ marginTop: 8, fontSize: 10, color: C.re }}>{passwordError}</div>
+            )}
+            <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
+              <button
+                onClick={() => { setShowPasswordModal(false); setPasswordInput(''); setPasswordError('') }}
+                style={{ flex: 1, padding: '9px 0', borderRadius: 6, border: `1px solid ${C.bd}`,
+                  background: 'transparent', color: C.t2, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarSenha}
+                disabled={passwordChecking || !passwordInput.trim()}
+                style={{ flex: 2, padding: '9px 0', borderRadius: 6,
+                  border: `1px solid ${C.am}60`, background: `${C.am}18`,
+                  color: passwordChecking ? C.t3 : C.am,
+                  fontSize: 11, fontWeight: 800, cursor: passwordChecking ? 'wait' : 'pointer' }}>
+                {passwordChecking ? 'Verificando…' : '🔓 Desbloquear'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Header */}
@@ -596,8 +687,8 @@ export default function ConfigPage() {
                 )}
                 {/* Botão cadeado */}
                 <button
-                  onClick={() => setLocked(!locked)}
-                  title={locked ? 'Clique para desbloquear edição' : 'Clique para bloquear'}
+                  onClick={() => locked ? tentarDesbloquear(profile as 'simulator' | 'live') : setLocked(true)}
+                  title={locked ? 'Clique para desbloquear edição (requer senha)' : 'Clique para bloquear'}
                   style={{ display: 'flex', alignItems: 'center', gap: 5,
                     padding: '5px 10px', borderRadius: 5, border: `1px solid ${locked ? C.am + '60' : C.gr + '40'}`,
                     background: locked ? `${C.am}12` : `${C.gr}10`,
@@ -616,7 +707,7 @@ export default function ConfigPage() {
                 display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: 12 }}>🔒</span>
                 <span style={{ fontSize: 9, color: C.am }}>
-                  Configuração protegida — clique em <strong>Bloqueado</strong> para habilitar edição
+                  Configuração protegida — clique em <strong>Bloqueado</strong> e insira a senha para habilitar edição
                 </span>
               </div>
             )}
