@@ -207,6 +207,9 @@ export default function ConfigPage() {
   const [passwordChecking,  setPasswordChecking]  = useState(false)
   // Qual perfil está tentando desbloquear ('simulator' | 'live')
   const [unlockTarget, setUnlockTarget] = useState<'simulator' | 'live' | null>(null)
+  // Senha guardada em memória após unlock — usada para autenticar writes na API
+  // Limpa quando o perfil é re-bloqueado ou a página é fechada/recarregada
+  const [adminPassword, setAdminPassword] = useState('')
 
   async function tentarDesbloquear(profile: 'simulator' | 'live') {
     setUnlockTarget(profile)
@@ -229,6 +232,7 @@ export default function ConfigPage() {
       if (data.ok) {
         if (unlockTarget === 'simulator') setSimLocked(false)
         if (unlockTarget === 'live')      setLiveLocked(false)
+        setAdminPassword(passwordInput)   // guarda em memória para autenticar saves
         setShowPasswordModal(false)
         setPasswordInput('')
       } else {
@@ -304,7 +308,7 @@ export default function ConfigPage() {
     try {
       const res = await fetch('/api/config', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
         body: JSON.stringify({ profile, cfg }),
       })
       const data = await res.json()
@@ -331,7 +335,6 @@ export default function ConfigPage() {
   }
 
   const salvarFaixa = async (ordem: number) => {
-    if (!supa) return
     const edit = faixasEditando[ordem]
     if (!edit) return
     const faixa = faixas.find(f => f.ordem === ordem)
@@ -343,12 +346,15 @@ export default function ConfigPage() {
       const novoMax: number | null = 'capital_max' in edit
         ? (edit.capital_max ?? null)
         : faixa.capital_max
-      await supa.from('rafi_lote_faixas').update({
-        lote:        novoLote,
-        capital_min: novoMin,
-        capital_max: novoMax,
-        updated_at:  new Date().toISOString(),
-      }).eq('ordem', ordem)
+      const res = await fetch('/api/admin/save-faixa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+        body: JSON.stringify({ ordem, lote: novoLote, capital_min: novoMin, capital_max: novoMax }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        throw new Error(d.error || res.statusText)
+      }
       setFaixas(prev => prev.map(f =>
         f.ordem === ordem ? { ...f, lote: novoLote, capital_min: novoMin, capital_max: novoMax } : f
       ))
@@ -687,7 +693,7 @@ export default function ConfigPage() {
                 )}
                 {/* Botão cadeado */}
                 <button
-                  onClick={() => locked ? tentarDesbloquear(profile as 'simulator' | 'live') : setLocked(true)}
+                  onClick={() => locked ? tentarDesbloquear(profile as 'simulator' | 'live') : (setLocked(true), setAdminPassword(''))}
                   title={locked ? 'Clique para desbloquear edição (requer senha)' : 'Clique para bloquear'}
                   style={{ display: 'flex', alignItems: 'center', gap: 5,
                     padding: '5px 10px', borderRadius: 5, border: `1px solid ${locked ? C.am + '60' : C.gr + '40'}`,

@@ -58,6 +58,16 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  // Verifica senha de admin — exigida para qualquer alteração de config
+  const senha = req.headers.get('x-admin-password') ?? ''
+  const senhaCorreta = process.env.ADMIN_CONFIG_PASSWORD ?? ''
+  if (!senhaCorreta) {
+    return NextResponse.json({ error: 'ADMIN_CONFIG_PASSWORD não configurada no servidor' }, { status: 500 })
+  }
+  if (!senha || senha !== senhaCorreta) {
+    return NextResponse.json({ error: 'Não autorizado — senha incorreta' }, { status: 401 })
+  }
+
   try {
     const body = await req.json()
     const { profile, cfg } = body
