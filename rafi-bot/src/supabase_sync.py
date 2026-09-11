@@ -752,8 +752,9 @@ def carregar_faixas_lote() -> list[tuple[float, float, float]]:
     Carrega a tabela de faixas de lote do Supabase (rafi_lote_faixas).
 
     Retorna lista de tuplas (capital_min, capital_max, lote) ordenada por capital_min.
-    Se o Supabase estiver indisponível ou a tabela não existir, retorna o fallback
-    hardcoded — garantia de que o bot nunca para por falta de conexão.
+    Se o Supabase estiver indisponível ou a tabela estiver vazia, retorna [] e o
+    risk_manager usará o cache anterior (se existir) ou levantará SupabaseIndisponivel.
+    Não há fallback hardcoded — fonte única de verdade é o Supabase/admin dashboard.
 
     Chamado por risk_manager.lote_por_faixa() e backtest/engine.py a cada ciclo
     de decisão (com cache interno de 5 minutos para não sobrecarregar o banco).

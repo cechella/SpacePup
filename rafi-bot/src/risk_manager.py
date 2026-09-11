@@ -53,6 +53,12 @@ def _faixas_vigentes() -> list[tuple[float, float, float]]:
         if faixas:
             _faixas_cache = faixas
             _faixas_ts = agora
+            # Log completo da tabela para auditoria — aparece no log toda vez que recarrega
+            partes = []
+            for cap_min, cap_max, lote in faixas:
+                cap_max_str = f"${cap_max:.0f}" if cap_max != float('inf') else "∞"
+                partes.append(f"${cap_min:.0f}-{cap_max_str}→{lote}L")
+            logger.info(f"[FAIXAS] Tabela carregada do Supabase: {' | '.join(partes)}")
             return _faixas_cache
     except Exception as e:
         logger.warning(f"[RiskManager] Supabase indisponível para faixas: {e}")

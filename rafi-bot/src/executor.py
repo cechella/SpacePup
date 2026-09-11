@@ -45,7 +45,7 @@ from .indicators   import (
     niveis_sr_ativos,
     rompimento_ocorreu,
 )
-from .risk_manager import lote_por_faixa, SupabaseIndisponivel
+from .risk_manager import lote_por_faixa, SupabaseIndisponivel, GestorRisco
 from .ml.predictor import filtrar_sinal, MonitorPerformance, modelo_info
 from .supabase_sync import (
     sincronizar_trade,
@@ -188,6 +188,10 @@ class RafiBot:
         # Info da conta MT5 (preenchida no conectar)
         self._conta_account = 0
         self._conta_server  = ''
+
+        # Gestor de risco: aplica proteções semanais de drawdown e losses consecutivos
+        # ao escalonamento de lotes. Atualizado a cada ciclo e a cada trade fechado.
+        self.gestor_risco = GestorRisco(config)
 
         # Timestamp (Unix) do último sinal emitido em modo autoscan — controla gap mínimo
         self._autoscan_ultimo_ts: int = 0
@@ -766,6 +770,9 @@ class RafiBot:
         if cap_atual is not None:
             self.capital = cap_atual
 
+        # Avança calendário do gestor de risco (reset diário/semanal automático)
+        self.gestor_risco.avancar_data(datetime.utcnow().date())
+
         # 2. Verifica posições abertas (exaustão / SL/TP atingido)
         self._monitorar_posicoes()
 
@@ -1285,8 +1292,9 @@ class RafiBot:
 
     def _executar_sinal(self, sinal: dict, df, indice_forca, bb) -> None:
         """Calcula lote, envia ordem ao MT5 e sincroniza com Supabase."""
-        # Lote pela tabela de escalonamento (mesma lógica do dashboard)
-        lote = lote_por_faixa(self.capital)
+        # Lote via GestorRisco — aplica proteções semanais (drawdown > 20% desce faixa,
+        # 3+ losses seguidos congela faixa) além da tabela base do Supabase.
+        lote = self.gestor_risco.calcular_lote(self.capital)
         logger.info(f"[LOTE] capital={self.capital:.2f} USD → lote={lote:.2f} | direção={sinal['direcao']}")
 
         resultado = self.mt5.enviar_ordem(
@@ -1300,6 +1308,9 @@ class RafiBot:
         if resultado is None:
             logger.error("Ordem não executada.")
             return
+
+        # Notifica gestor de risco da abertura (incrementa contador de trades abertos)
+        self.gestor_risco.abrir_trade()
 
         ticket    = resultado['ticket']
         preco_ent = resultado['preco_entrada']
@@ -1419,6 +1430,10 @@ class RafiBot:
             self._pnl_hoje += pnl_trade
             if resultado == 'loss':
                 self._perda_hoje += abs(pnl_trade)
+
+            # Notifica gestor de risco do fechamento — atualiza losses seguidos,
+            # drawdown semanal e pico de capital para proteção de escalonamento
+            self.gestor_risco.fechar_trade(pnl_trade, cap_novo if cap_novo is not None else self.capital)
 
             # Atualiza saldo e Supabase (tabela rafi_bot_status)
             if cap_novo is not None:
