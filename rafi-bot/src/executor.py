@@ -769,7 +769,7 @@ class RafiBot:
         except Exception:
             _trade_status = "sem conexao MT5"
             _trade_ok     = False
-        logger.info(f"─── Ciclo M5 | {_agora_utc} UTC | saldo=${self.capital:.2f} | pos={_n_pos} | MT5={_trade_status} ───")
+        logger.info(f"─── Ciclo M5 | {_agora_utc} UTC | broker={self._broker_id} | saldo=${self.capital:.2f} | pos={_n_pos} | MT5={_trade_status} ───")
         try:
             import os as _os
             _os.makedirs('logs', exist_ok=True)
