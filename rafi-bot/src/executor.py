@@ -1145,7 +1145,7 @@ class RafiBot:
         segundos_gap = min_gap * 300  # M5 = 300s por candle
         segundos_decorridos = candle_ts - self._autoscan_ultimo_ts
         if segundos_decorridos < segundos_gap:
-            logger.debug(
+            logger.info(
                 f"[{ts_label}] AUTOSCAN REJEITADO — gap insuficiente: "
                 f"{segundos_decorridos//60}min < {segundos_gap//60}min mínimo"
             )
@@ -1161,7 +1161,7 @@ class RafiBot:
 
         # Filtro 1: squeeze no candle anterior
         if prev_ratio >= squeeze_ratio:
-            logger.debug(
+            logger.info(
                 f"[{ts_label}] AUTOSCAN REJEITADO — BB sem squeeze: "
                 f"prev_ratio={prev_ratio:.5f} >= limite={squeeze_ratio:.4f} "
                 f"(BB largura={bb_w_prev*10000:.1f} pips)"
@@ -1174,7 +1174,7 @@ class RafiBot:
 
         # Filtro 2: expansão no candle atual
         if curr_ratio <= prev_ratio * expansao_min:
-            logger.debug(
+            logger.info(
                 f"[{ts_label}] AUTOSCAN REJEITADO — BB sem expansão: "
                 f"curr={curr_ratio:.5f} <= prev*{expansao_min}={prev_ratio*expansao_min:.5f}"
             )
@@ -1253,7 +1253,7 @@ class RafiBot:
             f"falta {max(dist_resist, dist_suport)*10000:.1f}p | "
             f"min={min_breakout*10000:.1f}p"
         )
-        logger.debug(
+        logger.info(
             f"[{ts_label}] AUTOSCAN BB OK mas sem rompimento S/R | "
             f"close={close:.5f} | resist={resistance:.5f} (+{dist_resist*10000:.1f}p) | "
             f"suport={support:.5f} ({dist_suport*10000:.1f}p) | "
@@ -1287,6 +1287,7 @@ class RafiBot:
         """Calcula lote, envia ordem ao MT5 e sincroniza com Supabase."""
         # Lote pela tabela de escalonamento (mesma lógica do dashboard)
         lote = lote_por_faixa(self.capital)
+        logger.info(f"[LOTE] capital={self.capital:.2f} USD → lote={lote:.2f} | direção={sinal['direcao']}")
 
         resultado = self.mt5.enviar_ordem(
             sinal=sinal['direcao'],
