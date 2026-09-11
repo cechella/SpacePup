@@ -179,20 +179,9 @@ class GestorRisco:
         Retorna (True, '') ou (False, motivo_do_bloqueio).
         Chamar avancar_data(date_do_candle) antes de pode_operar em produção.
         """
-        # Verifica se o capital cobre a margem do lote da faixa atual.
-        # Usa a alavancagem configurada; se não conseguir ler a tabela, cai no check legado.
-        try:
-            lote_faixa = lote_por_faixa(capital_atual)
-            margem_necessaria = (lote_faixa * 100_000.0) / max(self.alavancagem, 1)
-            if capital_atual < margem_necessaria:
-                return False, (
-                    f"Capital insuficiente (${capital_atual:.2f}) para lote {lote_faixa} "
-                    f"da tabela (margem necessária ${margem_necessaria:.2f} com 1:{self.alavancagem})"
-                )
-        except Exception:
-            custo_min = self.lote_minimo * 10.0
-            if capital_atual <= custo_min:
-                return False, f"Capital insuficiente (${capital_atual:.2f}) — mínimo ${custo_min:.2f}"
+        custo_min = self.lote_minimo * 10.0
+        if capital_atual <= custo_min:
+            return False, f"Capital insuficiente (${capital_atual:.2f}) — mínimo ${custo_min:.2f}"
 
         if self._parado_hoje:
             return False, f"Bot parado: {self._perdas_dia} perda(s) hoje (limite: {self.max_perdas_dia})"
@@ -241,8 +230,6 @@ class GestorRisco:
         # ── Faixa (padrão novo) ───────────────────────────────────────────
         if modo == 'faixa':
             lote = self._lote_faixa_ajustado(capital_atual)
-            # Aplica teto de margem: não pode exigir mais margem do que o capital disponível
-            lote = min(lote, self._lote_max_margem(capital_atual))
 
         # ── Proporcional ──────────────────────────────────────────────────
         elif modo == 'proporcional':

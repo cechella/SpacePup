@@ -1305,12 +1305,6 @@ class RafiBot:
 
     def _executar_sinal(self, sinal: dict, df, indice_forca, bb) -> None:
         """Calcula lote, envia ordem ao MT5 e sincroniza com Supabase."""
-        # Guard: verifica permissão de risco antes de enviar ordem
-        pode, motivo_risco = self.gestor_risco.pode_operar(self.capital)
-        if not pode:
-            logger.warning(f"[LOTE] Ordem bloqueada pelo GestorRisco: {motivo_risco}")
-            return
-
         # Lote via GestorRisco — aplica proteções semanais (drawdown > 20% desce faixa,
         # 3+ losses seguidos congela faixa) além da tabela base do Supabase.
         lote = self.gestor_risco.calcular_lote(self.capital)
