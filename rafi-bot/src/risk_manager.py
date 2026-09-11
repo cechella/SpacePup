@@ -121,7 +121,8 @@ class GestorRisco:
         # o lote é determinado exclusivamente por lote_por_faixa(capital),
         # que lê da tabela rafi_lote_faixas no Supabase. calcular_lote()
         # abaixo é legado do modo rafi e não é chamado em autoscan.
-        self.risco_maximo_diario  = float(config.get('risco_maximo_diario', 0.05))
+        # Converte % → decimal: config usa porcentagem (ex: 5 = 5%), GestorRisco compara em decimal (0.05)
+        self.risco_maximo_diario  = float(config.get('risco_maximo_diario', 5.0)) / 100
         self.max_trades_simult    = int(config.get('max_trades_simultaneos', 1))
         self.max_perdas_dia       = int(config.get('max_perdas_por_dia', 1))
         self.alavancagem          = int(config.get('alavancagem', 1000))
