@@ -65,11 +65,15 @@ export async function PATCH(req: NextRequest) {
     }
 
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
-    if (mt5_login   !== undefined) patch.mt5_login   = mt5_login
-    if (mt5_senha   !== undefined) patch.mt5_senha   = mt5_senha
+    if (mt5_login    !== undefined) patch.mt5_login    = mt5_login
+    if (mt5_senha    !== undefined) patch.mt5_senha    = mt5_senha
     if (mt5_servidor !== undefined) patch.mt5_servidor = mt5_servidor
-    if (mt5_simbolo !== undefined) patch.mt5_simbolo = mt5_simbolo
-    if (mt5_path    !== undefined) patch.mt5_path    = mt5_path
+    if (mt5_simbolo  !== undefined) patch.mt5_simbolo  = mt5_simbolo
+    if (mt5_path     !== undefined) patch.mt5_path     = mt5_path
+    // Sincroniza campos base que o bot usa para validar terminal conectado
+    if (mt5_login    !== undefined && mt5_login !== null) patch.login    = mt5_login
+    if (mt5_servidor !== undefined && mt5_servidor !== null) patch.servidor = mt5_servidor
+    if (mt5_simbolo  !== undefined && mt5_simbolo  !== null) patch.simbolo  = mt5_simbolo
 
     const supa = getServiceClient()
     const { error } = await supa.from('rafi_brokers').update(patch).eq('id', id)
