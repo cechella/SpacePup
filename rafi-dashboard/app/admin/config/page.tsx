@@ -42,6 +42,7 @@ const DEFAULTS = {
 type Config = typeof DEFAULTS
 
 type FaixaLote = { id?: number; ordem: number; capital_min: number; capital_max: number | null; lote: number }
+type RiscoParam = { chave: string; valor: string; descricao: string; bloqueado: boolean }
 
 // Calcula pip value a partir do lote (lote × $10/pip)
 function pipValue(lote: number): string {
@@ -261,6 +262,12 @@ export default function ConfigPage() {
   // Faixa aguardando autenticação — quando senha não foi inserida ainda
   const [pendingFaixaOrdem, setPendingFaixaOrdem] = useState<number | null>(null)
 
+  // Parâmetros de risco — Supabase rafi_config_risco (compartilhado entre perfis)
+  const [riscoParams,    setRiscoParams]    = useState<RiscoParam[]>([])
+  const [riscoEditando,  setRiscoEditando]  = useState<Record<string, string>>({})
+  const [riscoSaving,    setRiscoSaving]    = useState<Record<string, boolean>>({})
+  const [riscoSaved,     setRiscoSaved]     = useState<Record<string, boolean>>({})
+
   // Atualiza status do bot e hash live do Supabase — chamado no mount e a cada 30s
   const atualizarStatusBot = useCallback(async () => {
     if (!supa) return
@@ -298,6 +305,11 @@ export default function ConfigPage() {
           .order('ordem')
         if (faixasData) setFaixas(faixasData as FaixaLote[])
       } catch { /* tabela ainda não existe — ignora silenciosamente */ }
+      try {
+        const res = await fetch('/api/admin/save-risco-param')
+        const rd  = await res.json()
+        if (rd.params) setRiscoParams(rd.params as RiscoParam[])
+      } catch { /* silencioso — tabela pode não existir ainda */ }
       await atualizarStatusBot()
       setLoading(false)
     })()
@@ -373,6 +385,35 @@ export default function ConfigPage() {
       setTimeout(() => setFaixasSaved(s => ({ ...s, [ordem]: false })), 2000)
     } catch (e) { setError(`Erro ao salvar faixa ${ordem}: ${e}`) }
     setFaixasSaving(s => ({ ...s, [ordem]: false }))
+  }
+
+  const salvarRiscoParam = async (chave: string) => {
+    const novoValor = riscoEditando[chave]
+    if (novoValor === undefined) return
+    if (!adminPassword) {
+      setUnlockTarget('live')
+      setPasswordInput('')
+      setPasswordError('')
+      setShowPasswordModal(true)
+      return
+    }
+    setRiscoSaving(s => ({ ...s, [chave]: true }))
+    try {
+      const res = await fetch('/api/admin/save-risco-param', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+        body: JSON.stringify({ chave, valor: novoValor }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        throw new Error(d.error || res.statusText)
+      }
+      setRiscoParams(prev => prev.map(p => p.chave === chave ? { ...p, valor: novoValor } : p))
+      setRiscoEditando(e => { const n = { ...e }; delete n[chave]; return n })
+      setRiscoSaved(s => ({ ...s, [chave]: true }))
+      setTimeout(() => setRiscoSaved(s => ({ ...s, [chave]: false })), 2000)
+    } catch (e) { setError(`Erro ao salvar risco ${chave}: ${e}`) }
+    setRiscoSaving(s => ({ ...s, [chave]: false }))
   }
 
   const salvarFaixa = (ordem: number) => {
@@ -651,6 +692,26 @@ export default function ConfigPage() {
               <div style={{ color: C.t3, marginTop: 8 }}>
                 {'# ═══════════════════════════════════════════════════'}
               </div>
+              <div style={{ color: C.t3 }}>{'# GESTÃO DE RISCO — Supabase rafi_config_risco:'}</div>
+              {riscoParams.map(p => (
+                <div key={p.chave} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ color: C.re, minWidth: `${Math.max(...snap.map(s => s.k.length), 22) + 2}ch` }}>
+                    {p.chave.padEnd(Math.max(...snap.map(s => s.k.length), 22), ' ')}
+                  </span>
+                  <span style={{ color: C.t3 }}>{'='}</span>
+                  <span style={{ color: C.am, fontWeight: 700 }}>{p.valor}</span>
+                  <span style={{
+                    fontSize: 7, padding: '1px 5px', borderRadius: 3, letterSpacing: '0.05em',
+                    fontFamily: 'monospace', fontWeight: 700,
+                    background: `${C.bl}18`, border: `1px solid ${C.bl}40`, color: C.bl,
+                  }}>
+                    {p.bloqueado ? '🔒 Bloqueado' : '🔵 Supabase'}
+                  </span>
+                </div>
+              ))}
+              <div style={{ color: C.t3, marginTop: 8 }}>
+                {'# ═══════════════════════════════════════════════════'}
+              </div>
               <div style={{ color: C.t3 }}>{'# Tabela de lote (Supabase · rafi_lote_faixas):'}</div>
               {faixas.map((f, i) => (
                 <div key={i} style={{ display: 'flex', gap: 8 }}>
@@ -882,6 +943,72 @@ export default function ConfigPage() {
               ))
               })()}
             </div>
+
+            {/* ── Gestão de Risco — lê de rafi_config_risco (compartilhado entre perfis) ── */}
+            {riscoParams.length > 0 && (
+              <div style={{ margin: '0 20px 14px', borderRadius: 6, overflow: 'hidden', border: `1px solid ${C.re}30` }}>
+                <div style={{ padding: '7px 12px', background: `${C.re}12`, borderBottom: `1px solid ${C.re}20`,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.re }}>
+                    Gestão de Risco
+                  </span>
+                  <span style={{ fontSize: 7, color: C.t2 }}>Supabase · rafi_config_risco · 🔒 senha para editar</span>
+                </div>
+                <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {riscoParams.map(p => {
+                    const valorAtual  = riscoEditando[p.chave] ?? p.valor
+                    const temEdit     = p.chave in riscoEditando
+                    const saving      = riscoSaving[p.chave]
+                    const saved       = riscoSaved[p.chave]
+                    const editavel    = !p.bloqueado && !locked
+                    return (
+                      <div key={p.chave} style={{ display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '4px 6px', borderRadius: 4,
+                        background: temEdit ? `${C.re}08` : 'transparent',
+                        border: `1px solid ${temEdit ? C.re + '30' : 'transparent'}` }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <span style={{ fontSize: 9, color: C.tx, fontFamily: 'monospace', fontWeight: 600 }}>{p.chave}</span>
+                            {p.bloqueado && <span style={{ fontSize: 6, color: C.t3, background: `${C.t3}20`,
+                              padding: '1px 4px', borderRadius: 3, letterSpacing: '0.06em' }}>🔒 BLOQUEADO</span>}
+                          </div>
+                          <div style={{ fontSize: 7, color: C.t2, marginTop: 1 }}>{p.descricao}</div>
+                        </div>
+                        <input
+                          type={p.bloqueado ? 'text' : 'text'}
+                          value={valorAtual}
+                          disabled={!editavel}
+                          onChange={e => {
+                            if (!editavel) return
+                            setRiscoEditando(prev => ({ ...prev, [p.chave]: e.target.value }))
+                          }}
+                          style={{ width: 72, padding: '3px 6px', textAlign: 'right',
+                            background: p.bloqueado ? C.s2 : temEdit ? `${C.re}12` : C.s2,
+                            border: `1px solid ${p.bloqueado ? C.t3 : temEdit ? C.re + '50' : C.bd}`,
+                            color: p.bloqueado ? C.t3 : temEdit ? C.re : C.re,
+                            opacity: p.bloqueado ? 0.45 : 1,
+                            fontSize: 11, fontWeight: 700, fontFamily: 'monospace',
+                            borderRadius: 4, outline: 'none', flexShrink: 0 }}
+                        />
+                        {temEdit && !p.bloqueado && (
+                          <button onClick={() => salvarRiscoParam(p.chave)} disabled={saving}
+                            style={{ padding: '2px 8px', fontSize: 8, fontWeight: 700,
+                              background: saved ? `${C.gr}20` : `${C.re}20`,
+                              border: `1px solid ${saved ? C.gr : C.re}60`,
+                              color: saved ? C.gr : C.re,
+                              borderRadius: 3, cursor: saving ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}>
+                            {saving ? '...' : saved ? '✓' : 'Salvar'}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+                <div style={{ padding: '5px 12px', fontSize: 7, color: C.t2, borderTop: `1px solid ${C.bd}` }}>
+                  Fonte: Supabase · rafi_config_risco · compartilhado entre perfis · sem fallback (bot para se Supabase cair)
+                </div>
+              </div>
+            )}
 
             {/* Tabela de crescimento de lote — editável, salvo no Supabase */}
             <div style={{ margin: '0 20px 14px', borderRadius: 6, overflow: 'hidden', border: `1px solid ${C.bd}` }}>

@@ -785,6 +785,52 @@ def carregar_faixas_lote() -> list[tuple[float, float, float]]:
         return []
 
 
+def carregar_config_risco() -> dict:
+    """
+    Carrega os parâmetros de gestão de risco do Supabase (rafi_config_risco).
+
+    Retorna dict {chave: valor_convertido} com os 6 parâmetros de risco.
+    Se o Supabase estiver indisponível, retorna {} e o chamador usará cache
+    ou levantará SupabaseIndisponivel (bot para — sem fallback hardcoded).
+
+    Conversão automática de tipos:
+      - valor numérico com ponto → float
+      - valor numérico inteiro  → int
+      - 'true'/'false'          → bool
+      - demais                  → str
+    """
+    cliente = _get_cliente()
+    if not cliente:
+        return {}
+    try:
+        resp = (
+            cliente.table('rafi_config_risco')
+            .select('chave,valor')
+            .execute()
+        )
+        if not resp.data:
+            return {}
+        config: dict = {}
+        for row in resp.data:
+            chave = row['chave']
+            raw   = row['valor']
+            # Conversão de tipo automática
+            if raw.lower() == 'true':
+                config[chave] = True
+            elif raw.lower() == 'false':
+                config[chave] = False
+            else:
+                try:
+                    config[chave] = int(raw) if '.' not in raw else float(raw)
+                except ValueError:
+                    config[chave] = raw
+        logger.info(f"[Supabase] {len(config)} parâmetros de risco carregados: {list(config.keys())}")
+        return config
+    except Exception as e:
+        logger.warning(f"[Supabase] rafi_config_risco indisponível ({e})")
+        return {}
+
+
 def salvar_config_supabase(
     params: dict,
     perfil: str  = 'live',
