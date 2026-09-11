@@ -756,7 +756,20 @@ class RafiBot:
         # Arquivo separado permite checar uptime sem abrir o log principal completo.
         _agora_utc = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
         _n_pos     = len(self._posicoes)
-        logger.info(f"─── Ciclo M5 | {_agora_utc} UTC | saldo=${self.capital:.2f} | pos={_n_pos} ───")
+        # Verifica se o MT5 está com AutoTrading habilitado (evita surpresa de retcode=10017)
+        try:
+            import MetaTrader5 as _mt5_chk
+            _tinfo = _mt5_chk.terminal_info()
+            _ainfo = _mt5_chk.account_info()
+            _trade_ok = (
+                _tinfo is not None and getattr(_tinfo, 'trade_allowed', False) and
+                _ainfo is not None and getattr(_ainfo, 'trade_allowed', False)
+            )
+            _trade_status = "PRONTO" if _trade_ok else "BLOQUEADO (AutoTrading OFF ou conta sem permissao)"
+        except Exception:
+            _trade_status = "sem conexao MT5"
+            _trade_ok     = False
+        logger.info(f"─── Ciclo M5 | {_agora_utc} UTC | saldo=${self.capital:.2f} | pos={_n_pos} | MT5={_trade_status} ───")
         try:
             import os as _os
             _os.makedirs('logs', exist_ok=True)
