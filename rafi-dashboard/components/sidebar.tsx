@@ -13,7 +13,7 @@ interface NavItem { label: string; href: string; icon: React.ElementType; badge?
 const adminNav: NavItem[] = [
   { label: 'Dashboard',    href: '/admin',           icon: LayoutDashboard              },
   { label: 'Monitor Bot',  href: '/admin/monitor',   icon: Activity, badge: 'LIVE'      },
-  { label: 'Gráfico RAFI', href: '/admin/chart',     icon: BarChart2                    },
+  { label: 'Mesa de Operação', href: '/admin/chart',  icon: BarChart2                    },
   { label: 'IA / Fase 2',  href: '/admin/fase2',     icon: Brain, badge: 'BETA'         },
   { label: 'Backtest',     href: '/admin/backtest',  icon: BarChart2                    },
   { label: 'Exportar ML',  href: '/admin/export',    icon: Download                     },

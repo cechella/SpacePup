@@ -82,6 +82,9 @@ export default function ChartPage() {
   const [activeCsvId,  setActiveCsvId]  = useState<string | null>(null)
   const [sbLoading,     setSbLoading]     = useState(false)
   const [sbCandleCount, setSbCandleCount] = useState<number | null>(null)
+  const [metaLoading,   setMetaLoading]   = useState(false)
+  const [metaConnected, setMetaConnected] = useState(false)
+  const [metaError,     setMetaError]     = useState<string | null>(null)
   const fileInputRef        = useRef<HTMLInputElement>(null)
   const historyPanelRef     = useRef<HTMLDivElement>(null)
   const snapshotCaptureRef  = useRef<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>(null)
@@ -214,6 +217,35 @@ export default function ChartPage() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(trades)) } catch {}
   }, [trades])
 
+  // Carrega candles ao vivo via MetaAPI — substitui dados locais
+  const loadCandlesFromMetaAPI = useCallback(async () => {
+    setMetaLoading(true)
+    setMetaError(null)
+    try {
+      const res = await fetch(`/api/metaapi/candles?symbol=EURUSD&tf=${tf}&limit=500`)
+      if (!res.ok) throw new Error(`MetaAPI: ${res.status}`)
+      const rows: CandleData[] = await res.json()
+      if (rows.length === 0) throw new Error('Nenhum candle retornado')
+      rows.sort((a, b) => a.time - b.time)
+      const result: LoadResult = {
+        candles:   rows,
+        filename:  'MetaAPI · ao vivo',
+        dateFrom:  fmtDate(rows[0].time),
+        dateTo:    fmtDate(rows[rows.length - 1].time),
+        timeframe: detectTimeframe(rows),
+        count:     rows.length,
+      }
+      setCsvData(result)
+      setCsvError(null)
+      setMetaConnected(true)
+      saveToHistory(result)
+    } catch (err: any) {
+      setMetaError(err?.message ?? 'Erro MetaAPI')
+      setMetaConnected(false)
+    }
+    setMetaLoading(false)
+  }, [tf, saveToHistory])
+
   // Carrega candles do Supabase (tabela rafi_candles) — substitui CSV local
   const loadCandlesFromSupabase = useCallback(async () => {
     setSbLoading(true)
@@ -334,6 +366,26 @@ export default function ChartPage() {
       snapshot:   snapshotCaptureRef.current?.(ocoState.entryTime ?? lastTime, { entry: p(entry), sl: p(sl), tp: p(tp), direction }) ?? undefined,
     })
     setOcoState(prev => prev ? { ...prev, direction, tp: p(tp), sl: p(sl) } : null)
+
+    // Envia para MetaAPI em paralelo — não bloqueia o fluxo local
+    fetch('/api/metaapi/order', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        symbol:     'EURUSD',
+        actionType: direction === 'buy' ? 'ORDER_TYPE_BUY' : 'ORDER_TYPE_SELL',
+        volume:     ocoState.lot,
+        stopLoss:   p(sl),
+        takeProfit: p(tp),
+      }),
+    })
+      .then(async res => {
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          console.warn('[MetaAPI] Ordem rejeitada:', err)
+        }
+      })
+      .catch(err => console.warn('[MetaAPI] Falha ao enviar ordem:', err))
   }, [ocoState, lastTime, rafiData, bbBands, handleAdd])
 
   const handleOCOClose = useCallback(() => setOcoVisible(false), [])
@@ -446,7 +498,7 @@ export default function ChartPage() {
         {/* Header */}
         <div className="flex items-center justify-between shrink-0">
           <div>
-            <h1 className="text-base font-bold text-[#f0f6fc]">Análise RAFI</h1>
+            <h1 className="text-base font-bold text-[#f0f6fc]">Mesa de Operação</h1>
             <p className="text-xs text-[#8b949e] mt-0.5">
               {csvData
                 ? <><span className="text-[#22c55e]">{csvData.timeframe}</span> · {csvData.dateFrom} → {csvData.dateTo} · <span className="text-[#22c55e]">{csvData.count.toLocaleString('pt-BR')} candles</span></>
@@ -546,6 +598,28 @@ export default function ChartPage() {
                         <Database size={10} />
                         {sbLoading ? 'Carregando…' : `Supabase (${sbCandleCount.toLocaleString('pt-BR')})`}
                       </button>
+                    )}
+                    <button
+                      onClick={loadCandlesFromMetaAPI}
+                      disabled={metaLoading}
+                      className={cn(
+                        'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-all disabled:opacity-50',
+                        metaConnected
+                          ? 'border-[#22c55e]/50 bg-[#22c55e]/8 text-[#22c55e]'
+                          : 'border-[#26c6da]/40 bg-[#26c6da]/8 text-[#26c6da] hover:bg-[#26c6da]/15',
+                      )}
+                      title="Carregar candles ao vivo via MetaAPI · Pepperstone"
+                    >
+                      <span className={cn(
+                        'w-1.5 h-1.5 rounded-full inline-block animate-pulse',
+                        metaConnected ? 'bg-[#22c55e]' : 'bg-[#26c6da]',
+                      )} />
+                      {metaLoading ? 'Conectando…' : metaConnected ? 'MetaAPI · LIVE' : 'MetaAPI Ao Vivo'}
+                    </button>
+                    {metaError && (
+                      <span className="text-[#ef4444] text-[9px] max-w-[160px] truncate" title={metaError}>
+                        ⚠ {metaError}
+                      </span>
                     )}
                   </div>
                 )}
