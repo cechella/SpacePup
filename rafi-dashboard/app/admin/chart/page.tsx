@@ -837,28 +837,51 @@ export default function ChartPage() {
       <div className="flex-1 flex flex-col min-w-0 p-2 md:p-4 gap-2 md:gap-3 overflow-hidden pb-16 md:pb-0">
 
         {/* Header mobile — apenas em telas pequenas */}
-        <div className="flex md:hidden items-center gap-2 shrink-0 pt-1">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="p-2 rounded-lg border border-[#30363d] text-[#484f58] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-all"
-          >
-            <Menu size={17} />
-          </button>
-          <span className="font-bold text-[13px] text-[#f0f6fc] flex-1 truncate">Mesa de Operação</span>
-          {metaConnected ? (
-            <span className="flex items-center gap-1 text-[10px] font-bold text-[#22c55e] bg-[#22c55e]/10 border border-[#22c55e]/30 px-2 py-1 rounded-full">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse inline-block" />
-              AO VIVO
-            </span>
-          ) : (
+        <div className="flex md:hidden flex-col gap-1.5 shrink-0 pt-1">
+          {/* Linha 1: hamburger + título + badge */}
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => { try { localStorage.setItem(META_AUTO_KEY, 'true') } catch {}; loadCandlesFromMetaAPI() }}
-              disabled={metaLoading}
-              className="text-[10px] font-bold text-[#26c6da] border border-[#26c6da]/40 px-2 py-1 rounded-full hover:bg-[#26c6da]/10 transition-all disabled:opacity-50"
+              onClick={() => setSidebarOpen(true)}
+              className="p-2 rounded-lg border border-[#30363d] text-[#484f58] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-all"
             >
-              {metaLoading ? 'Conectando…' : 'MetaAPI'}
+              <Menu size={17} />
             </button>
-          )}
+            <span className="font-bold text-[13px] text-[#f0f6fc] flex-1 truncate">Mesa de Operação</span>
+            {metaConnected ? (
+              <span className="flex items-center gap-1 text-[10px] font-bold text-[#22c55e] bg-[#22c55e]/10 border border-[#22c55e]/30 px-2 py-1 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse inline-block" />
+                AO VIVO
+              </span>
+            ) : (
+              <button
+                onClick={() => { try { localStorage.setItem(META_AUTO_KEY, 'true') } catch {}; loadCandlesFromMetaAPI() }}
+                disabled={metaLoading}
+                className="text-[10px] font-bold text-[#26c6da] border border-[#26c6da]/40 px-2 py-1 rounded-full hover:bg-[#26c6da]/10 transition-all disabled:opacity-50"
+              >
+                {metaLoading ? 'Conectando…' : 'MetaAPI'}
+              </button>
+            )}
+          </div>
+          {/* Linha 2: botões M5 / M15 / H1 */}
+          <div className="flex gap-2">
+            {TIMEFRAMES.map(t => (
+              <button
+                key={t}
+                onClick={() => {
+                  setTf(t); setTrades([])
+                  if (metaConnected) { setCsvData(null); setMetaConnected(false) }
+                }}
+                className={cn(
+                  'flex-1 py-1.5 rounded-lg text-[11px] font-bold border transition-all',
+                  t === tf
+                    ? 'bg-[#3b82f6] border-[#3b82f6] text-white'
+                    : 'border-[#30363d] text-[#484f58] hover:text-[#8b949e]',
+                )}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Header desktop — oculto em mobile */}
