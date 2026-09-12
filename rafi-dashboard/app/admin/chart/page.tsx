@@ -55,6 +55,7 @@ function makeOCO(price: number, lot: number, time?: number): OCOState {
 
 const STORAGE_KEY     = 'rafi-trade-log'
 const CSV_HISTORY_KEY = 'rafi-csv-history'
+const META_AUTO_KEY   = 'rafi-meta-auto'
 const MAX_CSV_HISTORY = 5
 
 interface CsvHistoryEntry {
@@ -434,6 +435,16 @@ export default function ChartPage() {
         if (Array.isArray(parsed)) setCsvHistory(parsed)
       }
     } catch {}
+  }, [])
+
+  // Auto-connect: se o utilizador deixou MetaAPI habilitado, reconecta ao carregar a página
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(META_AUTO_KEY) === 'true') {
+        loadCandlesFromMetaAPI()
+      }
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Histórico: carrega ao conectar ou ao mudar período; limpa ao desconectar
@@ -827,19 +838,30 @@ export default function ChartPage() {
                       </button>
                     )}
                     <button
-                      onClick={loadCandlesFromMetaAPI}
+                      onClick={() => {
+                        if (metaConnected) {
+                          // Desabilitar: salva preferência e limpa estado
+                          try { localStorage.setItem(META_AUTO_KEY, 'false') } catch {}
+                          setMetaConnected(false)
+                          setCsvData(null)
+                        } else {
+                          // Habilitar: salva preferência e conecta
+                          try { localStorage.setItem(META_AUTO_KEY, 'true') } catch {}
+                          loadCandlesFromMetaAPI()
+                        }
+                      }}
                       disabled={metaLoading}
                       className={cn(
                         'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-all disabled:opacity-50',
                         metaConnected
-                          ? 'border-[#22c55e]/50 bg-[#22c55e]/8 text-[#22c55e]'
+                          ? 'border-[#22c55e]/50 bg-[#22c55e]/8 text-[#22c55e] hover:bg-[#ef4444]/10 hover:border-[#ef4444]/40 hover:text-[#ef4444]'
                           : 'border-[#26c6da]/40 bg-[#26c6da]/8 text-[#26c6da] hover:bg-[#26c6da]/15',
                       )}
-                      title="Carregar candles ao vivo via MetaAPI · Pepperstone"
+                      title={metaConnected ? 'Clique para desabilitar MetaAPI' : 'Carregar candles ao vivo via MetaAPI · Pepperstone'}
                     >
                       <span className={cn(
-                        'w-1.5 h-1.5 rounded-full inline-block animate-pulse',
-                        metaConnected ? 'bg-[#22c55e]' : 'bg-[#26c6da]',
+                        'w-1.5 h-1.5 rounded-full inline-block',
+                        metaConnected ? 'bg-[#22c55e] animate-pulse' : 'bg-[#26c6da]',
                       )} />
                       {metaLoading ? 'Conectando…' : metaConnected ? 'MetaAPI · LIVE' : 'MetaAPI Ao Vivo'}
                     </button>
