@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   const maxLookback = Math.min(tf.minutes * limit * 60 * 1000 * 2, 6 * 60 * 60 * 1000)
   const startTime = new Date(Date.now() - maxLookback).toISOString()
 
-  const url = `${BASE}/users/current/accounts/${ACCOUNT}/historical-market-data/symbols/${symbol}/timeframes/${tf.api}/candles?limit=${limit}&startTime=${encodeURIComponent(startTime)}`
+  const url = `${BASE}/users/current/accounts/${ACCOUNT}/historical-market-data/${symbol}/timeframes/${tf.api}/candles?limit=${limit}&startTime=${encodeURIComponent(startTime)}`
 
   try {
     const res = await fetch(url, {
