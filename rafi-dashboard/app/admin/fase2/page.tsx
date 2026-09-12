@@ -3,9 +3,10 @@
 import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
 import {
-  Brain, Zap, BarChart2, Download, Lock, ChevronRight,
+  Brain, Zap, BarChart2, Download, ChevronRight,
   TrendingUp, TrendingDown, Activity, Target, Clock,
-  CheckCircle2, Circle, AlertTriangle, Sparkles,
+  CheckCircle2, Circle, AlertTriangle, Sparkles, RefreshCw,
+  CheckCircle, XCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { fetchTrades } from '@/lib/trades-db'
@@ -206,6 +207,23 @@ function FeatImportance({ label, pct, color }: { label: string; pct: number; col
 export default function Fase2Page() {
   const [trades, setTrades] = useState<ManualTrade[]>([])
   const [mounted, setMounted] = useState(false)
+  const [trainStatus, setTrainStatus] = useState<'idle' | 'loading' | 'ok' | 'err'>('idle')
+  const [trainMsg, setTrainMsg] = useState('')
+
+  async function handleTreinar() {
+    setTrainStatus('loading')
+    setTrainMsg('')
+    try {
+      const res = await fetch('/api/ml/train', { method: 'POST' })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error ?? 'Erro desconhecido')
+      setTrainStatus('ok')
+      setTrainMsg('Comando enviado ao bot — retreino iniciado em background')
+    } catch (e: any) {
+      setTrainStatus('err')
+      setTrainMsg(e.message ?? 'Falha ao enviar comando')
+    }
+  }
 
   useEffect(() => {
     setMounted(true)
@@ -360,8 +378,8 @@ export default function Fase2Page() {
               desc="BB estreita abrindo + rompimento S/R + candle direcional"
               done active={false} />
             <PipelineStep n={2} label="XGBoost calcula P(WIN)"
-              desc="7 features → probabilidade de ganho. Opera só se P ≥ 65%"
-              active={ready} />
+              desc="12 features → probabilidade de ganho. Opera só se P ≥ 65%"
+              active={true} />
             <PipelineStep n={3} label="Executa trade filtrado"
               desc="Entry / SL / TP idênticos à Fase 1 — só muda o filtro de entrada"
               active={false} />
@@ -387,40 +405,46 @@ export default function Fase2Page() {
       </div>
 
       {/* ── Modo IA — toggle (locked) ────────────────────────────────────────── */}
-      <div className={cn(
-        'bg-[#161b22] border rounded-xl p-5 flex items-center justify-between gap-4',
-        ready ? 'border-[#3b82f6]/30' : 'border-[#30363d] opacity-60',
-      )}>
+      <div className="bg-[#161b22] border border-[#3b82f6]/30 rounded-xl p-5 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className={cn(
-            'w-10 h-10 rounded-xl flex items-center justify-center',
-            ready ? 'bg-[#3b82f6]/20' : 'bg-[#21262d]',
-          )}>
-            <Sparkles size={18} className={ready ? 'text-[#3b82f6]' : 'text-[#484f58]'} />
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#3b82f6]/20">
+            <Sparkles size={18} className="text-[#3b82f6]" />
           </div>
           <div>
             <div className="text-sm font-semibold text-[#f0f6fc] flex items-center gap-2">
               Modo IA — Filtro XGBoost
-              {!ready && <Lock size={11} className="text-[#484f58]" />}
             </div>
             <div className="text-[10px] text-[#484f58] mt-0.5">
-              {ready
-                ? 'Treine o modelo e ative o filtro — apenas sinais com P(WIN) ≥ 65% serão operados'
-                : labeled.length >= 30
-                ? `Com ${labeled.length} trades já tem padrões! XGBoost completo após 300 trades.`
+              {labeled.length >= 30
+                ? `${labeled.length} trades rotulados — treine o XGBoost para filtrar sinais com P(WIN) ≥ 65%`
                 : 'A IA já aprende desde o 1º trade — precisão aumenta com cada resultado rotulado'}
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-3 shrink-0">
-          {ready ? (
-            <button className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#3b82f6] text-white text-xs font-bold hover:bg-[#2563eb] transition-all">
-              <Brain size={12} /> Treinar XGBoost
-            </button>
-          ) : (
-            <div className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#21262d] border border-[#30363d] text-[#484f58] text-xs font-bold cursor-not-allowed">
-              <Lock size={12} /> Bloqueado
-            </div>
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <button
+            onClick={handleTreinar}
+            disabled={trainStatus === 'loading'}
+            className={cn(
+              'flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all',
+              trainStatus === 'loading'
+                ? 'bg-[#21262d] border border-[#30363d] text-[#484f58] cursor-not-allowed'
+                : 'bg-[#3b82f6] text-white hover:bg-[#2563eb]',
+            )}
+          >
+            {trainStatus === 'loading'
+              ? <><RefreshCw size={12} className="animate-spin" /> Enviando…</>
+              : trainStatus === 'ok'
+                ? <><CheckCircle size={12} /> Comando enviado</>
+                : trainStatus === 'err'
+                  ? <><XCircle size={12} /> Erro — tentar novamente</>
+                  : <><Brain size={12} /> Treinar XGBoost</>}
+          </button>
+          {trainMsg && (
+            <span className={cn(
+              'text-[9px] font-mono max-w-[240px] text-right',
+              trainStatus === 'ok' ? 'text-[#10b981]' : 'text-[#ef4444]',
+            )}>{trainMsg}</span>
           )}
         </div>
       </div>
@@ -436,16 +460,18 @@ export default function Fase2Page() {
             </span>
           </div>
           <div className="space-y-2.5">
-            <FeatImportance label="RAFI value"  pct={28} color="#10b981" />
-            <FeatImportance label="BB Width"    pct={22} color="#3b82f6" />
-            <FeatImportance label="Sessão"      pct={18} color="#f59e0b" />
-            <FeatImportance label="Hora UTC"    pct={14} color="#f59e0b" />
-            <FeatImportance label="RAFI ≥ 2.5"  pct={10} color="#10b981" />
-            <FeatImportance label="Dia semana"  pct={5}  color="#8b949e" />
-            <FeatImportance label="Direção"     pct={3}  color="#8b949e" />
+            <FeatImportance label="forca_rompimento"  pct={26} color="#10b981" />
+            <FeatImportance label="squeeze_ratio"     pct={18} color="#3b82f6" />
+            <FeatImportance label="expansao_bb"       pct={14} color="#3b82f6" />
+            <FeatImportance label="hora_utc"          pct={12} color="#f59e0b" />
+            <FeatImportance label="atr14"             pct={10} color="#10b981" />
+            <FeatImportance label="dist_topo_pips"    pct={8}  color="#f59e0b" />
+            <FeatImportance label="sessao"            pct={6}  color="#f59e0b" />
+            <FeatImportance label="wr_rolling20"      pct={4}  color="#8b949e" />
+            <FeatImportance label="direcao / outros"  pct={2}  color="#8b949e" />
           </div>
           <div className="mt-3 pt-3 border-t border-[#30363d] text-[9px] text-[#484f58]">
-            * Estimativa baseada na estratégia RAFI. Valores reais após treino com seus dados.
+            * Estimativa teórica (12 features reais). Importâncias exatas após treino XGBoost com dados reais.
           </div>
         </div>
 

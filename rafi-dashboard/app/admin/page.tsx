@@ -6,10 +6,12 @@ import {
   TrendingUp, TrendingDown, BarChart2, Activity,
   Target, AlertTriangle, ChevronRight, Download,
   Zap, Clock, Award, X as XIcon, Layers, Upload,
+  Lock, Radio, Shield,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { SCALE_TIERS, getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
+import { SCALE_TIERS, SCALE_TIER_LABELS, getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
 import { fetchTrades, upsertTrades, updateTradeResult } from '@/lib/trades-db'
+import { getSessionConfig, SESSION_DEFAULTS, type SessionConfig } from '@/lib/session-config'
 
 // ── Modal de preview do screenshot ───────────────────────────────────────────
 function SnapshotModal({ src, onClose }: { src: string; onClose: () => void }) {
@@ -90,7 +92,7 @@ interface ManualTrade {
   time: number; lot: number; leverage: number
   result?: 'win' | 'loss' | 'pending'
   rafi?: number; rafiDir?: 'bull' | 'bear'; bbWidth?: number
-  snapshot?: string
+  snapshot?: string; pnlUsd?: number; capitalInicial?: number
 }
 
 const STORAGE_KEY = 'rafi-trade-log'
@@ -336,10 +338,6 @@ function TradeRow({ t, onLabel, onSnapClick }: { t: ManualTrade; onLabel?: (id: 
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Labels para exibição na tabela do dashboard
-const SCALE_TIER_LABELS = [
-  '$100','$150','$200','$300','$600','$1.2k','$2.5k','$5k','$10k','$25k','$50k','$100k','$200k',
-]
-
 const getLot = getLotForCapital
 
 function fmtK(v: number): string {
@@ -478,9 +476,9 @@ function LotScalingWidget({ trades }: { trades: ManualTrade[] }) {
         </div>
         <div className="bg-[#0d1117] rounded-lg p-3 text-center">
           <div className="text-[9px] uppercase tracking-wider text-[#484f58] mb-1">Lote atual ($100)</div>
-          <div className="text-xl font-black font-mono text-[#f59e0b]">0.20L</div>
+          <div className="text-xl font-black font-mono text-[#f59e0b]">{getLotForCapital(100).toFixed(2)}L</div>
           <div className="text-[8px] text-[#484f58] mt-0.5">
-            +${(avgRewardP * 0.20 * 10).toFixed(0)}/WIN · -${(avgRiskP * 0.20 * 10).toFixed(0)}/LOSS
+            +${(avgRewardP * getLotForCapital(100) * 10).toFixed(0)}/WIN · -${(avgRiskP * getLotForCapital(100) * 10).toFixed(0)}/LOSS
           </div>
         </div>
       </div>
@@ -562,17 +560,434 @@ function LotScalingWidget({ trades }: { trades: ManualTrade[] }) {
   )
 }
 
+// ── Helpers de P&L por trade ──────────────────────────────────────────────────
+function calcTradePnl(t: ManualTrade): number {
+  if (t.result === 'win') {
+    if (t.pnlUsd != null) return t.pnlUsd
+    return rewardPips(t.entry, t.takeProfit, t.direction) * pipValueUSD(t.lot)
+  }
+  if (t.result === 'loss') {
+    if (t.pnlUsd != null) return t.pnlUsd   // já é negativo
+    return -(riskPips(t.entry, t.stopLoss, t.direction) * pipValueUSD(t.lot))
+  }
+  return 0
+}
+
+// ── Lógica de gate/bloqueio de sessão ────────────────────────────────────────
+function computeSessionGate(trades: ManualTrade[], cfg: SessionConfig) {
+  const now = new Date()
+  const dayOfWeek = now.getUTCDay()
+  const utcMin    = now.getUTCHours() * 60 + now.getUTCMinutes()
+
+  const [sh, sm] = cfg.sessionStartUTC.split(':').map(Number)
+  const [eh, em] = cfg.sessionEndUTC.split(':').map(Number)
+  const sessionStartMin = sh * 60 + sm
+  const sessionEndMin   = eh * 60 + em
+
+  const isDayAllowed  = cfg.tradingDays.includes(dayOfWeek)
+  const isTimeAllowed = utcMin >= sessionStartMin && utcMin < sessionEndMin
+
+  // Perdas consecutivas a partir do final da lista (mais recentes)
+  let consecutiveLosses = 0
+  for (let i = trades.length - 1; i >= 0; i--) {
+    const r = trades[i].result
+    if (r === 'loss') { consecutiveLosses++; continue }
+    if (r === 'win')  break
+    // pending → ignora na contagem
+  }
+  const lossGate = consecutiveLosses >= cfg.maxConsecutiveLosses
+
+  // P&L hoje (UTC midnight)
+  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const todayTs    = todayStart.getTime() / 1000
+  const todayPnl   = trades.filter(t => t.time >= todayTs).reduce((a, t) => a + calcTradePnl(t), 0)
+  const dailyGoalMet = todayPnl >= cfg.dailyGoal
+
+  // P&L semana (segunda-feira UTC)
+  const weekStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  weekStart.setUTCDate(weekStart.getUTCDate() - ((weekStart.getUTCDay() + 6) % 7))
+  const weekTs   = weekStart.getTime() / 1000
+  const weekPnl  = trades.filter(t => t.time >= weekTs).reduce((a, t) => a + calcTradePnl(t), 0)
+  const weekDrawdownPct  = weekPnl < 0 ? Math.abs(weekPnl) / cfg.capitalInicial * 100 : 0
+  const drawdownGate     = weekDrawdownPct >= cfg.maxWeeklyDrawdownPct
+
+  // P&L mês
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+  const monthTs    = monthStart.getTime() / 1000
+  const monthPnl   = trades.filter(t => t.time >= monthTs).reduce((a, t) => a + calcTradePnl(t), 0)
+
+  const isLocked = !isDayAllowed || !isTimeAllowed || lossGate || dailyGoalMet || drawdownGate
+
+  let lockReason = ''
+  if (!isDayAllowed)      lockReason = 'Dia não operacional'
+  else if (!isTimeAllowed) lockReason = 'Fora da janela Londres/NY'
+  else if (lossGate)       lockReason = `${consecutiveLosses} perdas seguidas`
+  else if (drawdownGate)   lockReason = `Drawdown semanal ${weekDrawdownPct.toFixed(0)}%`
+  else if (dailyGoalMet)   lockReason = 'Meta diária atingida ✓'
+
+  return {
+    isLocked, lockReason,
+    isDayAllowed, isTimeAllowed,
+    consecutiveLosses, lossGate,
+    dailyGoalMet, drawdownGate,
+    todayPnl, weekPnl, monthPnl, weekDrawdownPct,
+  }
+}
+type SessionGate = ReturnType<typeof computeSessionGate>
+
+// ── Jornada de Capital — arco logarítmico ─────────────────────────────────────
+function CapitalJourney({ capitalAtual, cfg }: { capitalAtual: number; cfg: SessionConfig }) {
+  const CX = 200, CY = 190, R = 150
+  const arcLen = Math.PI * R   // 471.24
+
+  const logMin = Math.log10(Math.max(cfg.capitalInicial, 1))
+  const logMax = Math.log10(cfg.capitalTarget)
+  const clamp  = Math.max(cfg.capitalInicial, Math.min(capitalAtual, cfg.capitalTarget))
+  const progress = (Math.log10(clamp) - logMin) / (logMax - logMin)
+
+  const filled  = progress * arcLen
+  const dashArr = `${filled.toFixed(2)} ${(arcLen - filled + 2).toFixed(2)}`
+
+  // Posição no arco: 0% = esquerda, 100% = direita, passando pelo topo
+  const posOnArc = (pct: number) => {
+    const rad = ((1 - pct) * Math.PI)   // 180° → 0° conforme pct: 0→1
+    return { x: CX + R * Math.cos(rad), y: CY - R * Math.sin(rad) }
+  }
+
+  const milestones = [
+    { cap: 1_000,   label: '$1k' },
+    { cap: 10_000,  label: '$10k' },
+    { cap: 100_000, label: '$100k' },
+  ].map(m => ({
+    ...m,
+    pct: (Math.log10(m.cap) - logMin) / (logMax - logMin),
+  }))
+
+  const curPos = posOnArc(progress)
+
+  const fmtMoney = (v: number) => {
+    if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`
+    if (v >= 1_000)     return `$${(v / 1_000).toFixed(1)}k`
+    return `$${v.toFixed(2)}`
+  }
+
+  const color = progress < 0.25 ? '#f59e0b' : progress < 0.75 ? '#3b82f6' : '#10b981'
+
+  return (
+    <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-5">
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2">
+          <Target size={14} className="text-[#f59e0b]" />
+          <span className="text-sm font-semibold text-[#f0f6fc]">Jornada de Capital</span>
+        </div>
+        <span className="text-[10px] text-[#484f58]">escala logarítmica · $100 → $1M</span>
+      </div>
+
+      <svg viewBox="0 0 400 220" className="w-full" style={{ maxHeight: 200 }}>
+        {/* Arco de fundo */}
+        <path d="M 50,190 A 150,150 0 0 0 350,190"
+          fill="none" stroke="#21262d" strokeWidth="14" strokeLinecap="round" />
+        {/* Arco preenchido — progresso */}
+        <path d="M 50,190 A 150,150 0 0 0 350,190"
+          fill="none" stroke={color} strokeWidth="14" strokeLinecap="round"
+          strokeDasharray={dashArr} strokeDashoffset="0"
+          style={{ transition: 'stroke-dasharray 1s ease' }} />
+
+        {/* Marcos logarítmicos */}
+        {milestones.map(m => {
+          const pos = posOnArc(m.pct)
+          const reached = progress >= m.pct
+          return (
+            <g key={m.label}>
+              <circle cx={pos.x} cy={pos.y} r="6"
+                fill={reached ? '#10b981' : '#21262d'}
+                stroke={reached ? '#10b981' : '#30363d'} strokeWidth="2" />
+              <text x={pos.x} y={pos.y - 12} textAnchor="middle"
+                fill={reached ? '#10b981' : '#484f58'} fontSize="10" fontFamily="monospace">
+                {m.label}
+              </text>
+            </g>
+          )
+        })}
+
+        {/* Posição atual */}
+        {capitalAtual > cfg.capitalInicial && (
+          <circle cx={curPos.x} cy={curPos.y} r="9"
+            fill={color} stroke="#0d1117" strokeWidth="3" />
+        )}
+
+        {/* Extremos */}
+        <text x="50" y="210" textAnchor="middle" fill="#484f58" fontSize="10" fontFamily="monospace">
+          ${cfg.capitalInicial}
+        </text>
+        <text x="350" y="210" textAnchor="middle" fill="#484f58" fontSize="10" fontFamily="monospace">
+          {fmtMoney(cfg.capitalTarget)}
+        </text>
+
+        {/* Capital atual */}
+        <text x="200" y="145" textAnchor="middle" fontSize="28" fontFamily="monospace"
+          fontWeight="900" fill={color}>
+          {fmtMoney(capitalAtual)}
+        </text>
+        <text x="200" y="168" textAnchor="middle" fontSize="11" fontFamily="monospace" fill="#8b949e">
+          {(progress * 100).toFixed(1)}% da jornada
+        </text>
+      </svg>
+    </div>
+  )
+}
+
+// ── Cockpit de Sessão — 3 cartões de status ───────────────────────────────────
+function SessionCockpit({ gate, cfg }: { gate: SessionGate; cfg: SessionConfig }) {
+  const dailyPct = gate.todayPnl <= 0 ? 0 : Math.min((gate.todayPnl / cfg.dailyGoal) * 100, 100)
+  const nowUtc   = new Date()
+  const timeStr  = `${String(nowUtc.getUTCHours()).padStart(2,'0')}:${String(nowUtc.getUTCMinutes()).padStart(2,'0')} UTC`
+
+  return (
+    <div className="grid grid-cols-3 gap-3">
+      {/* Status da sessão */}
+      <div className={cn(
+        'bg-[#161b22] border rounded-xl p-4',
+        gate.isLocked ? 'border-[#ef4444]/40' : 'border-[#10b981]/40'
+      )}>
+        <div className="flex items-center gap-1.5 mb-2">
+          {gate.isLocked
+            ? <Lock size={11} className="text-[#ef4444]" />
+            : <Radio size={11} className="text-[#10b981]" />
+          }
+          <span className="text-[9px] uppercase tracking-wider text-[#484f58]">Sessão</span>
+        </div>
+        <div className={cn('text-xl font-black font-mono', gate.isLocked ? 'text-[#ef4444]' : 'text-[#10b981]')}>
+          {gate.isLocked ? 'BLOQ' : 'OPEN'}
+        </div>
+        <div className={cn('text-[9px] mt-1', gate.isLocked ? 'text-[#ef4444]/80' : 'text-[#10b981]/70')}>
+          {gate.isLocked ? gate.lockReason : timeStr}
+        </div>
+        {!gate.isLocked && (
+          <div className="text-[8px] text-[#484f58] mt-0.5">
+            {cfg.sessionStartUTC}–{cfg.sessionEndUTC} UTC
+          </div>
+        )}
+      </div>
+
+      {/* Meta diária */}
+      <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
+        <div className="flex items-center gap-1.5 mb-2">
+          <Target size={11} className="text-[#3b82f6]" />
+          <span className="text-[9px] uppercase tracking-wider text-[#484f58]">Meta Diária</span>
+        </div>
+        <div className={cn('text-xl font-black font-mono', gate.dailyGoalMet ? 'text-[#10b981]' : 'text-[#f0f6fc]')}>
+          {gate.todayPnl >= 0 ? '+' : ''}${gate.todayPnl.toFixed(2)}
+        </div>
+        <div className="mt-2 h-1.5 bg-[#21262d] rounded-full overflow-hidden">
+          <div className="h-full rounded-full transition-all duration-700" style={{
+            width: `${dailyPct}%`,
+            background: gate.dailyGoalMet ? '#10b981' : '#3b82f6',
+          }} />
+        </div>
+        <div className="text-[9px] text-[#484f58] mt-1">
+          meta ${cfg.dailyGoal.toFixed(2)}{gate.dailyGoalMet ? ' ✓' : ''}
+        </div>
+      </div>
+
+      {/* Perdas consecutivas */}
+      <div className={cn(
+        'bg-[#161b22] border rounded-xl p-4',
+        gate.lossGate ? 'border-[#ef4444]/40' : 'border-[#30363d]'
+      )}>
+        <div className="flex items-center gap-1.5 mb-2">
+          <AlertTriangle size={11} className={gate.lossGate ? 'text-[#ef4444]' : gate.consecutiveLosses > 0 ? 'text-[#f59e0b]' : 'text-[#484f58]'} />
+          <span className="text-[9px] uppercase tracking-wider text-[#484f58]">Perdas Seq.</span>
+        </div>
+        <div className={cn('text-xl font-black font-mono',
+          gate.lossGate ? 'text-[#ef4444]'
+          : gate.consecutiveLosses > 0 ? 'text-[#f59e0b]'
+          : 'text-[#10b981]')}>
+          {gate.consecutiveLosses}/{cfg.maxConsecutiveLosses}
+        </div>
+        <div className="flex gap-1 mt-2">
+          {Array.from({ length: cfg.maxConsecutiveLosses }).map((_, i) => (
+            <div key={i} className={cn('flex-1 h-1.5 rounded-full',
+              i < gate.consecutiveLosses ? 'bg-[#ef4444]' : 'bg-[#21262d]')} />
+          ))}
+        </div>
+        <div className="text-[9px] mt-1" style={{ color: gate.lossGate ? '#ef4444' : '#484f58' }}>
+          {gate.lossGate ? 'Pare agora' : `${cfg.maxConsecutiveLosses - gate.consecutiveLosses} restante(s)`}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Painel de Risco — drawdown gauge + agenda ─────────────────────────────────
+function RiskPanel({ gate, cfg }: { gate: SessionGate; cfg: SessionConfig }) {
+  const gaugeProgress = Math.min(gate.weekDrawdownPct / cfg.maxWeeklyDrawdownPct, 1)
+  const R = 44, CX = 60, CY = 68
+  const arcLen = Math.PI * R
+  const filledLen = gaugeProgress * arcLen
+  const gaugeColor = gate.drawdownGate ? '#ef4444' : gaugeProgress > 0.6 ? '#f59e0b' : '#10b981'
+
+  const nowDay = new Date().getUTCDay()
+  const nowMin = new Date().getUTCHours() * 60 + new Date().getUTCMinutes()
+  const [sh, sm] = cfg.sessionStartUTC.split(':').map(Number)
+  const [eh, em] = cfg.sessionEndUTC.split(':').map(Number)
+  const sessStartMin = sh * 60 + sm, sessEndMin = eh * 60 + em
+
+  const DAY_LABELS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S']
+
+  return (
+    <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Shield size={14} className="text-[#3b82f6]" />
+        <span className="text-sm font-semibold text-[#f0f6fc]">Gestão de Risco</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-5 items-start">
+        {/* Gauge de drawdown semanal */}
+        <div className="flex flex-col items-center">
+          <span className="text-[9px] uppercase tracking-wider text-[#484f58] mb-1">Drawdown Semanal</span>
+          <svg viewBox="0 0 120 90" className="w-32">
+            <path d="M 16,76 A 44,44 0 0 1 104,76"
+              fill="none" stroke="#21262d" strokeWidth="12" strokeLinecap="round" />
+            <path d="M 16,76 A 44,44 0 0 1 104,76"
+              fill="none" stroke={gaugeColor} strokeWidth="12" strokeLinecap="round"
+              strokeDasharray={`${filledLen.toFixed(1)} ${(arcLen - filledLen + 2).toFixed(1)}`}
+              style={{ transition: 'stroke-dasharray 0.8s ease' }} />
+            <text x="60" y="66" textAnchor="middle" fill="#f0f6fc" fontSize="18"
+              fontFamily="monospace" fontWeight="900">
+              {gate.weekDrawdownPct.toFixed(0)}%
+            </text>
+            <text x="60" y="80" textAnchor="middle" fill="#484f58" fontSize="9" fontFamily="monospace">
+              /{cfg.maxWeeklyDrawdownPct}% max
+            </text>
+          </svg>
+          {gate.weekPnl < 0 && (
+            <div className="text-[9px] text-[#ef4444] font-mono">
+              -{Math.abs(gate.weekPnl).toFixed(2)} esta semana
+            </div>
+          )}
+        </div>
+
+        {/* Agenda semanal */}
+        <div>
+          <span className="text-[9px] uppercase tracking-wider text-[#484f58] block mb-2">Agenda</span>
+          <div className="grid grid-cols-7 gap-0.5 mb-3">
+            {[0,1,2,3,4,5,6].map(d => {
+              const allowed = cfg.tradingDays.includes(d)
+              const isToday = d === nowDay
+              const isActive = isToday && allowed && nowMin >= sessStartMin && nowMin < sessEndMin
+              return (
+                <div key={d} className={cn(
+                  'aspect-square rounded text-[9px] font-bold flex items-center justify-center',
+                  isActive  ? 'bg-[#10b981] text-[#0d1117]' :
+                  isToday && allowed ? 'bg-[#10b981]/20 text-[#10b981] border border-[#10b981]/40' :
+                  allowed   ? 'bg-[#21262d] text-[#8b949e]' :
+                               'bg-[#0d1117] text-[#30363d]'
+                )}>
+                  {DAY_LABELS[d]}
+                </div>
+              )
+            })}
+          </div>
+          <div className="space-y-1.5 text-[9px] text-[#484f58]">
+            <div className="flex items-center gap-1.5">
+              <Clock size={9} />
+              {cfg.sessionStartUTC}–{cfg.sessionEndUTC} UTC
+            </div>
+            <div className={cn('flex items-center gap-1.5', gate.isTimeAllowed && gate.isDayAllowed ? 'text-[#10b981]' : '')}>
+              <span className={cn('w-1.5 h-1.5 rounded-full shrink-0',
+                gate.isTimeAllowed && gate.isDayAllowed ? 'bg-[#10b981] animate-pulse' : 'bg-[#30363d]')} />
+              {gate.isTimeAllowed && gate.isDayAllowed ? 'Janela ativa agora' : 'Fora da janela'}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Metas em Cascata ──────────────────────────────────────────────────────────
+function GoalsCascade({ gate, cfg, capitalAtual }: { gate: SessionGate; cfg: SessionConfig; capitalAtual: number }) {
+  const logMin = Math.log10(Math.max(cfg.capitalInicial, 1))
+  const logMax = Math.log10(cfg.capitalTarget)
+
+  const goals = [
+    { label: 'Hoje',       value: gate.todayPnl,  target: cfg.dailyGoal,    color: '#3b82f6', pct: gate.todayPnl <= 0 ? 0 : Math.min(gate.todayPnl / cfg.dailyGoal * 100, 100) },
+    { label: 'Semana',     value: gate.weekPnl,   target: cfg.weeklyGoal,   color: '#10b981', pct: gate.weekPnl  <= 0 ? 0 : Math.min(gate.weekPnl  / cfg.weeklyGoal  * 100, 100) },
+    { label: 'Mês',        value: gate.monthPnl,  target: cfg.monthlyGoal,  color: '#f59e0b', pct: gate.monthPnl <= 0 ? 0 : Math.min(gate.monthPnl / cfg.monthlyGoal  * 100, 100) },
+    { label: 'Meta Final', value: capitalAtual,    target: cfg.capitalTarget, color: '#a855f7',
+      pct: ((Math.log10(Math.max(capitalAtual, cfg.capitalInicial)) - logMin) / (logMax - logMin)) * 100,
+      isCapital: true,
+    },
+  ]
+
+  const fmtVal = (v: number, isCapital?: boolean) => {
+    if (isCapital) {
+      if (v >= 1_000_000) return `$${(v/1_000_000).toFixed(2)}M`
+      if (v >= 1_000)     return `$${(v/1_000).toFixed(1)}k`
+      return `$${v.toFixed(2)}`
+    }
+    return (v >= 0 ? '+' : '') + `$${v.toFixed(2)}`
+  }
+  const fmtTgt = (v: number) => {
+    if (v >= 1_000_000) return `$${(v/1_000_000).toFixed(0)}M`
+    if (v >= 1_000)     return `$${(v/1_000).toFixed(0)}k`
+    return `$${v.toFixed(2)}`
+  }
+
+  return (
+    <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Award size={14} className="text-[#10b981]" />
+        <span className="text-sm font-semibold text-[#f0f6fc]">Metas em Cascata</span>
+      </div>
+
+      <div className="space-y-4">
+        {goals.map(g => {
+          const met = g.pct >= 100
+          return (
+            <div key={g.label}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] text-[#8b949e]">{g.label}</span>
+                <span className="text-[10px] font-mono" style={{ color: met ? '#10b981' : g.color }}>
+                  {fmtVal(g.value, (g as any).isCapital)} / {fmtTgt(g.target)}{met ? ' ✓' : ''}
+                </span>
+              </div>
+              <div className="h-1.5 bg-[#21262d] rounded-full overflow-hidden">
+                <div className="h-full rounded-full transition-all duration-700" style={{
+                  width: `${Math.max(0, g.pct).toFixed(1)}%`,
+                  background: met ? '#10b981' : g.color,
+                  opacity: g.pct <= 0 ? 0.3 : 1,
+                }} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function AdminDashboard() {
-  const [trades,       setTrades]       = useState<ManualTrade[]>([])
-  const [mounted,      setMounted]      = useState(false)
-  const [activeSnap,   setActiveSnap]   = useState<string | null>(null)
-  const [importMsg,    setImportMsg]    = useState<{ text: string; ok: boolean } | null>(null)
-  const importRef                       = useRef<HTMLInputElement>(null)
+  const [trades,         setTrades]         = useState<ManualTrade[]>([])
+  const [mounted,        setMounted]        = useState(false)
+  const [activeSnap,     setActiveSnap]     = useState<string | null>(null)
+  const [importMsg,      setImportMsg]      = useState<{ text: string; ok: boolean } | null>(null)
+  const [sessionConfig,  setSessionConfig]  = useState<SessionConfig>(SESSION_DEFAULTS)
+  const [tick,           setTick]           = useState(0)  // força re-render a cada minuto
+  const importRef                           = useRef<HTMLInputElement>(null)
+
+  // Atualiza o gate a cada minuto para refletir abertura/fechamento de sessão
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 60_000)
+    return () => clearInterval(id)
+  }, [])
 
   useEffect(() => {
     setMounted(true)
+    setSessionConfig(getSessionConfig())
     // Carrega localStorage imediatamente (UI responsiva)
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
@@ -641,10 +1056,29 @@ export default function AdminDashboard() {
   const winRate = decided > 0 ? Math.round(wins / decided * 100) : null
 
   const pnl = useMemo(() => trades.reduce((acc, t) => {
-    if (t.result === 'win')  return acc + rewardPips(t.entry, t.takeProfit, t.direction) * pipValueUSD(t.lot)
-    if (t.result === 'loss') return acc - riskPips(t.entry, t.stopLoss, t.direction)    * pipValueUSD(t.lot)
+    if (t.result === 'win') {
+      // Usa pnlUsd real do backtest quando disponível (evita recálculo aproximado)
+      if (t.pnlUsd != null) return acc + t.pnlUsd
+      return acc + rewardPips(t.entry, t.takeProfit, t.direction) * pipValueUSD(t.lot)
+    }
+    if (t.result === 'loss') {
+      if (t.pnlUsd != null) return acc + t.pnlUsd  // pnlUsd é negativo para losses
+      return acc - riskPips(t.entry, t.stopLoss, t.direction) * pipValueUSD(t.lot)
+    }
     return acc
   }, 0), [trades])
+
+  const capitalInicial = useMemo(
+    () => trades.find(t => t.capitalInicial != null)?.capitalInicial ?? 0,
+    [trades]
+  )
+  const capitalFinal = pnl + capitalInicial
+
+  // Capital real para a jornada = usa capitalInicial da sessão se não há dado de backtest
+  const capitalParaJornada = capitalInicial > 0 ? capitalFinal : sessionConfig.capitalInicial + pnl
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const gate = useMemo(() => computeSessionGate(trades, sessionConfig), [trades, sessionConfig, tick])
 
   const pnlPotential = useMemo(() => trades
     .filter(t => !t.result || t.result === 'pending')
@@ -723,9 +1157,13 @@ export default function AdminDashboard() {
         <KPI label="Win Rate"
           value={winRate !== null ? `${winRate}%` : '—'}
           sub={`${wins}W · ${losses}L`} color={winRateColor} icon={Award} />
-        <KPI label="P&L Simulado"
-          value={`${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`}
-          sub={pending > 0 ? `+$${pnlPotential.toFixed(0)} potencial (${pending} pend.)` : 'trades rotulados'}
+        <KPI label={capitalInicial > 0 ? 'Capital Final' : 'P&L Simulado'}
+          value={capitalInicial > 0
+            ? `$${capitalFinal.toFixed(2)}`
+            : `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`}
+          sub={capitalInicial > 0
+            ? `lucro: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`
+            : pending > 0 ? `+$${pnlPotential.toFixed(0)} potencial (${pending} pend.)` : 'trades rotulados'}
           color={pnl >= 0 ? '#10b981' : '#ef4444'} icon={Zap} />
         <KPI label="R:R Médio"
           value={avgRR ? `${avgRR}×` : '—'}
@@ -737,6 +1175,32 @@ export default function AdminDashboard() {
         <KPI label="Pendentes"
           value={pending}
           sub="rotule W ou L" color={pending > 0 ? '#f59e0b' : '#484f58'} icon={Clock} />
+      </div>
+
+      {/* ── Mission Control ─────────────────────────────────────────────────── */}
+      <div className="space-y-3">
+        {/* Banner de bloqueio */}
+        {gate.isLocked && (
+          <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-[#ef4444]/10 border border-[#ef4444]/30">
+            <Lock size={14} className="text-[#ef4444] shrink-0" />
+            <div>
+              <span className="text-sm font-bold text-[#ef4444]">Sessão Bloqueada</span>
+              <span className="ml-2 text-xs text-[#ef4444]/70">{gate.lockReason}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Jornada de capital */}
+        <CapitalJourney capitalAtual={capitalParaJornada} cfg={sessionConfig} />
+
+        {/* Cockpit de sessão */}
+        <SessionCockpit gate={gate} cfg={sessionConfig} />
+
+        {/* Risco + Metas */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <RiskPanel gate={gate} cfg={sessionConfig} />
+          <GoalsCascade gate={gate} cfg={sessionConfig} capitalAtual={capitalParaJornada} />
+        </div>
       </div>
 
       {/* ── Progresso ML ────────────────────────────────────────────────────── */}
