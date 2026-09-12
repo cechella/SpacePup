@@ -1159,42 +1159,78 @@ export default function ChartPage() {
                     )}
 
                     {/* Edição inline de SL/TP */}
-                    {isEditing && editingPos && (
-                      <div className="flex items-center gap-2 mt-2 pl-5 flex-wrap">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[9px] text-[#ef4444] font-semibold w-4">SL</span>
-                          <input
-                            type="number"
-                            step="0.00001"
-                            value={editingPos.sl}
-                            onChange={e => setEditingPos(p => p ? { ...p, sl: e.target.value } : p)}
-                            className="w-24 px-2 py-1 rounded bg-[#0d1117] border border-[#ef4444]/40 text-[#ef4444] text-[10px] font-mono focus:outline-none focus:border-[#ef4444]"
-                          />
+                    {isEditing && editingPos && (() => {
+                      // Preview P/L em USD: (nível - entrada) × volume × 100.000
+                      // Funciona para EURUSD e qualquer par cotado em USD
+                      const slVal = parseFloat(editingPos.sl)
+                      const tpVal = parseFloat(editingPos.tp)
+                      const contractSize = 100_000
+                      const slUsd = !isNaN(slVal)
+                        ? (isBuy ? slVal - pos.openPrice : pos.openPrice - slVal) * pos.volume * contractSize
+                        : null
+                      const tpUsd = !isNaN(tpVal)
+                        ? (isBuy ? tpVal - pos.openPrice : pos.openPrice - tpVal) * pos.volume * contractSize
+                        : null
+                      const fmtUsd = (v: number) =>
+                        (v >= 0 ? '+' : '') + v.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                      return (
+                        <div className="mt-2 pl-5 space-y-1.5">
+                          {/* SL */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[9px] text-[#ef4444] font-semibold w-4">SL</span>
+                            <input
+                              type="number"
+                              step="0.00001"
+                              value={editingPos.sl}
+                              onChange={e => setEditingPos(p => p ? { ...p, sl: e.target.value } : p)}
+                              className="w-24 px-2 py-1 rounded bg-[#0d1117] border border-[#ef4444]/40 text-[#ef4444] text-[10px] font-mono focus:outline-none focus:border-[#ef4444]"
+                            />
+                            {slUsd !== null && (
+                              <span className={cn(
+                                'text-[10px] font-mono font-bold tabular-nums',
+                                slUsd >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]',
+                              )}>
+                                {fmtUsd(slUsd)}
+                              </span>
+                            )}
+                          </div>
+                          {/* TP */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[9px] text-[#22c55e] font-semibold w-4">TP</span>
+                            <input
+                              type="number"
+                              step="0.00001"
+                              value={editingPos.tp}
+                              onChange={e => setEditingPos(p => p ? { ...p, tp: e.target.value } : p)}
+                              className="w-24 px-2 py-1 rounded bg-[#0d1117] border border-[#22c55e]/40 text-[#22c55e] text-[10px] font-mono focus:outline-none focus:border-[#22c55e]"
+                            />
+                            {tpUsd !== null && (
+                              <span className={cn(
+                                'text-[10px] font-mono font-bold tabular-nums',
+                                tpUsd >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]',
+                              )}>
+                                {fmtUsd(tpUsd)}
+                              </span>
+                            )}
+                          </div>
+                          {/* Botões */}
+                          <div className="flex items-center gap-2 pt-0.5">
+                            <button
+                              onClick={() => handleModifyPosition(pos.id, editingPos.sl, editingPos.tp)}
+                              className="px-2.5 py-1 rounded text-[9px] font-bold bg-[#22c55e]/15 border border-[#22c55e]/50 text-[#22c55e] hover:bg-[#22c55e]/25 transition-colors"
+                            >
+                              ✓ Confirmar
+                            </button>
+                            <button
+                              onClick={() => setEditingPos(null)}
+                              className="px-2.5 py-1 rounded text-[9px] font-semibold border border-[#30363d] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d] transition-colors"
+                            >
+                              ✕ Cancelar
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[9px] text-[#22c55e] font-semibold w-4">TP</span>
-                          <input
-                            type="number"
-                            step="0.00001"
-                            value={editingPos.tp}
-                            onChange={e => setEditingPos(p => p ? { ...p, tp: e.target.value } : p)}
-                            className="w-24 px-2 py-1 rounded bg-[#0d1117] border border-[#22c55e]/40 text-[#22c55e] text-[10px] font-mono focus:outline-none focus:border-[#22c55e]"
-                          />
-                        </div>
-                        <button
-                          onClick={() => handleModifyPosition(pos.id, editingPos.sl, editingPos.tp)}
-                          className="px-2.5 py-1 rounded text-[9px] font-bold bg-[#22c55e]/15 border border-[#22c55e]/50 text-[#22c55e] hover:bg-[#22c55e]/25 transition-colors"
-                        >
-                          ✓ Confirmar
-                        </button>
-                        <button
-                          onClick={() => setEditingPos(null)}
-                          className="px-2.5 py-1 rounded text-[9px] font-semibold border border-[#30363d] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d] transition-colors"
-                        >
-                          ✕ Cancelar
-                        </button>
-                      </div>
-                    )}
+                      )
+                    })()}
                   </div>
                 )
               })}
