@@ -686,7 +686,7 @@ function CapitalJourney({ capitalAtual, cfg }: { capitalAtual: number; cfg: Sess
       <svg viewBox="0 0 400 220" className="w-full" style={{ maxHeight: 200 }}>
         {/* Arco de fundo */}
         <path d="M 50,190 A 150,150 0 0 0 350,190"
-          fill="none" stroke="#21262d" strokeWidth="14" strokeLinecap="round" />
+          fill="none" stroke="#2d3748" strokeWidth="14" strokeLinecap="round" />
         {/* Arco preenchido — progresso */}
         <path d="M 50,190 A 150,150 0 0 0 350,190"
           fill="none" stroke={color} strokeWidth="14" strokeLinecap="round"
