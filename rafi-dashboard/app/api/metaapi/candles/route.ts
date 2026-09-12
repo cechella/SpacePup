@@ -27,14 +27,9 @@ export async function GET(req: Request) {
     const api = new MetaApi(TOKEN)
     const account = await api.metatraderAccountApi.getAccount(ACCOUNT)
 
-    // Aguarda conta estar deployed e conectada
-    await account.waitDeployed(120)
-    await account.waitConnected(120)
-
-    // Conexão RPC: requisição/resposta sem necessidade de sincronização completa
+    // Conexão RPC: requisição/resposta sem sincronização completa (mais rápido)
     connection = account.getRPCConnection()
     await connection.connect()
-    await connection.waitSynchronized({ timeoutInSeconds: 30 })
 
     const startTime = new Date(Date.now() - tf.minutes * limit * 2 * 60 * 1000)
     const raw: any[] = await connection.getHistoricalCandles(symbol, tf.api, startTime, undefined, limit)
