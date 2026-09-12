@@ -14,12 +14,13 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const symbol    = searchParams.get('symbol')    || 'EURUSD'
   const timeframe = searchParams.get('timeframe') || 'M15'
-  const limit     = parseInt(searchParams.get('limit') || '500', 10)
+  const limit     = parseInt(searchParams.get('limit') || '100', 10)
 
   const tf = TF_MAP[timeframe] ?? TF_MAP['M15']
 
-  // startTime: recua o suficiente para cobrir todos os candles pedidos
-  const startTime = new Date(Date.now() - tf.minutes * limit * 60 * 1000 * 1.2).toISOString()
+  // startTime: recua 2x o necessário, máximo 6 horas para conta nova
+  const maxLookback = Math.min(tf.minutes * limit * 60 * 1000 * 2, 6 * 60 * 60 * 1000)
+  const startTime = new Date(Date.now() - maxLookback).toISOString()
 
   const url = `${BASE}/users/current/accounts/${ACCOUNT}/historical-market-data/symbols/${symbol}/timeframes/${tf.api}/candles?limit=${limit}&startTime=${encodeURIComponent(startTime)}`
 
