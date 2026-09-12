@@ -1,14 +1,18 @@
 import { NextResponse } from 'next/server'
+import MetaApi from 'metaapi.cloud-sdk'
 
-const BASE = 'https://mt-client-api-v1.london.agiliumtrade.ai'
 const TOKEN = process.env.METAAPI_TOKEN!
 const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
 
+// Mapeamento de timeframes para o formato aceito pelo SDK
 const TF_MAP: Record<string, { api: string; minutes: number }> = {
   M5:  { api: '5m',  minutes: 5  },
   M15: { api: '15m', minutes: 15 },
   H1:  { api: '1h',  minutes: 60 },
 }
+
+export const runtime = 'nodejs'
+export const maxDuration = 60
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
@@ -18,31 +22,24 @@ export async function GET(req: Request) {
 
   const tf = TF_MAP[timeframe] ?? TF_MAP['M15']
 
-  // startTime: recua 2x o necessário, máximo 6 horas para conta nova
-  const maxLookback = Math.min(tf.minutes * limit * 60 * 1000 * 2, 6 * 60 * 60 * 1000)
-  const startTime = new Date(Date.now() - maxLookback).toISOString()
-
-  const url = `${BASE}/users/current/accounts/${ACCOUNT}/historical-market-data/${symbol}/timeframes/${tf.api}/candles?limit=${limit}&startTime=${encodeURIComponent(startTime)}`
-
+  let connection: any = null
   try {
-    const res = await fetch(url, {
-      headers: { 'auth-token': TOKEN },
-      next: { revalidate: 0 },
-    })
+    const api = new MetaApi(TOKEN)
+    const account = await api.metatraderAccountApi.getAccount(ACCOUNT)
 
-    if (!res.ok) {
-      const errText = await res.text()
-      console.error('[MetaAPI candles] erro', res.status, errText, '| url:', url)
-      return NextResponse.json(
-        { error: `${res.status}: ${errText}` },
-        { status: res.status },
-      )
-    }
+    // Aguarda conta estar deployed e conectada
+    await account.waitDeployed(120)
+    await account.waitConnected(120)
 
-    const data = await res.json()
-    const raw: any[] = Array.isArray(data) ? data : (data.candles ?? [])
+    // Conexão RPC: requisição/resposta sem necessidade de sincronização completa
+    connection = account.getRPCConnection()
+    await connection.connect()
+    await connection.waitSynchronized({ timeoutInSeconds: 30 })
 
-    const candles = raw.map((c: any) => ({
+    const startTime = new Date(Date.now() - tf.minutes * limit * 2 * 60 * 1000)
+    const raw: any[] = await connection.getHistoricalCandles(symbol, tf.api, startTime, undefined, limit)
+
+    const candles = (Array.isArray(raw) ? raw : []).map((c: any) => ({
       time:   new Date(c.time).getTime() / 1000,
       open:   c.open,
       high:   c.high,
@@ -53,7 +50,11 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ candles, symbol, timeframe })
   } catch (e: any) {
-    console.error('[MetaAPI candles] exceção', e.message)
+    console.error('[MetaAPI SDK candles] erro:', e.message)
     return NextResponse.json({ error: e.message }, { status: 500 })
+  } finally {
+    if (connection) {
+      try { await connection.close() } catch (_) {}
+    }
   }
 }
