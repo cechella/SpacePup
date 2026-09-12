@@ -25,9 +25,8 @@ export async function GET(req: Request) {
     const api = new MetaApi(TOKEN)
     const account = await api.metatraderAccountApi.getAccount(ACCOUNT)
 
-    // getHistoricalCandles é REST direto — não precisa de conexão WebSocket
-    const startTime = new Date(Date.now() - tf.minutes * limit * 2 * 60 * 1000)
-    const raw = await account.getHistoricalCandles(symbol, tf.api, startTime, limit)
+    // startTime=undefined → retorna os candles mais recentes (API carrega de trás pra frente)
+    const raw = await account.getHistoricalCandles(symbol, tf.api, undefined, limit)
 
     const candles = (Array.isArray(raw) ? raw : []).map((c: any) => ({
       time:   new Date(c.time).getTime() / 1000,

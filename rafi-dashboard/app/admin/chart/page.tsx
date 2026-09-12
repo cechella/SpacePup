@@ -576,15 +576,23 @@ export default function ChartPage() {
                 onChange={handleFileChange}
               />
 
-              {/* Timeframe — desabilitado quando CSV carregado */}
+              {/* Timeframe — desabilitado quando CSV carregado, ativo quando MetaAPI */}
               <div className={cn(
                 'flex items-center gap-0.5 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]',
-                csvData && 'opacity-40 pointer-events-none',
+                csvData && !metaConnected && 'opacity-40 pointer-events-none',
               )}>
                 {TIMEFRAMES.map(t => (
                   <button
                     key={t}
-                    onClick={() => { setTf(t); setTrades([]) }}
+                    onClick={() => {
+                      setTf(t)
+                      setTrades([])
+                      // Se MetaAPI estiver ativo, recarrega no novo timeframe
+                      if (metaConnected) {
+                        setCsvData(null)
+                        setMetaConnected(false)
+                      }
+                    }}
                     className={cn(
                       'px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all',
                       t === tf
