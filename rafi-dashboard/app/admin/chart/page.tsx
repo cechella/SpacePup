@@ -834,7 +834,7 @@ export default function ChartPage() {
       </div>
 
       {/* ── Área do gráfico ─────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0 p-2 md:p-4 gap-2 md:gap-3 overflow-y-auto md:overflow-hidden pb-16 md:pb-0">
+      <div className="flex-1 flex flex-col min-w-0 p-2 md:p-4 gap-2 md:gap-3 overflow-hidden pb-16 md:pb-0">
 
         {/* Header mobile — apenas em telas pequenas */}
         <div className="flex md:hidden items-center gap-2 shrink-0 pt-1">
@@ -1644,7 +1644,7 @@ export default function ChartPage() {
 
       {/* ── Bottom sheet: Operação ──────────────────────────────────── */}
       <div className={cn(
-        'md:hidden fixed bottom-[60px] left-0 right-0 bg-[#161b22] border-t border-[#30363d] rounded-t-2xl z-20 transition-transform duration-300 max-h-[78vh] overflow-y-auto',
+        'md:hidden fixed bottom-[60px] left-0 right-0 bg-[#161b22] border-t border-[#30363d] rounded-t-2xl z-20 transition-transform duration-300 max-h-[78vh] overflow-y-auto overscroll-contain',
         mobileTab === 'trade' ? 'translate-y-0' : 'translate-y-full pointer-events-none',
       )}>
         <div className="w-10 h-1 bg-[#30363d] rounded-full mx-auto mt-3 mb-1 shrink-0" />
@@ -1661,7 +1661,7 @@ export default function ChartPage() {
 
       {/* ── Bottom sheet: Posições ──────────────────────────────────── */}
       <div className={cn(
-        'md:hidden fixed bottom-[60px] left-0 right-0 bg-[#161b22] border-t border-[#30363d] rounded-t-2xl z-20 transition-transform duration-300 max-h-[78vh] overflow-y-auto',
+        'md:hidden fixed bottom-[60px] left-0 right-0 bg-[#161b22] border-t border-[#30363d] rounded-t-2xl z-20 transition-transform duration-300 max-h-[78vh] overflow-y-auto overscroll-contain',
         mobileTab === 'positions' ? 'translate-y-0' : 'translate-y-full pointer-events-none',
       )}>
         <div className="w-10 h-1 bg-[#30363d] rounded-full mx-auto mt-3 mb-2 shrink-0" />
@@ -1771,7 +1771,7 @@ export default function ChartPage() {
 
       {/* ── Bottom sheet: Histórico ─────────────────────────────────── */}
       <div className={cn(
-        'md:hidden fixed bottom-[60px] left-0 right-0 bg-[#161b22] border-t border-[#30363d] rounded-t-2xl z-20 transition-transform duration-300 max-h-[78vh] overflow-y-auto',
+        'md:hidden fixed bottom-[60px] left-0 right-0 bg-[#161b22] border-t border-[#30363d] rounded-t-2xl z-20 transition-transform duration-300 max-h-[78vh] overflow-y-auto overscroll-contain',
         mobileTab === 'history' ? 'translate-y-0' : 'translate-y-full pointer-events-none',
       )}>
         <div className="w-10 h-1 bg-[#30363d] rounded-full mx-auto mt-3 mb-2 shrink-0" />

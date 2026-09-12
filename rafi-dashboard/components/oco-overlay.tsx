@@ -59,7 +59,8 @@ function OCOLine({
           border:          `1px solid ${isDragging ? lineColor + '80' : lineColor + '45'}`,
           cursor:          isDragging ? 'ns-resize' : 'ns-resize',
           touchAction:     'none',
-          minWidth:        64,
+          minWidth:        72,
+          minHeight:       36,
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -475,7 +476,7 @@ export function OCOOverlay({
         className="absolute"
         style={cardPos
           ? { left: cardPos.x, top: cardPos.y, pointerEvents: 'all' }
-          : { right: 88, top: cardTop, pointerEvents: 'all' }
+          : { right: 'clamp(4px, 5vw, 88px)', top: cardTop, pointerEvents: 'all' }
         }
       >
         <div
