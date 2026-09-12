@@ -266,8 +266,9 @@ export function RAFIChart({
       })
       histSeries.setData(rafiData as any)
       // RAFI > 0 = entrada válida; RAFI >= 2.5 = força forte
-      histSeries.createPriceLine({ price: 2.5, color: '#f59e0b80', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true,  title: 'forte' })
-      histSeries.createPriceLine({ price: 0,   color: '#8b949e30', lineWidth: 1, lineStyle: LineStyle.Solid,  axisLabelVisible: false, title: '' })
+      histSeries.createPriceLine({ price:  2.5, color: '#f59e0b80', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true,  title: '+2.5' })
+      histSeries.createPriceLine({ price: -2.5, color: '#f59e0b80', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true,  title: '-2.5' })
+      histSeries.createPriceLine({ price:  0,   color: '#8b949e30', lineWidth: 1, lineStyle: LineStyle.Solid,  axisLabelVisible: false, title: '' })
 
       rChart.timeScale().fitContent()
 

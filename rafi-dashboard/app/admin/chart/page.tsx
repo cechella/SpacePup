@@ -456,8 +456,8 @@ export default function ChartPage() {
   const totalPnl   = useMemo(() => metaPositions.reduce((s, p) => s + (p.profit ?? 0), 0), [metaPositions])
 
   // RAFI sempre positivo: separa por dir do candle
-  const strongBullBars = rafiData.filter(p => p.value >= 2.5 && p.dir === 'bull').length
-  const strongBearBars = rafiData.filter(p => p.value >= 2.5 && p.dir === 'bear').length
+  const strongBullBars = rafiData.filter(p => p.value >= 2.5).length
+  const strongBearBars = rafiData.filter(p => p.value <= -2.5).length
 
   // Capital atual = base + P&L dos trades rotulados → determina lote pela tabela
   const currentCapital = useMemo(() => calcCapital(trades, BASE_CAPITAL), [trades])
