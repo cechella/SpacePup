@@ -230,6 +230,14 @@ export function RAFIChart({
       }
 
       mChart.timeScale().fitContent()
+      // Zoom padrão: mostra os últimos 120 candles ao entrar (mais legível)
+      // Com menos de 120 candles deixa o fitContent acima agir normalmente
+      if (candles.length > 150) {
+        mChart.timeScale().setVisibleLogicalRange({
+          from: candles.length - 121,
+          to:   candles.length + 5,
+        })
+      }
 
       // ── Gráfico RAFI ─────────────────────────────────────────────────────
       rChart = createChart(rafiEl, {
