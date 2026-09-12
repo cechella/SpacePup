@@ -85,6 +85,9 @@ export default function ChartPage() {
   const [metaLoading,   setMetaLoading]   = useState(false)
   const [metaConnected, setMetaConnected] = useState(false)
   const [metaError,     setMetaError]     = useState<string | null>(null)
+  const [metaStep,      setMetaStep]      = useState<string>('')
+  const [metaElapsed,   setMetaElapsed]   = useState(0)
+  const metaTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const fileInputRef        = useRef<HTMLInputElement>(null)
   const historyPanelRef     = useRef<HTMLDivElement>(null)
   const snapshotCaptureRef  = useRef<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>(null)
@@ -221,8 +224,31 @@ export default function ChartPage() {
   const loadCandlesFromMetaAPI = useCallback(async () => {
     setMetaLoading(true)
     setMetaError(null)
+    setMetaElapsed(0)
+
+    // Fases simuladas — avançam enquanto o servidor processa
+    const steps = [
+      'Conectando ao MetaAPI...',
+      'Autenticando token...',
+      'Abrindo canal WebSocket com Pepperstone...',
+      'Aguardando MT5 responder (pode levar até 30s)...',
+      'Baixando candles EURUSD...',
+      'Processando dados...',
+    ]
+    let stepIdx = 0
+    setMetaStep(steps[0])
+
+    // Avança fase a cada ~3s e conta segundos
+    let elapsed = 0
+    metaTimerRef.current = setInterval(() => {
+      elapsed += 1
+      setMetaElapsed(elapsed)
+      const next = Math.min(Math.floor(elapsed / 3), steps.length - 1)
+      if (next !== stepIdx) { stepIdx = next; setMetaStep(steps[next]) }
+    }, 1000)
+
     try {
-      const res = await fetch(`/api/metaapi/candles?symbol=EURUSD&timeframe=${tf}&limit=500`)
+      const res = await fetch(`/api/metaapi/candles?symbol=EURUSD&timeframe=${tf}&limit=100`)
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? `MetaAPI: ${res.status}`)
       const rows: CandleData[] = data.candles ?? data
@@ -243,8 +269,11 @@ export default function ChartPage() {
     } catch (err: any) {
       setMetaError(err?.message ?? 'Erro MetaAPI')
       setMetaConnected(false)
+    } finally {
+      if (metaTimerRef.current) clearInterval(metaTimerRef.current)
+      setMetaLoading(false)
+      setMetaStep('')
     }
-    setMetaLoading(false)
   }, [tf, saveToHistory])
 
   // Carrega candles do Supabase (tabela rafi_candles) — substitui CSV local
@@ -617,8 +646,25 @@ export default function ChartPage() {
                       )} />
                       {metaLoading ? 'Conectando…' : metaConnected ? 'MetaAPI · LIVE' : 'MetaAPI Ao Vivo'}
                     </button>
-                    {metaError && (
-                      <span className="text-[#ef4444] text-[9px] max-w-[160px] truncate" title={metaError}>
+                    {metaLoading && (
+                      <div className="flex flex-col gap-0.5 min-w-[220px]">
+                        <div className="flex items-center justify-between text-[9px]">
+                          <span className="text-[#26c6da] truncate max-w-[190px]">{metaStep}</span>
+                          <span className="text-[#484f58] font-mono shrink-0 ml-1">{metaElapsed}s</span>
+                        </div>
+                        <div className="h-1 bg-[#21262d] rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-[#26c6da] rounded-full transition-all duration-1000"
+                            style={{ width: `${Math.min((metaElapsed / 30) * 100, 95)}%` }}
+                          />
+                        </div>
+                        <span className="text-[8px] text-[#484f58]">
+                          MetaAPI conecta via WebSocket ao Pepperstone MT5 — pode levar até 30s
+                        </span>
+                      </div>
+                    )}
+                    {!metaLoading && metaError && (
+                      <span className="text-[#ef4444] text-[9px] max-w-[200px] truncate" title={metaError}>
                         ⚠ {metaError}
                       </span>
                     )}
