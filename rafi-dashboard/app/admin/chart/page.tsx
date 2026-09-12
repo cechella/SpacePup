@@ -10,7 +10,7 @@ import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
 import { getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
 import { upsertTrade, fetchTrades, fetchCandles, countCandles } from '@/lib/trades-db'
-import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine, History, ChevronDown, Trash2, Database } from 'lucide-react'
+import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine, History, ChevronDown, Trash2, Database, Menu } from 'lucide-react'
 import type { CandleData } from '@/lib/types'
 import { generateTradeSnapshot } from '@/lib/trade-snapshot'
 
@@ -116,6 +116,9 @@ export default function ChartPage() {
   const [historyLoading, setHistoryLoading] = useState(false)
   // Edição inline de SL/TP: { positionId, sl: string, tp: string }
   const [editingPos, setEditingPos] = useState<{ id: string; sl: string; tp: string } | null>(null)
+  // Mobile: gaveta lateral e aba ativa
+  const [sidebarOpen,  setSidebarOpen]  = useState(false)
+  const [mobileTab,    setMobileTab]    = useState<'chart' | 'positions' | 'trade' | 'history'>('chart')
   const prevPositionsRef = useRef<typeof metaPositions>([])
   const fileInputRef        = useRef<HTMLInputElement>(null)
   const historyPanelRef     = useRef<HTMLDivElement>(null)
@@ -691,13 +694,175 @@ export default function ChartPage() {
   }, [csvData, tf, handleAdd, activeCsvId])
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full overflow-hidden relative">
+
+      {/* ── Mobile: backdrop da gaveta ── */}
+      <div
+        className={cn(
+          'fixed inset-0 bg-black/50 z-30 md:hidden transition-opacity duration-300',
+          sidebarOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
+        )}
+        onClick={() => setSidebarOpen(false)}
+      />
+
+      {/* ── Mobile: gaveta lateral deslizante ── */}
+      <div className={cn(
+        'fixed left-0 top-0 h-full w-[280px] bg-[#161b22] border-r border-[#30363d] z-40 flex flex-col overflow-y-auto md:hidden transition-transform duration-300',
+        sidebarOpen ? 'translate-x-0' : '-translate-x-full',
+      )}>
+        {/* Cabeçalho da gaveta */}
+        <div className="px-4 pt-10 pb-4 border-b border-[#30363d] flex items-center justify-between">
+          <div>
+            <div className="font-bold text-base text-[#26c6da]">RAFI Dashboard</div>
+            <div className="text-[10px] text-[#484f58] mt-0.5">Mesa de Operações</div>
+          </div>
+          <button onClick={() => setSidebarOpen(false)} className="text-[#484f58] hover:text-[#f0f6fc] p-1">
+            <XIcon size={18} />
+          </button>
+        </div>
+
+        {/* Conta Pepperstone */}
+        {metaConnected && metaAccount && (
+          <div className="px-4 py-3 border-b border-[#30363d]">
+            <div className="text-[9px] font-semibold text-[#26c6da] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#26c6da] animate-pulse inline-block" />
+              Pepperstone · MT5
+            </div>
+            <div className="space-y-2">
+              {([
+                { label: 'Saldo',       val: `${metaAccount.currency} ${metaAccount.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, color: '#f0f6fc' },
+                { label: 'Equity',      val: metaAccount.equity.toLocaleString('pt-BR', { minimumFractionDigits: 2 }),     color: '#22c55e' },
+                { label: 'Margem livre',val: metaAccount.freeMargin.toLocaleString('pt-BR', { minimumFractionDigits: 2 }), color: '#f0f6fc' },
+              ] as const).map(r => (
+                <div key={r.label} className="flex justify-between items-center text-[12px]">
+                  <span className="text-[#484f58]">{r.label}</span>
+                  <span className="font-mono font-bold" style={{ color: r.color }}>{r.val}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Timeframe */}
+        <div className="px-4 py-3 border-b border-[#30363d]">
+          <div className="text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider mb-2">Timeframe</div>
+          <div className="flex gap-2">
+            {TIMEFRAMES.map(t => (
+              <button
+                key={t}
+                onClick={() => {
+                  setTf(t); setTrades([])
+                  if (metaConnected) { setCsvData(null); setMetaConnected(false) }
+                  setSidebarOpen(false)
+                }}
+                className={cn(
+                  'flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all',
+                  t === tf ? 'bg-[#3b82f6] border-[#3b82f6] text-white' : 'border-[#30363d] text-[#484f58] hover:text-[#8b949e]',
+                )}
+              >{t}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Fonte de dados */}
+        <div className="px-4 py-3 border-b border-[#30363d]">
+          <div className="text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider mb-2">Fonte de Dados</div>
+          <div className="space-y-2">
+            <button
+              onClick={() => {
+                if (metaConnected) {
+                  try { localStorage.setItem(META_AUTO_KEY, 'false') } catch {}
+                  setMetaConnected(false); setCsvData(null)
+                } else {
+                  try { localStorage.setItem(META_AUTO_KEY, 'true') } catch {}
+                  loadCandlesFromMetaAPI()
+                }
+                setSidebarOpen(false)
+              }}
+              disabled={metaLoading}
+              className={cn(
+                'w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold border transition-all disabled:opacity-50',
+                metaConnected
+                  ? 'border-[#22c55e]/50 bg-[#22c55e]/8 text-[#22c55e] hover:bg-[#ef4444]/10 hover:border-[#ef4444]/40 hover:text-[#ef4444]'
+                  : 'border-[#26c6da]/40 text-[#26c6da] hover:bg-[#26c6da]/10',
+              )}
+            >
+              <span className={cn('w-2 h-2 rounded-full', metaConnected ? 'bg-[#22c55e] animate-pulse' : 'bg-[#26c6da]')} />
+              {metaLoading ? 'Conectando…' : metaConnected ? 'MetaAPI · AO VIVO (toque para desligar)' : 'MetaAPI Ao Vivo'}
+            </button>
+            {metaLoading && (
+              <div className="text-[10px] text-[#26c6da] px-1">{metaStep} ({metaElapsed}s)</div>
+            )}
+            {metaError && <div className="text-[10px] text-[#ef4444] px-1">⚠ {metaError}</div>}
+            <button
+              onClick={() => { fileInputRef.current?.click(); setSidebarOpen(false) }}
+              className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold border border-[#30363d] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d] transition-all"
+            >
+              <FolderOpen size={14} /> Carregar CSV
+            </button>
+          </div>
+        </div>
+
+        {/* Ferramentas */}
+        <div className="px-4 py-3">
+          <div className="text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider mb-2">Ferramentas</div>
+          <div className="space-y-2">
+            <button
+              onClick={() => { handleAutoScan(); setSidebarOpen(false) }}
+              className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold border border-[#22c55e]/40 bg-[#22c55e]/8 text-[#22c55e] hover:bg-[#22c55e]/15 transition-all"
+            >
+              <ScanLine size={14} /> Auto Scan
+            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setPanMode(false); setSidebarOpen(false) }}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold border transition-all',
+                  !panMode ? 'border-[#f59e0b]/40 bg-[#f59e0b]/10 text-[#f59e0b]' : 'border-[#30363d] text-[#484f58]',
+                )}
+              ><Crosshair size={13} /> OCO</button>
+              <button
+                onClick={() => { setPanMode(true); setSidebarOpen(false) }}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold border transition-all',
+                  panMode ? 'border-[#3b82f6] bg-[#3b82f6]/10 text-[#3b82f6]' : 'border-[#30363d] text-[#484f58]',
+                )}
+              ><Hand size={13} /> Navegar</button>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* ── Área do gráfico ─────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0 p-4 gap-3">
+      <div className="flex-1 flex flex-col min-w-0 p-2 md:p-4 gap-2 md:gap-3 overflow-y-auto md:overflow-hidden pb-16 md:pb-0">
 
-        {/* Header */}
-        <div className="flex items-center justify-between shrink-0">
+        {/* Header mobile — apenas em telas pequenas */}
+        <div className="flex md:hidden items-center gap-2 shrink-0 pt-1">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="p-2 rounded-lg border border-[#30363d] text-[#484f58] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-all"
+          >
+            <Menu size={17} />
+          </button>
+          <span className="font-bold text-[13px] text-[#f0f6fc] flex-1 truncate">Mesa de Operação</span>
+          {metaConnected ? (
+            <span className="flex items-center gap-1 text-[10px] font-bold text-[#22c55e] bg-[#22c55e]/10 border border-[#22c55e]/30 px-2 py-1 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse inline-block" />
+              AO VIVO
+            </span>
+          ) : (
+            <button
+              onClick={() => { try { localStorage.setItem(META_AUTO_KEY, 'true') } catch {}; loadCandlesFromMetaAPI() }}
+              disabled={metaLoading}
+              className="text-[10px] font-bold text-[#26c6da] border border-[#26c6da]/40 px-2 py-1 rounded-full hover:bg-[#26c6da]/10 transition-all disabled:opacity-50"
+            >
+              {metaLoading ? 'Conectando…' : 'MetaAPI'}
+            </button>
+          )}
+        </div>
+
+        {/* Header desktop — oculto em mobile */}
+        <div className="hidden md:flex items-center justify-between shrink-0">
           <div>
             <h1 className="text-base font-bold text-[#f0f6fc]">Mesa de Operação</h1>
             <p className="text-xs text-[#8b949e] mt-0.5">
@@ -729,9 +894,9 @@ export default function ChartPage() {
           </div>
         </div>
 
-        {/* Feature 1: barra de saldo Pepperstone — só visível quando MetaAPI conectado */}
+        {/* Feature 1: barra de saldo Pepperstone — só visível quando MetaAPI conectado (oculta em mobile, exibida na gaveta) */}
         {metaConnected && metaAccount && (
-          <div className="flex items-center gap-4 px-3 py-1.5 bg-[#0b1219] rounded-lg border border-[#30363d]/60 text-[10px] shrink-0 flex-wrap">
+          <div className="hidden md:flex items-center gap-4 px-3 py-1.5 bg-[#0b1219] rounded-lg border border-[#30363d]/60 text-[10px] shrink-0 flex-wrap">
             <div className="flex items-center gap-1.5 font-semibold text-[#26c6da]">
               <span className="w-1.5 h-1.5 rounded-full bg-[#26c6da] inline-block animate-pulse" />
               Pepperstone · MT5
@@ -761,8 +926,8 @@ export default function ChartPage() {
         {/* Gráfico duplo (candles + RAFI) */}
         <div className="flex-1 min-h-0 rounded-xl border border-[#30363d] overflow-hidden flex flex-col">
 
-          {/* Toolbar do gráfico */}
-          <div className="px-4 py-2 border-b border-[#30363d] bg-[#161b22] flex items-center justify-between shrink-0">
+          {/* Toolbar do gráfico — oculta em mobile (controles ficam na gaveta) */}
+          <div className="px-4 py-2 border-b border-[#30363d] bg-[#161b22] hidden md:flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3 text-[10px]">
 
               {/* Seletor de Timeframe */}
@@ -1112,9 +1277,9 @@ export default function ChartPage() {
           </div>
         </div>
 
-        {/* Feature 2: painel de posições abertas — só visível quando MetaAPI conectado e há posições */}
+        {/* Feature 2: painel de posições abertas — só visível quando MetaAPI conectado e há posições (oculto em mobile, acessível pela aba Posições) */}
         {metaConnected && metaPositions.length > 0 && (
-          <div className="shrink-0 rounded-xl border border-[#30363d] bg-[#0b1219] overflow-hidden">
+          <div className="hidden md:block shrink-0 rounded-xl border border-[#30363d] bg-[#0b1219] overflow-hidden">
             <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between">
               <span className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">
                 Posições Abertas · Pepperstone
@@ -1260,9 +1425,9 @@ export default function ChartPage() {
           </div>
         )}
 
-        {/* Histórico de trades fechados · Pepperstone */}
+        {/* Histórico de trades fechados · Pepperstone (oculto em mobile, acessível pela aba Histórico) */}
         {metaConnected && (
-          <div className="shrink-0 rounded-xl border border-[#30363d] bg-[#0b1219] overflow-hidden">
+          <div className="hidden md:block shrink-0 rounded-xl border border-[#30363d] bg-[#0b1219] overflow-hidden">
 
             {/* Cabeçalho */}
             <div className="px-4 py-2.5 border-b border-[#30363d] flex items-center justify-between flex-wrap gap-2">
@@ -1421,9 +1586,9 @@ export default function ChartPage() {
           </div>
         )}
 
-        {/* Rodapé informativo */}
+        {/* Rodapé informativo — oculto em mobile */}
         <div className={cn(
-          'shrink-0 flex items-center gap-3 text-[10px] text-[#484f58] px-1',
+          'hidden md:flex shrink-0 items-center gap-3 text-[10px] text-[#484f58] px-1',
           trades.length > 0 && 'text-[#8b949e]',
         )}>
           <span>
@@ -1440,8 +1605,8 @@ export default function ChartPage() {
         </div>
       </div>
 
-      {/* ── Painel lateral ──────────────────────────────────────────── */}
-      <div className="w-80 shrink-0">
+      {/* ── Painel lateral — oculto em mobile, acessível pela aba Operação ── */}
+      <div className="hidden md:block w-80 shrink-0">
         <TradePanel
           trades={trades}
           onAdd={handleAdd}
@@ -1451,6 +1616,250 @@ export default function ChartPage() {
           lastCandleTime={lastTime}
           externalEntry={clickedEntry}
         />
+      </div>
+
+      {/* ── Barra de abas mobile ──────────────────────────────────────── */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 h-[60px] bg-[#161b22] border-t border-[#30363d] flex z-20">
+        {([
+          { id: 'chart',     Icon: BarChart2, label: 'Gráfico'  },
+          { id: 'positions', Icon: Layers,    label: 'Posições', badge: metaConnected && metaPositions.length > 0 ? metaPositions.length : 0 },
+          { id: 'trade',     Icon: Crosshair, label: 'Operação' },
+          { id: 'history',   Icon: History,   label: 'Histórico' },
+        ] as const).map(({ id, Icon, label, badge }) => (
+          <button
+            key={id}
+            onClick={() => setMobileTab(id as any)}
+            className="flex-1 flex flex-col items-center justify-center gap-0.5 relative pt-1"
+          >
+            <Icon size={20} className={cn(mobileTab === id ? 'text-[#26c6da]' : 'text-[#484f58]')} />
+            <span className={cn('text-[9px] font-medium', mobileTab === id ? 'text-[#26c6da]' : 'text-[#484f58]')}>{label}</span>
+            {badge ? (
+              <span className="absolute top-1.5 left-[calc(50%+6px)] bg-[#22c55e] text-[#0d1117] text-[8px] font-bold w-3.5 h-3.5 rounded-full flex items-center justify-center">
+                {badge}
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Bottom sheet: Operação ──────────────────────────────────── */}
+      <div className={cn(
+        'md:hidden fixed bottom-[60px] left-0 right-0 bg-[#161b22] border-t border-[#30363d] rounded-t-2xl z-20 transition-transform duration-300 max-h-[78vh] overflow-y-auto',
+        mobileTab === 'trade' ? 'translate-y-0' : 'translate-y-full pointer-events-none',
+      )}>
+        <div className="w-10 h-1 bg-[#30363d] rounded-full mx-auto mt-3 mb-1 shrink-0" />
+        <TradePanel
+          trades={trades}
+          onAdd={handleAdd}
+          onRemove={handleRemove}
+          onUpdate={handleUpdate}
+          lastPrice={lastPrice}
+          lastCandleTime={lastTime}
+          externalEntry={clickedEntry}
+        />
+      </div>
+
+      {/* ── Bottom sheet: Posições ──────────────────────────────────── */}
+      <div className={cn(
+        'md:hidden fixed bottom-[60px] left-0 right-0 bg-[#161b22] border-t border-[#30363d] rounded-t-2xl z-20 transition-transform duration-300 max-h-[78vh] overflow-y-auto',
+        mobileTab === 'positions' ? 'translate-y-0' : 'translate-y-full pointer-events-none',
+      )}>
+        <div className="w-10 h-1 bg-[#30363d] rounded-full mx-auto mt-3 mb-2 shrink-0" />
+        <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between">
+          <span className="text-[11px] font-semibold text-[#8b949e] uppercase tracking-wider">Posições Abertas · Pepperstone</span>
+          {metaPositions.length > 0 && (
+            <span className={cn('text-[11px] font-mono font-bold', totalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
+              P&amp;L {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} USD
+            </span>
+          )}
+        </div>
+        {!metaConnected ? (
+          <div className="px-4 py-10 text-center text-[12px] text-[#484f58]">
+            Conecte o MetaAPI para ver posições ao vivo
+          </div>
+        ) : metaPositions.length === 0 ? (
+          <div className="px-4 py-10 text-center text-[12px] text-[#484f58]">
+            Nenhuma posição aberta no momento
+          </div>
+        ) : (
+          <div className="divide-y divide-[#21262d]">
+            {metaPositions.map(pos => {
+              const isBuy     = pos.type === 'POSITION_TYPE_BUY'
+              const pnlColor  = pos.profit >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'
+              const isEditing = editingPos?.id === pos.id
+              return (
+                <div key={pos.id} className="px-4 py-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={cn('font-bold text-sm', isBuy ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
+                      {isBuy ? '▲' : '▼'}
+                    </span>
+                    <span className="font-bold text-sm text-[#f0f6fc]">{pos.symbol}</span>
+                    <span className="text-[11px] text-[#8b949e]">{pos.volume}L · {pos.openPrice.toFixed(5)}</span>
+                    <span className={cn('font-mono font-bold text-sm ml-auto', pnlColor)}>
+                      {pos.profit >= 0 ? '+' : ''}{pos.profit.toFixed(2)} USD
+                    </span>
+                  </div>
+                  {!isEditing && (
+                    <div className="flex items-center gap-3 mb-2 text-[11px]">
+                      <span className="text-[#484f58]">SL <span className="font-mono text-[#ef4444]">{pos.stopLoss?.toFixed(5) ?? '—'}</span></span>
+                      <span className="text-[#484f58]">TP <span className="font-mono text-[#22c55e]">{pos.takeProfit?.toFixed(5) ?? '—'}</span></span>
+                    </div>
+                  )}
+                  {isEditing && editingPos && (() => {
+                    const slVal = parseFloat(editingPos.sl)
+                    const tpVal = parseFloat(editingPos.tp)
+                    const contractSize = 100_000
+                    const slUsd = !isNaN(slVal)
+                      ? (isBuy ? slVal - pos.openPrice : pos.openPrice - slVal) * pos.volume * contractSize : null
+                    const tpUsd = !isNaN(tpVal)
+                      ? (isBuy ? tpVal - pos.openPrice : pos.openPrice - tpVal) * pos.volume * contractSize : null
+                    const fmtUsd = (v: number) =>
+                      (v >= 0 ? '+' : '') + v.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                    return (
+                      <div className="space-y-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-[#ef4444] font-semibold w-6">SL</span>
+                          <input
+                            type="number" step="0.00001" value={editingPos.sl}
+                            onChange={e => setEditingPos(p => p ? { ...p, sl: e.target.value } : p)}
+                            className="flex-1 px-3 py-2 rounded-lg bg-[#0d1117] border border-[#ef4444]/40 text-[#ef4444] text-[13px] font-mono focus:outline-none"
+                          />
+                          {slUsd !== null && <span className={cn('text-[12px] font-mono font-bold w-20 text-right', slUsd >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>{fmtUsd(slUsd)}</span>}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-[#22c55e] font-semibold w-6">TP</span>
+                          <input
+                            type="number" step="0.00001" value={editingPos.tp}
+                            onChange={e => setEditingPos(p => p ? { ...p, tp: e.target.value } : p)}
+                            className="flex-1 px-3 py-2 rounded-lg bg-[#0d1117] border border-[#22c55e]/40 text-[#22c55e] text-[13px] font-mono focus:outline-none"
+                          />
+                          {tpUsd !== null && <span className={cn('text-[12px] font-mono font-bold w-20 text-right', tpUsd >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>{fmtUsd(tpUsd)}</span>}
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleModifyPosition(pos.id, editingPos.sl, editingPos.tp)}
+                            className="flex-1 py-2 rounded-lg text-[12px] font-bold bg-[#22c55e]/15 border border-[#22c55e]/50 text-[#22c55e]"
+                          >✓ Confirmar</button>
+                          <button
+                            onClick={() => setEditingPos(null)}
+                            className="flex-1 py-2 rounded-lg text-[12px] font-semibold border border-[#30363d] text-[#484f58]"
+                          >✕ Cancelar</button>
+                        </div>
+                      </div>
+                    )
+                  })()}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setEditingPos(isEditing ? null : { id: pos.id, sl: pos.stopLoss?.toFixed(5) ?? '', tp: pos.takeProfit?.toFixed(5) ?? '' })}
+                      className={cn(
+                        'flex-1 py-2 rounded-lg text-[12px] font-semibold border transition-colors',
+                        isEditing ? 'border-[#f59e0b]/50 bg-[#f59e0b]/10 text-[#f59e0b]' : 'border-[#30363d] text-[#484f58]',
+                      )}
+                    >✎ Editar SL/TP</button>
+                    <button
+                      onClick={() => handleClosePosition(pos.id)}
+                      className="flex-1 py-2 rounded-lg text-[12px] font-semibold border border-[#ef4444]/40 text-[#ef4444]"
+                    ><XIcon size={12} className="inline mr-1" />Fechar</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+        <div className="h-4" />
+      </div>
+
+      {/* ── Bottom sheet: Histórico ─────────────────────────────────── */}
+      <div className={cn(
+        'md:hidden fixed bottom-[60px] left-0 right-0 bg-[#161b22] border-t border-[#30363d] rounded-t-2xl z-20 transition-transform duration-300 max-h-[78vh] overflow-y-auto',
+        mobileTab === 'history' ? 'translate-y-0' : 'translate-y-full pointer-events-none',
+      )}>
+        <div className="w-10 h-1 bg-[#30363d] rounded-full mx-auto mt-3 mb-2 shrink-0" />
+        <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between flex-wrap gap-2">
+          <span className="text-[12px] font-bold text-[#f0f6fc] flex items-center gap-1.5">
+            <History size={12} className="text-[#26c6da]" /> Relatório de Operações
+          </span>
+          <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]">
+            {(['today', '7d', '30d', '3m'] as const).map(p => {
+              const labels = { today: 'Hoje', '7d': '7d', '30d': '30d', '3m': '3m' }
+              return (
+                <button
+                  key={p}
+                  onClick={() => setHistoryPeriod(p)}
+                  disabled={historyLoading}
+                  className={cn(
+                    'px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all disabled:opacity-50',
+                    historyPeriod === p ? 'bg-[#26c6da] text-[#0d1117]' : 'text-[#484f58] hover:text-[#8b949e]',
+                  )}
+                >{labels[p]}</button>
+              )
+            })}
+          </div>
+        </div>
+        {!metaConnected ? (
+          <div className="px-4 py-10 text-center text-[12px] text-[#484f58]">Conecte o MetaAPI para ver o histórico</div>
+        ) : historyLoading ? (
+          <div className="px-4 py-10 text-center text-[12px] text-[#26c6da] animate-pulse">Carregando…</div>
+        ) : metaHistory.length === 0 ? (
+          <div className="px-4 py-10 text-center text-[12px] text-[#484f58]">Nenhuma operação fechada no período</div>
+        ) : (
+          <>
+            {/* KPIs compactos */}
+            {(() => {
+              const wins     = metaHistory.filter(d => d.profit > 0).length
+              const losses   = metaHistory.filter(d => d.profit < 0).length
+              const tot      = metaHistory.reduce((s, d) => s + d.profit, 0)
+              const wr       = (wins / metaHistory.length * 100).toFixed(0)
+              return (
+                <div className="grid grid-cols-3 border-b border-[#30363d]">
+                  {[
+                    { label: 'Operações', val: String(metaHistory.length), sub: `${wins}G · ${losses}P`, c: '#8b949e' },
+                    { label: 'Lucro',     val: `${tot >= 0 ? '+' : ''}${tot.toFixed(2)}`, sub: 'USD', c: tot >= 0 ? '#22c55e' : '#ef4444' },
+                    { label: 'Win Rate',  val: `${wr}%`, sub: `${wins} wins`, c: Number(wr) >= 50 ? '#22c55e' : '#ef4444' },
+                  ].map((s, i) => (
+                    <div key={s.label} className={cn('flex flex-col items-center py-3 px-2', i < 2 && 'border-r border-[#21262d]')}>
+                      <span className="text-[8px] text-[#484f58] uppercase tracking-widest mb-1">{s.label}</span>
+                      <span className="text-[14px] font-mono font-bold leading-none" style={{ color: s.c }}>{s.val}</span>
+                      <span className="text-[8px] text-[#484f58] mt-1">{s.sub}</span>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
+            {/* Lista de trades */}
+            <div className="divide-y divide-[#21262d]">
+              {metaHistory.map(deal => {
+                const isBuy  = deal.type === 'DEAL_TYPE_BUY'
+                const isWin  = deal.profit > 0
+                const isLoss = deal.profit < 0
+                const color  = isWin ? '#22c55e' : isLoss ? '#ef4444' : '#8b949e'
+                const dt     = new Date(deal.time)
+                const fmtDate = dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+                const fmtTime = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                return (
+                  <div key={deal.id} className="px-4 py-3 flex items-center gap-3" style={{ borderLeft: `3px solid ${color}40` }}>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="font-bold text-[12px] text-[#f0f6fc]">{deal.symbol}</span>
+                        <span className={cn('text-[10px] font-bold', isBuy ? 'text-[#3b82f6]' : 'text-[#f59e0b]')}>
+                          {isBuy ? '▲ BUY' : '▼ SELL'}
+                        </span>
+                        <span className="ml-auto text-[11px] font-mono" style={{ color }}>
+                          {isWin ? '✓ TP' : isLoss ? '✕ SL' : '— FEC'}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-[#484f58] font-mono">{fmtDate} {fmtTime} · {deal.volume}L</div>
+                    </div>
+                    <span className="font-mono font-bold text-[14px] shrink-0" style={{ color }}>
+                      {deal.profit > 0 ? '+' : ''}{deal.profit.toFixed(2)}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )}
+        <div className="h-4" />
       </div>
 
       {/* Feature 5: alertas do bot — posições abertas/fechadas automaticamente */}
@@ -1477,7 +1886,7 @@ export default function ChartPage() {
       {/* Feature 3: toast de feedback ao executar ordem OCO via MetaAPI */}
       {orderToast && (
         <div className={cn(
-          'fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-2xl border text-[11px] font-semibold max-w-xs',
+          'fixed bottom-[76px] md:bottom-6 right-4 md:right-6 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-2xl border text-[11px] font-semibold max-w-xs',
           orderToast.ok
             ? 'bg-[#0d1117] border-[#22c55e]/50 text-[#22c55e]'
             : 'bg-[#0d1117] border-[#ef4444]/50 text-[#ef4444]',
