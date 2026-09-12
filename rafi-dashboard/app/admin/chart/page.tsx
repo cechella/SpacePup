@@ -222,10 +222,11 @@ export default function ChartPage() {
     setMetaLoading(true)
     setMetaError(null)
     try {
-      const res = await fetch(`/api/metaapi/candles?symbol=EURUSD&tf=${tf}&limit=500`)
+      const res = await fetch(`/api/metaapi/candles?symbol=EURUSD&timeframe=${tf}&limit=500`)
       if (!res.ok) throw new Error(`MetaAPI: ${res.status}`)
-      const rows: CandleData[] = await res.json()
-      if (rows.length === 0) throw new Error('Nenhum candle retornado')
+      const data = await res.json()
+      const rows: CandleData[] = data.candles ?? data
+      if (!Array.isArray(rows) || rows.length === 0) throw new Error('Nenhum candle retornado')
       rows.sort((a, b) => a.time - b.time)
       const result: LoadResult = {
         candles:   rows,
