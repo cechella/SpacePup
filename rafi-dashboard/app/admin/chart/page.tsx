@@ -111,6 +111,8 @@ export default function ChartPage() {
     id: string; symbol: string; type: string
     volume: number; price: number; profit: number; time: string; comment: string
   }>>([])
+  const [historyPeriod,  setHistoryPeriod]  = useState<'today' | '7d' | '30d' | '3m'>('7d')
+  const [historyLoading, setHistoryLoading] = useState(false)
   const prevPositionsRef = useRef<typeof metaPositions>([])
   const fileInputRef        = useRef<HTMLInputElement>(null)
   const historyPanelRef     = useRef<HTMLDivElement>(null)
@@ -331,8 +333,8 @@ export default function ChartPage() {
               })),
               ...a,
             ].slice(0, 4))
-            // Atualiza histórico quando uma posição fecha
-            if (closed.length > 0) setTimeout(() => fetchHistory(), 3000)
+            // Atualiza histórico quando uma posição fecha (mantém período atual)
+            if (closed.length > 0) setTimeout(() => fetchHistory(historyPeriod), 3000)
           }
           prevPositionsRef.current = newPos
           return newPos
@@ -341,15 +343,17 @@ export default function ChartPage() {
     } catch {}
   }, [])
 
-  // Histórico: busca trades fechados da Pepperstone (últimos 7 dias)
-  const fetchHistory = useCallback(async () => {
+  // Histórico: busca trades fechados da Pepperstone pelo período selecionado
+  const fetchHistory = useCallback(async (period = '7d') => {
+    setHistoryLoading(true)
     try {
-      const res = await fetch('/api/metaapi/history')
+      const res = await fetch(`/api/metaapi/history?period=${period}`)
       if (res.ok) {
         const data = await res.json()
         if (!data.error) setMetaHistory(data.history ?? [])
       }
     } catch {}
+    setHistoryLoading(false)
   }, [])
 
   // Feature 2: fecha posição individual via MetaAPI
@@ -402,11 +406,11 @@ export default function ChartPage() {
     } catch {}
   }, [])
 
-  // Histórico: carrega uma vez ao conectar e limpa ao desconectar
+  // Histórico: carrega ao conectar ou ao mudar período; limpa ao desconectar
   useEffect(() => {
     if (!metaConnected) { setMetaHistory([]); return }
-    fetchHistory()
-  }, [metaConnected, fetchHistory])
+    fetchHistory(historyPeriod)
+  }, [metaConnected, historyPeriod, fetchHistory])
 
   // Features 1, 2, 5: poll saldo + posições a cada 30s quando MetaAPI ativo
   useEffect(() => {
@@ -1098,42 +1102,163 @@ export default function ChartPage() {
         )}
 
         {/* Histórico de trades fechados · Pepperstone */}
-        {metaConnected && metaHistory.length > 0 && (
+        {metaConnected && (
           <div className="shrink-0 rounded-xl border border-[#30363d] bg-[#0b1219] overflow-hidden">
-            <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between">
-              <span className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">
-                Histórico · Pepperstone
+
+            {/* Cabeçalho */}
+            <div className="px-4 py-2.5 border-b border-[#30363d] flex items-center justify-between flex-wrap gap-2">
+              <span className="text-[11px] font-bold text-[#f0f6fc] flex items-center gap-1.5">
+                <History size={11} className="text-[#26c6da]" />
+                Relatório de Operações
+                <span className="text-[9px] font-normal text-[#484f58] ml-1">· Pepperstone</span>
               </span>
-              <span className="text-[9px] text-[#484f58]">últimos 7 dias</span>
+              {/* Filtros de período */}
+              <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]">
+                {(['today', '7d', '30d', '3m'] as const).map(p => {
+                  const labels = { today: 'Hoje', '7d': '7 dias', '30d': '30 dias', '3m': '3 meses' }
+                  const active = historyPeriod === p
+                  return (
+                    <button
+                      key={p}
+                      onClick={() => setHistoryPeriod(p)}
+                      disabled={historyLoading}
+                      className={cn(
+                        'px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all disabled:opacity-50',
+                        active
+                          ? 'bg-[#26c6da] text-[#0d1117]'
+                          : 'text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
+                      )}
+                    >
+                      {labels[p]}
+                    </button>
+                  )
+                })}
+              </div>
+              {historyLoading && (
+                <div className="flex items-center gap-1.5 text-[9px] text-[#26c6da] animate-pulse">
+                  <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10">
+                    <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeDasharray="20 6" />
+                  </svg>
+                  Carregando…
+                </div>
+              )}
             </div>
-            <div className="flex flex-wrap gap-2 p-3 max-h-[200px] overflow-y-auto">
-              {metaHistory.slice(0, 10).map(deal => {
-                const isBuy   = deal.type === 'DEAL_TYPE_BUY'
-                const isWin   = deal.profit > 0
-                const color   = isWin ? '#22c55e' : deal.profit < 0 ? '#ef4444' : '#8b949e'
-                const label   = isWin ? 'TP ATINGIDO' : deal.profit < 0 ? 'SL ATINGIDO' : 'FECHADA'
-                const ms      = Date.now() - new Date(deal.time).getTime()
-                const mins    = Math.floor(ms / 60000)
-                const timeAgo = mins < 1 ? 'agora' : mins < 60 ? `há ${mins}min` : mins < 1440 ? `há ${Math.floor(mins / 60)}h` : `há ${Math.floor(mins / 1440)}d`
-                return (
-                  <div key={deal.id} className="min-w-[160px] rounded-lg overflow-hidden border" style={{ borderColor: `${color}25` }}>
-                    <div className="px-2.5 py-1.5 flex items-center gap-1.5" style={{ background: `${color}12` }}>
-                      <span className="text-[9px] font-bold" style={{ color }}>{isWin ? '✓' : deal.profit < 0 ? '✕' : '—'}</span>
-                      <span className="text-[9px] font-bold tracking-wide" style={{ color }}>{label}</span>
+
+            {/* Resumo estatístico — 5 KPIs */}
+            {metaHistory.length > 0 && (() => {
+              const wins       = metaHistory.filter(d => d.profit > 0).length
+              const losses     = metaHistory.filter(d => d.profit < 0).length
+              const totalPnl   = metaHistory.reduce((s, d) => s + d.profit, 0)
+              const winRate    = (wins / metaHistory.length * 100).toFixed(0)
+              const bestTrade  = Math.max(...metaHistory.map(d => d.profit))
+              const worstTrade = Math.min(...metaHistory.map(d => d.profit))
+              return (
+                <div className="grid grid-cols-5 border-b border-[#30363d]">
+                  {[
+                    { label: 'Operações', value: String(metaHistory.length), sub: `${wins}G · ${losses}P`, color: '#8b949e' },
+                    { label: 'Lucro Total', value: `${totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)}`, sub: 'USD', color: totalPnl >= 0 ? '#22c55e' : '#ef4444' },
+                    { label: 'Win Rate', value: `${winRate}%`, sub: `${wins} wins`, color: Number(winRate) >= 50 ? '#22c55e' : '#ef4444' },
+                    { label: 'Melhor', value: `+${bestTrade.toFixed(2)}`, sub: 'USD', color: '#22c55e' },
+                    { label: 'Pior', value: worstTrade.toFixed(2), sub: 'USD', color: '#ef4444' },
+                  ].map((s, i) => (
+                    <div key={s.label} className={cn('flex flex-col items-center py-3 px-2', i < 4 && 'border-r border-[#21262d]')}>
+                      <span className="text-[8px] text-[#484f58] uppercase tracking-widest mb-1">{s.label}</span>
+                      <span className="text-[13px] font-mono font-bold leading-none" style={{ color: s.color }}>{s.value}</span>
+                      <span className="text-[8px] text-[#484f58] mt-1">{s.sub}</span>
                     </div>
-                    <div className="px-2.5 py-2 bg-[#0d1117]">
-                      <div className="text-[10px] font-semibold text-[#f0f6fc]">
-                        {deal.symbol} · {isBuy ? '▲' : '▼'} {deal.volume}L
-                      </div>
-                      <div className={cn('text-[9px] font-mono font-bold mt-1', isWin ? 'text-[#22c55e]' : deal.profit < 0 ? 'text-[#ef4444]' : 'text-[#8b949e]')}>
-                        {deal.profit > 0 ? '+' : ''}{deal.profit.toFixed(2)} USD
-                      </div>
-                      <div className="text-[9px] text-[#484f58] mt-0.5">{timeAgo} · Pepperstone</div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+                  ))}
+                </div>
+              )
+            })()}
+
+            {/* Estado vazio */}
+            {metaHistory.length === 0 && !historyLoading && (
+              <div className="px-4 py-6 text-center">
+                <span className="text-[10px] text-[#484f58]">Nenhuma operação fechada no período selecionado</span>
+              </div>
+            )}
+
+            {/* Tabela de operações */}
+            {metaHistory.length > 0 && (
+              <div className="overflow-x-auto max-h-[260px] overflow-y-auto">
+                <table className="w-full text-[10px] border-collapse">
+                  <thead className="sticky top-0 z-10 bg-[#0d1117]">
+                    <tr className="border-b border-[#30363d]">
+                      {['Resultado', 'Par', 'Direção', 'Lote', 'Preço Saída', 'Lucro (USD)', 'Data · Hora'].map(h => (
+                        <th key={h} className="px-3 py-2 text-left text-[8px] font-semibold text-[#484f58] uppercase tracking-widest whitespace-nowrap">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#21262d]/50">
+                    {metaHistory.map(deal => {
+                      const isBuy  = deal.type === 'DEAL_TYPE_BUY'
+                      const isWin  = deal.profit > 0
+                      const isLoss = deal.profit < 0
+                      const color  = isWin ? '#22c55e' : isLoss ? '#ef4444' : '#8b949e'
+                      const dt     = new Date(deal.time)
+                      const fmtDate = dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
+                      const fmtTime = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                      return (
+                        <tr
+                          key={deal.id}
+                          className="hover:bg-[#161b22] transition-colors group"
+                          style={{ borderLeft: `2px solid ${color}35` }}
+                        >
+                          {/* Resultado */}
+                          <td className="px-3 py-2">
+                            <span
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-bold"
+                              style={{ background: `${color}15`, color }}
+                            >
+                              {isWin ? '✓ TP' : isLoss ? '✕ SL' : '— FEC'}
+                            </span>
+                          </td>
+                          {/* Par */}
+                          <td className="px-3 py-2 font-semibold text-[#f0f6fc] whitespace-nowrap">{deal.symbol}</td>
+                          {/* Direção */}
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            <span className={cn('font-bold', isBuy ? 'text-[#3b82f6]' : 'text-[#f59e0b]')}>
+                              {isBuy ? '▲ BUY' : '▼ SELL'}
+                            </span>
+                          </td>
+                          {/* Lote */}
+                          <td className="px-3 py-2 text-[#8b949e] font-mono">{deal.volume}</td>
+                          {/* Preço saída */}
+                          <td className="px-3 py-2 font-mono text-[#8b949e] whitespace-nowrap">{deal.price?.toFixed(5) ?? '—'}</td>
+                          {/* Lucro */}
+                          <td className="px-3 py-2 font-mono font-bold whitespace-nowrap" style={{ color }}>
+                            {deal.profit > 0 ? '+' : ''}{deal.profit.toFixed(2)}
+                          </td>
+                          {/* Data/hora */}
+                          <td className="px-3 py-2 text-[#484f58] whitespace-nowrap font-mono">
+                            {fmtDate} <span className="text-[#30363d]">·</span> {fmtTime}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  {/* Rodapé com totais */}
+                  <tfoot className="sticky bottom-0 bg-[#0d1117] border-t border-[#30363d]">
+                    <tr>
+                      <td colSpan={5} className="px-3 py-2 text-[9px] text-[#484f58]">
+                        {metaHistory.length} operações
+                      </td>
+                      <td className="px-3 py-2 font-mono font-bold text-[10px]" style={{
+                        color: metaHistory.reduce((s, d) => s + d.profit, 0) >= 0 ? '#22c55e' : '#ef4444'
+                      }}>
+                        {(() => {
+                          const t = metaHistory.reduce((s, d) => s + d.profit, 0)
+                          return `${t >= 0 ? '+' : ''}${t.toFixed(2)}`
+                        })()}
+                      </td>
+                      <td className="px-3 py-2 text-[9px] text-[#484f58]">total</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
           </div>
         )}
 

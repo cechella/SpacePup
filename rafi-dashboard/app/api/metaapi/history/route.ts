@@ -7,8 +7,27 @@ const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
 export const runtime     = 'nodejs'
 export const maxDuration = 60
 
-export async function GET() {
+// Converte parâmetro de período para data de início
+function periodToFrom(period: string): Date {
+  const now = new Date()
+  switch (period) {
+    case 'today': {
+      const d = new Date(now)
+      d.setHours(0, 0, 0, 0)
+      return d
+    }
+    case '30d':  return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+    case '3m':   return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+    case '7d':
+    default:     return new Date(now.getTime() -  7 * 24 * 60 * 60 * 1000)
+  }
+}
+
+export async function GET(req: Request) {
   try {
+    const { searchParams } = new URL(req.url)
+    const period = searchParams.get('period') ?? '7d'
+
     const api        = new MetaApi(TOKEN)
     const account    = await api.metatraderAccountApi.getAccount(ACCOUNT)
     const connection = account.getRPCConnection()
@@ -16,8 +35,8 @@ export async function GET() {
     await connection.waitSynchronized(8)
 
     const now  = new Date()
-    const from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) // últimos 7 dias
-    const raw   = await (connection as any).getDealsByTimeRange(from, now, 0, 50)
+    const from = periodToFrom(period)
+    const raw  = await (connection as any).getDealsByTimeRange(from, now, 0, 100)
     // getDealsByTimeRange retorna { deals: [...], synchronizing: bool }, não um array direto
     const deals = Array.isArray(raw) ? raw : ((raw as any).deals ?? [])
 
@@ -40,7 +59,7 @@ export async function GET() {
       }))
       .reverse() // mais recente primeiro
 
-    return NextResponse.json({ history })
+    return NextResponse.json({ history, period })
   } catch (e: any) {
     console.error('[MetaAPI history]', e.message)
     return NextResponse.json({ error: e.message }, { status: 500 })
