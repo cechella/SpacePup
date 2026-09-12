@@ -1621,11 +1621,11 @@ export default function ChartPage() {
       {/* ── Barra de abas mobile ──────────────────────────────────────── */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 h-[60px] bg-[#161b22] border-t border-[#30363d] flex z-20">
         {([
-          { id: 'chart',     Icon: BarChart2, label: 'Gráfico'  },
-          { id: 'positions', Icon: Layers,    label: 'Posições', badge: metaConnected && metaPositions.length > 0 ? metaPositions.length : 0 },
-          { id: 'trade',     Icon: Crosshair, label: 'Operação' },
-          { id: 'history',   Icon: History,   label: 'Histórico' },
-        ] as const).map(({ id, Icon, label, badge }) => (
+          { id: 'chart',     Icon: BarChart2, label: 'Gráfico',   badge: 0 },
+          { id: 'positions', Icon: Layers,    label: 'Posições',  badge: metaConnected && metaPositions.length > 0 ? metaPositions.length : 0 },
+          { id: 'trade',     Icon: Crosshair, label: 'Operação',  badge: 0 },
+          { id: 'history',   Icon: History,   label: 'Histórico', badge: 0 },
+        ] as Array<{ id: 'chart'|'positions'|'trade'|'history'; Icon: any; label: string; badge: number }>).map(({ id, Icon, label, badge }) => (
           <button
             key={id}
             onClick={() => setMobileTab(id as any)}
