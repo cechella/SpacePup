@@ -4,7 +4,6 @@ import MetaApi from 'metaapi.cloud-sdk'
 const TOKEN = process.env.METAAPI_TOKEN!
 const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
 
-// Mapeamento de timeframes para o formato aceito pelo SDK
 const TF_MAP: Record<string, { api: string; minutes: number }> = {
   M5:  { api: '5m',  minutes: 5  },
   M15: { api: '15m', minutes: 15 },
@@ -22,17 +21,13 @@ export async function GET(req: Request) {
 
   const tf = TF_MAP[timeframe] ?? TF_MAP['M15']
 
-  let connection: any = null
   try {
     const api = new MetaApi(TOKEN)
     const account = await api.metatraderAccountApi.getAccount(ACCOUNT)
 
-    // Conexão RPC: requisição/resposta sem sincronização completa (mais rápido)
-    connection = account.getRPCConnection()
-    await connection.connect()
-
+    // getHistoricalCandles é REST direto — não precisa de conexão WebSocket
     const startTime = new Date(Date.now() - tf.minutes * limit * 2 * 60 * 1000)
-    const raw: any[] = await connection.getHistoricalCandles(symbol, tf.api, startTime, undefined, limit)
+    const raw = await account.getHistoricalCandles(symbol, tf.api, startTime, limit)
 
     const candles = (Array.isArray(raw) ? raw : []).map((c: any) => ({
       time:   new Date(c.time).getTime() / 1000,
@@ -45,11 +40,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ candles, symbol, timeframe })
   } catch (e: any) {
-    console.error('[MetaAPI SDK candles] erro:', e.message)
+    console.error('[MetaAPI candles] erro:', e.message)
     return NextResponse.json({ error: e.message }, { status: 500 })
-  } finally {
-    if (connection) {
-      try { await connection.close() } catch (_) {}
-    }
   }
 }
