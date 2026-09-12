@@ -113,6 +113,8 @@ export default function ChartPage() {
   }>>([])
   const [historyPeriod,  setHistoryPeriod]  = useState<'today' | '7d' | '30d' | '3m'>('7d')
   const [historyLoading, setHistoryLoading] = useState(false)
+  // Edição inline de SL/TP: { positionId, sl: string, tp: string }
+  const [editingPos, setEditingPos] = useState<{ id: string; sl: string; tp: string } | null>(null)
   const prevPositionsRef = useRef<typeof metaPositions>([])
   const fileInputRef        = useRef<HTMLInputElement>(null)
   const historyPanelRef     = useRef<HTMLDivElement>(null)
@@ -368,6 +370,34 @@ export default function ChartPage() {
         setMetaPositions(prev => prev.filter(p => p.id !== positionId))
       }
     } catch {}
+  }, [])
+
+  // Modifica SL/TP de uma posição aberta via MetaAPI
+  const handleModifyPosition = useCallback(async (positionId: string, sl: string, tp: string) => {
+    const stopLoss   = parseFloat(sl)
+    const takeProfit = parseFloat(tp)
+    if (isNaN(stopLoss) || isNaN(takeProfit)) return
+    try {
+      const res = await fetch('/api/metaapi/positions/modify', {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ positionId, stopLoss, takeProfit }),
+      })
+      const data = await res.json()
+      if (res.ok && data.ok) {
+        // Atualiza localmente para refletir de imediato antes do próximo poll
+        setMetaPositions(prev => prev.map(p =>
+          p.id === positionId ? { ...p, stopLoss, takeProfit } : p,
+        ))
+        setOrderToast({ ok: true, msg: `SL/TP atualizados com sucesso` })
+      } else {
+        setOrderToast({ ok: false, msg: data.error ?? 'Erro ao modificar posição' })
+      }
+    } catch {
+      setOrderToast({ ok: false, msg: 'Erro de conexão ao modificar posição' })
+    }
+    setEditingPos(null)
+    setTimeout(() => setOrderToast(null), 4000)
   }, [])
 
   // Carrega candles do Supabase (tabela rafi_candles) — substitui CSV local
@@ -1073,27 +1103,98 @@ export default function ChartPage() {
             </div>
             <div className="divide-y divide-[#21262d]">
               {metaPositions.map(pos => {
-                const isBuy    = pos.type === 'POSITION_TYPE_BUY'
-                const pnlColor = pos.profit >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'
+                const isBuy     = pos.type === 'POSITION_TYPE_BUY'
+                const pnlColor  = pos.profit >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'
+                const isEditing = editingPos?.id === pos.id
                 return (
-                  <div key={pos.id} className="flex items-center gap-3 px-4 py-2 text-[10px] hover:bg-[#161b22] transition-colors">
-                    <span className={cn('font-bold text-[11px]', isBuy ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
-                      {isBuy ? '▲' : '▼'}
-                    </span>
-                    <span className="font-semibold text-[#f0f6fc] w-14">{pos.symbol}</span>
-                    <span className="text-[#8b949e]">{pos.volume}L</span>
-                    <span className="text-[#484f58]">@ {pos.openPrice.toFixed(5)}</span>
-                    <span className="text-[#484f58]">→ {pos.currentPrice.toFixed(5)}</span>
-                    <span className={cn('font-mono font-bold ml-auto', pnlColor)}>
-                      {pos.profit >= 0 ? '+' : ''}{pos.profit.toFixed(2)} USD
-                    </span>
-                    <button
-                      onClick={() => handleClosePosition(pos.id)}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-semibold border border-[#ef4444]/40 text-[#ef4444] hover:bg-[#ef4444]/10 transition-colors"
-                      title="Fechar posição via MetaAPI"
-                    >
-                      <XIcon size={9} /> Fechar
-                    </button>
+                  <div key={pos.id} className="px-4 py-2 text-[10px] hover:bg-[#161b22] transition-colors">
+                    {/* Linha principal */}
+                    <div className="flex items-center gap-3">
+                      <span className={cn('font-bold text-[11px]', isBuy ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
+                        {isBuy ? '▲' : '▼'}
+                      </span>
+                      <span className="font-semibold text-[#f0f6fc] w-14">{pos.symbol}</span>
+                      <span className="text-[#8b949e]">{pos.volume}L</span>
+                      <span className="text-[#484f58]">@ {pos.openPrice.toFixed(5)}</span>
+                      <span className="text-[#484f58]">→ {pos.currentPrice.toFixed(5)}</span>
+                      <span className={cn('font-mono font-bold ml-auto', pnlColor)}>
+                        {pos.profit >= 0 ? '+' : ''}{pos.profit.toFixed(2)} USD
+                      </span>
+                      {/* Botão editar SL/TP */}
+                      <button
+                        onClick={() => setEditingPos(isEditing ? null : {
+                          id: pos.id,
+                          sl: pos.stopLoss?.toFixed(5) ?? '',
+                          tp: pos.takeProfit?.toFixed(5) ?? '',
+                        })}
+                        className={cn(
+                          'flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-semibold border transition-colors',
+                          isEditing
+                            ? 'border-[#f59e0b]/50 bg-[#f59e0b]/10 text-[#f59e0b]'
+                            : 'border-[#30363d] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
+                        )}
+                        title="Editar SL e TP desta posição"
+                      >
+                        ✎ SL/TP
+                      </button>
+                      <button
+                        onClick={() => handleClosePosition(pos.id)}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-semibold border border-[#ef4444]/40 text-[#ef4444] hover:bg-[#ef4444]/10 transition-colors"
+                        title="Fechar posição via MetaAPI"
+                      >
+                        <XIcon size={9} /> Fechar
+                      </button>
+                    </div>
+
+                    {/* SL/TP atuais (sempre visível) */}
+                    {!isEditing && (
+                      <div className="flex items-center gap-4 mt-1 pl-5 text-[9px]">
+                        <span className="text-[#484f58]">
+                          SL <span className="font-mono text-[#ef4444]">{pos.stopLoss?.toFixed(5) ?? '—'}</span>
+                        </span>
+                        <span className="text-[#484f58]">
+                          TP <span className="font-mono text-[#22c55e]">{pos.takeProfit?.toFixed(5) ?? '—'}</span>
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Edição inline de SL/TP */}
+                    {isEditing && editingPos && (
+                      <div className="flex items-center gap-2 mt-2 pl-5 flex-wrap">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] text-[#ef4444] font-semibold w-4">SL</span>
+                          <input
+                            type="number"
+                            step="0.00001"
+                            value={editingPos.sl}
+                            onChange={e => setEditingPos(p => p ? { ...p, sl: e.target.value } : p)}
+                            className="w-24 px-2 py-1 rounded bg-[#0d1117] border border-[#ef4444]/40 text-[#ef4444] text-[10px] font-mono focus:outline-none focus:border-[#ef4444]"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] text-[#22c55e] font-semibold w-4">TP</span>
+                          <input
+                            type="number"
+                            step="0.00001"
+                            value={editingPos.tp}
+                            onChange={e => setEditingPos(p => p ? { ...p, tp: e.target.value } : p)}
+                            className="w-24 px-2 py-1 rounded bg-[#0d1117] border border-[#22c55e]/40 text-[#22c55e] text-[10px] font-mono focus:outline-none focus:border-[#22c55e]"
+                          />
+                        </div>
+                        <button
+                          onClick={() => handleModifyPosition(pos.id, editingPos.sl, editingPos.tp)}
+                          className="px-2.5 py-1 rounded text-[9px] font-bold bg-[#22c55e]/15 border border-[#22c55e]/50 text-[#22c55e] hover:bg-[#22c55e]/25 transition-colors"
+                        >
+                          ✓ Confirmar
+                        </button>
+                        <button
+                          onClick={() => setEditingPos(null)}
+                          className="px-2.5 py-1 rounded text-[9px] font-semibold border border-[#30363d] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d] transition-colors"
+                        >
+                          ✕ Cancelar
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )
               })}
