@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import { getSessionConfig, saveSessionConfig, SESSION_DEFAULTS, type SessionConfig } from '@/lib/session-config'
 
 const supa = typeof window !== 'undefined'
   ? createClient(
@@ -164,6 +165,9 @@ function ModalConfirmacao({ onConfirm, onCancel }: { onConfirm: () => void; onCa
 }
 
 export default function ConfigPage() {
+  const [sessionCfg,   setSessionCfg]   = useState<SessionConfig>(SESSION_DEFAULTS)
+  const [sessionSaved, setSessionSaved] = useState(false)
+
   const [simCfg,  setSimCfg]  = useState<Config>({ ...DEFAULTS })
   const [liveCfg, setLiveCfg] = useState<Config>({ ...DEFAULTS })
   const [simSaving,  setSimSaving]  = useState(false)
@@ -281,6 +285,8 @@ export default function ConfigPage() {
       if (apiData.live_hash) setLiveHashSupabase(apiData.live_hash)
     } catch { /* silencioso */ }
   }, [])
+
+  useEffect(() => { setSessionCfg(getSessionConfig()) }, [])
 
   useEffect(() => {
     if (!supa) return
@@ -1118,6 +1124,124 @@ export default function ConfigPage() {
           </div>
         ))}
       </div>
+
+      {/* ── Gestão de Sessão ──────────────────────────────────────────────── */}
+      <div style={{ marginTop: 20, background: C.s1, border: `1px solid ${C.bd}`, borderRadius: 8 }}>
+        {/* Header */}
+        <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.bd}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <span style={{ fontSize: 11, fontWeight: 800, color: C.am, letterSpacing: '0.06em' }}>
+              GESTÃO DE SESSÃO
+            </span>
+            <span style={{ marginLeft: 8, fontSize: 8, color: C.t2 }}>Cockpit · metas · gates de proteção</span>
+          </div>
+          {sessionSaved && (
+            <span style={{ fontSize: 9, color: C.gr, fontWeight: 700 }}>✓ Salvo</span>
+          )}
+        </div>
+
+        <div style={{ padding: '14px 16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
+          {/* Capital Inicial */}
+          {([
+            { key: 'capitalInicial',       label: 'Capital Inicial ($)',      tipo: 'float', min: 1 },
+            { key: 'dailyGoal',            label: 'Meta Diária ($)',           tipo: 'float', min: 0.01 },
+            { key: 'weeklyGoal',           label: 'Meta Semanal ($)',          tipo: 'float', min: 0.01 },
+            { key: 'monthlyGoal',          label: 'Meta Mensal ($)',           tipo: 'float', min: 0.01 },
+            { key: 'capitalTarget',        label: 'Meta Final ($)',            tipo: 'float', min: 1000 },
+            { key: 'maxConsecutiveLosses', label: 'Max Perdas Seguidas',       tipo: 'int',   min: 1, max: 10 },
+            { key: 'maxWeeklyDrawdownPct', label: 'Drawdown Semanal Max (%)', tipo: 'float', min: 1, max: 100 },
+          ] as { key: keyof SessionConfig; label: string; tipo: string; min?: number; max?: number }[]).map(f => (
+            <div key={f.key}>
+              <div style={{ fontSize: 8, color: C.t2, marginBottom: 4, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                {f.label}
+              </div>
+              <input
+                type="number" step={f.tipo === 'int' ? 1 : 'any'} min={f.min} max={f.max}
+                value={sessionCfg[f.key] as number}
+                onChange={e => {
+                  const v = f.tipo === 'int' ? parseInt(e.target.value) : parseFloat(e.target.value)
+                  if (isNaN(v)) return
+                  const updated = { ...sessionCfg, [f.key]: v }
+                  setSessionCfg(updated)
+                  saveSessionConfig(updated)
+                  setSessionSaved(true); setTimeout(() => setSessionSaved(false), 2500)
+                }}
+                style={{ width: '100%', padding: '6px 8px', background: C.bg, border: `1px solid ${C.bd}`,
+                  borderRadius: 4, color: C.tx, fontSize: 11, fontFamily: 'monospace',
+                  outline: 'none', boxSizing: 'border-box' as const }}
+              />
+            </div>
+          ))}
+
+          {/* Janela operacional */}
+          <div>
+            <div style={{ fontSize: 8, color: C.t2, marginBottom: 4, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+              Início da Sessão (UTC)
+            </div>
+            <input
+              type="time" value={sessionCfg.sessionStartUTC}
+              onChange={e => {
+                const updated = { ...sessionCfg, sessionStartUTC: e.target.value }
+                setSessionCfg(updated); saveSessionConfig(updated)
+                setSessionSaved(true); setTimeout(() => setSessionSaved(false), 2500)
+              }}
+              style={{ width: '100%', padding: '6px 8px', background: C.bg, border: `1px solid ${C.bd}`,
+                borderRadius: 4, color: C.tx, fontSize: 11, fontFamily: 'monospace',
+                outline: 'none', boxSizing: 'border-box' as const, colorScheme: 'dark' }}
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: 8, color: C.t2, marginBottom: 4, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+              Fim da Sessão (UTC)
+            </div>
+            <input
+              type="time" value={sessionCfg.sessionEndUTC}
+              onChange={e => {
+                const updated = { ...sessionCfg, sessionEndUTC: e.target.value }
+                setSessionCfg(updated); saveSessionConfig(updated)
+                setSessionSaved(true); setTimeout(() => setSessionSaved(false), 2500)
+              }}
+              style={{ width: '100%', padding: '6px 8px', background: C.bg, border: `1px solid ${C.bd}`,
+                borderRadius: 4, color: C.tx, fontSize: 11, fontFamily: 'monospace',
+                outline: 'none', boxSizing: 'border-box' as const, colorScheme: 'dark' }}
+            />
+          </div>
+        </div>
+
+        {/* Dias operacionais */}
+        <div style={{ padding: '10px 16px', borderTop: `1px solid ${C.bd}` }}>
+          <div style={{ fontSize: 8, color: C.t2, marginBottom: 8, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+            Dias Operacionais
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
+            {(['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'] as const).map((label, d) => {
+              const active = sessionCfg.tradingDays.includes(d)
+              return (
+                <button key={d} onClick={() => {
+                  const days = active
+                    ? sessionCfg.tradingDays.filter(x => x !== d)
+                    : [...sessionCfg.tradingDays, d].sort()
+                  const updated = { ...sessionCfg, tradingDays: days }
+                  setSessionCfg(updated); saveSessionConfig(updated)
+                  setSessionSaved(true); setTimeout(() => setSessionSaved(false), 2500)
+                }}
+                style={{
+                  padding: '4px 10px', borderRadius: 4, fontSize: 9, fontWeight: 700, cursor: 'pointer',
+                  background: active ? `${C.am}20` : C.bg,
+                  border: `1px solid ${active ? C.am : C.bd}`,
+                  color: active ? C.am : C.t2, transition: 'all 0.2s',
+                }}>
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+        <div style={{ padding: '5px 12px', fontSize: 7, color: C.t2, borderTop: `1px solid ${C.bd}` }}>
+          Salvo automaticamente no localStorage · usado pelo cockpit em /admin
+        </div>
+      </div>
+
     </div>
   )
 }
