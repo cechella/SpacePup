@@ -637,7 +637,7 @@ type SessionGate = ReturnType<typeof computeSessionGate>
 
 // ── Jornada de Capital — arco logarítmico ─────────────────────────────────────
 function CapitalJourney({ capitalAtual, cfg }: { capitalAtual: number; cfg: SessionConfig }) {
-  const CX = 200, CY = 190, R = 150
+  const CX = 200, CY = 180, R = 150
   const arcLen = Math.PI * R   // 471.24
 
   const logMin = Math.log10(Math.max(cfg.capitalInicial, 1))
@@ -683,12 +683,22 @@ function CapitalJourney({ capitalAtual, cfg }: { capitalAtual: number; cfg: Sess
         <span className="text-[10px] text-[#484f58]">escala logarítmica · $100 → $1M</span>
       </div>
 
-      <svg viewBox="0 0 400 220" className="w-full" style={{ maxHeight: 200 }}>
-        {/* Arco de fundo */}
-        <path d="M 50,190 A 150,150 0 0 0 350,190"
-          fill="none" stroke="#2d3748" strokeWidth="14" strokeLinecap="round" />
+      {/* Capital no topo — sempre visível sem precisar rolar */}
+      <div className="flex items-baseline justify-center gap-2 mb-1">
+        <span className="text-3xl font-black font-mono" style={{ color }}>
+          {fmtMoney(capitalAtual)}
+        </span>
+        <span className="text-sm text-[#8b949e] font-mono">
+          {(progress * 100).toFixed(1)}% da jornada
+        </span>
+      </div>
+
+      <svg viewBox="0 0 400 200" className="w-full" style={{ maxHeight: 170 }}>
+        {/* Arco de fundo — mais visível */}
+        <path d="M 50,180 A 150,150 0 0 0 350,180"
+          fill="none" stroke="#3d4a5e" strokeWidth="14" strokeLinecap="round" />
         {/* Arco preenchido — progresso */}
-        <path d="M 50,190 A 150,150 0 0 0 350,190"
+        <path d="M 50,180 A 150,150 0 0 0 350,180"
           fill="none" stroke={color} strokeWidth="14" strokeLinecap="round"
           strokeDasharray={dashArr} strokeDashoffset="0"
           style={{ transition: 'stroke-dasharray 1s ease' }} />
@@ -696,14 +706,16 @@ function CapitalJourney({ capitalAtual, cfg }: { capitalAtual: number; cfg: Sess
         {/* Marcos logarítmicos */}
         {milestones.map(m => {
           const pos = posOnArc(m.pct)
+          const adjY = pos.y - 10  // ajuste para novo CY=180
           const reached = progress >= m.pct
           return (
             <g key={m.label}>
-              <circle cx={pos.x} cy={pos.y} r="6"
-                fill={reached ? '#10b981' : '#21262d'}
-                stroke={reached ? '#10b981' : '#30363d'} strokeWidth="2" />
-              <text x={pos.x} y={pos.y - 12} textAnchor="middle"
-                fill={reached ? '#10b981' : '#484f58'} fontSize="10" fontFamily="monospace">
+              <circle cx={pos.x} cy={adjY} r="7"
+                fill={reached ? '#10b981' : '#30363d'}
+                stroke={reached ? '#10b981' : '#4a5568'} strokeWidth="2" />
+              <text x={pos.x} y={adjY - 13} textAnchor="middle"
+                fill={reached ? '#10b981' : '#6b7280'} fontSize="11" fontFamily="monospace"
+                fontWeight={reached ? '700' : '400'}>
                 {m.label}
               </text>
             </g>
@@ -711,26 +723,15 @@ function CapitalJourney({ capitalAtual, cfg }: { capitalAtual: number; cfg: Sess
         })}
 
         {/* Posição atual */}
-        {capitalAtual > cfg.capitalInicial && (
-          <circle cx={curPos.x} cy={curPos.y} r="9"
-            fill={color} stroke="#0d1117" strokeWidth="3" />
-        )}
+        <circle cx={curPos.x} cy={curPos.y - 10} r="10"
+          fill={color} stroke="#161b22" strokeWidth="3" />
 
         {/* Extremos */}
-        <text x="50" y="210" textAnchor="middle" fill="#484f58" fontSize="10" fontFamily="monospace">
+        <text x="50" y="198" textAnchor="middle" fill="#4a5568" fontSize="10" fontFamily="monospace">
           ${cfg.capitalInicial}
         </text>
-        <text x="350" y="210" textAnchor="middle" fill="#484f58" fontSize="10" fontFamily="monospace">
+        <text x="350" y="198" textAnchor="middle" fill="#4a5568" fontSize="10" fontFamily="monospace">
           {fmtMoney(cfg.capitalTarget)}
-        </text>
-
-        {/* Capital atual */}
-        <text x="200" y="145" textAnchor="middle" fontSize="28" fontFamily="monospace"
-          fontWeight="900" fill={color}>
-          {fmtMoney(capitalAtual)}
-        </text>
-        <text x="200" y="168" textAnchor="middle" fontSize="11" fontFamily="monospace" fill="#8b949e">
-          {(progress * 100).toFixed(1)}% da jornada
         </text>
       </svg>
     </div>
