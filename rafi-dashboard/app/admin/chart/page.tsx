@@ -35,11 +35,13 @@ const OCO_LEVERAGE = 1000
 const BASE_CAPITAL = 100  // capital inicial em USD
 
 // OCO com lote calculado pela tabela de escalonamento
+// Padrão: 10 pips SL · 30 pips TP → R:R 1:3 fixo
+const SL_PIPS = 10
+const TP_PIPS = 30  // 1:3
 function makeOCO(price: number, lot: number, time?: number): OCOState {
-  const p    = (v: number) => Math.round(v * 100000) / 100000
-  const pv   = lot * 10          // pip value em USD
-  const slOff = (5  / pv) * 0.0001  // ~2.5 pips fixos
-  const tpOff = (15 / pv) * 0.0001  // ~7.5 pips fixos
+  const p     = (v: number) => Math.round(v * 100000) / 100000
+  const slOff = SL_PIPS * 0.0001   // 10 pips = 0.0010
+  const tpOff = TP_PIPS * 0.0001   // 30 pips = 0.0030
   return {
     lot,
     leverage:  OCO_LEVERAGE,
