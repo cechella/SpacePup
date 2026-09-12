@@ -1004,7 +1004,7 @@ export default function ChartPage() {
           </div>
 
           {/* Chart */}
-          <div className="flex-1 min-h-0 relative">
+          <div className="flex-1 min-h-0">
             <RAFIChart
               candles={candles}
               rafiData={rafiData}
@@ -1029,26 +1029,6 @@ export default function ChartPage() {
               onOCOClose={handleOCOClose}
               snapshotCaptureRef={snapshotCaptureRef}
             />
-            {/* Feature 5: alertas do bot — posições abertas/fechadas automaticamente */}
-            {botAlerts.length > 0 && (
-              <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-10 pointer-events-none">
-                {botAlerts.map(alert => (
-                  <div
-                    key={alert.id}
-                    className={cn(
-                      'flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-semibold shadow-lg',
-                      alert.kind === 'open'
-                        ? 'bg-[#22c55e]/15 border border-[#22c55e]/40 text-[#22c55e]'
-                        : 'bg-[#ef4444]/15 border border-[#ef4444]/40 text-[#ef4444]',
-                    )}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full inline-block"
-                      style={{ background: alert.kind === 'open' ? '#22c55e' : '#ef4444' }} />
-                    <span>{alert.text}</span>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </div>
 
@@ -1124,6 +1104,27 @@ export default function ChartPage() {
           externalEntry={clickedEntry}
         />
       </div>
+
+      {/* Feature 5: alertas do bot — posições abertas/fechadas automaticamente */}
+      {botAlerts.length > 0 && (
+        <div className="fixed top-16 right-4 flex flex-col gap-1.5 z-40 pointer-events-none">
+          {botAlerts.map(alert => (
+            <div
+              key={alert.id}
+              className={cn(
+                'flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-semibold shadow-lg',
+                alert.kind === 'open'
+                  ? 'bg-[#0d1117] border border-[#22c55e]/40 text-[#22c55e]'
+                  : 'bg-[#0d1117] border border-[#ef4444]/40 text-[#ef4444]',
+              )}
+            >
+              <span className="w-1.5 h-1.5 rounded-full inline-block shrink-0"
+                style={{ background: alert.kind === 'open' ? '#22c55e' : '#ef4444' }} />
+              <span>{alert.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Feature 3: toast de feedback ao executar ordem OCO via MetaAPI */}
       {orderToast && (
