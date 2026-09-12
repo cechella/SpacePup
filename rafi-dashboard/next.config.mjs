@@ -2,7 +2,9 @@
 
 const nextConfig = {
   reactStrictMode: true,
-  serverExternalPackages: ['metaapi.cloud-sdk'],
+  experimental: {
+    serverComponentsExternalPackages: ['metaapi.cloud-sdk'],
+  },
 }
 
 export default nextConfig
