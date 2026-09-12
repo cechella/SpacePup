@@ -17,7 +17,7 @@ export async function GET() {
 
     const now  = new Date()
     const from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) // últimos 7 dias
-    const raw  = await connection.getDealsByTimeRange(from, now, 0, 50)
+    const raw  = await (connection as any).getDealsByTimeRange(from, now, 0, 50)
 
     await connection.close()
 

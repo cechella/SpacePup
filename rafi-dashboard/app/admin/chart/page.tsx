@@ -106,6 +106,11 @@ export default function ChartPage() {
   const [refreshIn,  setRefreshIn]  = useState(0)
   // Feature 5: alertas do bot (abertura/fechamento de posições)
   const [botAlerts,  setBotAlerts]  = useState<Array<{ id: string; kind: 'open' | 'close'; text: string }>>([])
+  // Histórico de trades fechados da Pepperstone
+  const [metaHistory, setMetaHistory] = useState<Array<{
+    id: string; symbol: string; type: string
+    volume: number; price: number; profit: number; time: string; comment: string
+  }>>([])
   const prevPositionsRef = useRef<typeof metaPositions>([])
   const fileInputRef        = useRef<HTMLInputElement>(null)
   const historyPanelRef     = useRef<HTMLDivElement>(null)
@@ -326,10 +331,23 @@ export default function ChartPage() {
               })),
               ...a,
             ].slice(0, 4))
+            // Atualiza histórico quando uma posição fecha
+            if (closed.length > 0) setTimeout(() => fetchHistory(), 3000)
           }
           prevPositionsRef.current = newPos
           return newPos
         })
+      }
+    } catch {}
+  }, [])
+
+  // Histórico: busca trades fechados da Pepperstone (últimos 7 dias)
+  const fetchHistory = useCallback(async () => {
+    try {
+      const res = await fetch('/api/metaapi/history')
+      if (res.ok) {
+        const data = await res.json()
+        if (!data.error) setMetaHistory(data.history ?? [])
       }
     } catch {}
   }, [])
@@ -383,6 +401,12 @@ export default function ChartPage() {
       }
     } catch {}
   }, [])
+
+  // Histórico: carrega uma vez ao conectar e limpa ao desconectar
+  useEffect(() => {
+    if (!metaConnected) { setMetaHistory([]); return }
+    fetchHistory()
+  }, [metaConnected, fetchHistory])
 
   // Features 1, 2, 5: poll saldo + posições a cada 30s quando MetaAPI ativo
   useEffect(() => {
@@ -1066,6 +1090,46 @@ export default function ChartPage() {
                     >
                       <XIcon size={9} /> Fechar
                     </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Histórico de trades fechados · Pepperstone */}
+        {metaConnected && metaHistory.length > 0 && (
+          <div className="shrink-0 rounded-xl border border-[#30363d] bg-[#0b1219] overflow-hidden">
+            <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between">
+              <span className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">
+                Histórico · Pepperstone
+              </span>
+              <span className="text-[9px] text-[#484f58]">últimos 7 dias</span>
+            </div>
+            <div className="flex flex-wrap gap-2 p-3 max-h-[200px] overflow-y-auto">
+              {metaHistory.slice(0, 10).map(deal => {
+                const isBuy   = deal.type === 'DEAL_TYPE_BUY'
+                const isWin   = deal.profit > 0
+                const color   = isWin ? '#22c55e' : deal.profit < 0 ? '#ef4444' : '#8b949e'
+                const label   = isWin ? 'TP ATINGIDO' : deal.profit < 0 ? 'SL ATINGIDO' : 'FECHADA'
+                const ms      = Date.now() - new Date(deal.time).getTime()
+                const mins    = Math.floor(ms / 60000)
+                const timeAgo = mins < 1 ? 'agora' : mins < 60 ? `há ${mins}min` : mins < 1440 ? `há ${Math.floor(mins / 60)}h` : `há ${Math.floor(mins / 1440)}d`
+                return (
+                  <div key={deal.id} className="min-w-[160px] rounded-lg overflow-hidden border" style={{ borderColor: `${color}25` }}>
+                    <div className="px-2.5 py-1.5 flex items-center gap-1.5" style={{ background: `${color}12` }}>
+                      <span className="text-[9px] font-bold" style={{ color }}>{isWin ? '✓' : deal.profit < 0 ? '✕' : '—'}</span>
+                      <span className="text-[9px] font-bold tracking-wide" style={{ color }}>{label}</span>
+                    </div>
+                    <div className="px-2.5 py-2 bg-[#0d1117]">
+                      <div className="text-[10px] font-semibold text-[#f0f6fc]">
+                        {deal.symbol} · {isBuy ? '▲' : '▼'} {deal.volume}L
+                      </div>
+                      <div className={cn('text-[9px] font-mono font-bold mt-1', isWin ? 'text-[#22c55e]' : deal.profit < 0 ? 'text-[#ef4444]' : 'text-[#8b949e]')}>
+                        {deal.profit > 0 ? '+' : ''}{deal.profit.toFixed(2)} USD
+                      </div>
+                      <div className="text-[9px] text-[#484f58] mt-0.5">{timeAgo} · Pepperstone</div>
+                    </div>
                   </div>
                 )
               })}
