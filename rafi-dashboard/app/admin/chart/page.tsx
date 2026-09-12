@@ -90,6 +90,23 @@ export default function ChartPage() {
   const [metaStep,      setMetaStep]      = useState<string>('')
   const [metaElapsed,   setMetaElapsed]   = useState(0)
   const metaTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Feature 1: saldo e equity da conta Pepperstone
+  const [metaAccount,   setMetaAccount]   = useState<{
+    balance: number; equity: number; freeMargin: number; currency: string; updatedAt: string
+  } | null>(null)
+  // Feature 2: posições abertas em tempo real
+  const [metaPositions, setMetaPositions] = useState<Array<{
+    id: string; symbol: string; type: string; volume: number
+    openPrice: number; currentPrice: number; profit: number
+    stopLoss: number; takeProfit: number
+  }>>([])
+  // Feature 3: toast de feedback ao enviar ordem
+  const [orderToast, setOrderToast] = useState<{ ok: boolean; msg: string } | null>(null)
+  // Feature 4: countdown para próximo auto-refresh dos candles
+  const [refreshIn,  setRefreshIn]  = useState(0)
+  // Feature 5: alertas do bot (abertura/fechamento de posições)
+  const [botAlerts,  setBotAlerts]  = useState<Array<{ id: string; kind: 'open' | 'close'; text: string }>>([])
+  const prevPositionsRef = useRef<typeof metaPositions>([])
   const fileInputRef        = useRef<HTMLInputElement>(null)
   const historyPanelRef     = useRef<HTMLDivElement>(null)
   const snapshotCaptureRef  = useRef<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>(null)
@@ -278,6 +295,59 @@ export default function ChartPage() {
     }
   }, [tf, saveToHistory])
 
+  // Features 1, 2, 5: busca saldo + posições abertas, detecta atividade do bot
+  const fetchLiveData = useCallback(async () => {
+    try {
+      const [accRes, posRes] = await Promise.allSettled([
+        fetch('/api/metaapi/account'),
+        fetch('/api/metaapi/positions'),
+      ])
+      if (accRes.status === 'fulfilled' && accRes.value.ok) {
+        const acc = await accRes.value.json()
+        if (!acc.error) setMetaAccount(acc)
+      }
+      if (posRes.status === 'fulfilled' && posRes.value.ok) {
+        const data = await posRes.value.json()
+        const newPos = data.positions ?? []
+        setMetaPositions(prev => {
+          const opened = newPos.filter((p: any) => !prev.find(pp => pp.id === p.id))
+          const closed  = prev.filter(p => !newPos.find((pp: any) => pp.id === p.id))
+          if (opened.length || closed.length) {
+            setBotAlerts(a => [
+              ...opened.map((p: any) => ({
+                id:   `open-${p.id}-${Date.now()}`,
+                kind: 'open' as const,
+                text: `${p.type === 'POSITION_TYPE_BUY' ? '▲' : '▼'} ${p.symbol} ${p.volume}L @ ${p.openPrice}`,
+              })),
+              ...closed.map(p => ({
+                id:   `close-${p.id}-${Date.now()}`,
+                kind: 'close' as const,
+                text: `Fechada · ${p.symbol} · ${p.profit >= 0 ? '+' : ''}$${p.profit.toFixed(2)}`,
+              })),
+              ...a,
+            ].slice(0, 4))
+          }
+          prevPositionsRef.current = newPos
+          return newPos
+        })
+      }
+    } catch {}
+  }, [])
+
+  // Feature 2: fecha posição individual via MetaAPI
+  const handleClosePosition = useCallback(async (positionId: string) => {
+    try {
+      const res = await fetch('/api/metaapi/positions', {
+        method:  'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ positionId }),
+      })
+      if (res.ok) {
+        setMetaPositions(prev => prev.filter(p => p.id !== positionId))
+      }
+    } catch {}
+  }, [])
+
   // Carrega candles do Supabase (tabela rafi_candles) — substitui CSV local
   const loadCandlesFromSupabase = useCallback(async () => {
     setSbLoading(true)
@@ -314,6 +384,28 @@ export default function ChartPage() {
     } catch {}
   }, [])
 
+  // Features 1, 2, 5: poll saldo + posições a cada 30s quando MetaAPI ativo
+  useEffect(() => {
+    if (!metaConnected) { setMetaAccount(null); setMetaPositions([]); setBotAlerts([]); return }
+    fetchLiveData()
+    const id = setInterval(fetchLiveData, 30_000)
+    return () => clearInterval(id)
+  }, [metaConnected, fetchLiveData])
+
+  // Feature 4: countdown de auto-refresh dos candles baseado no timeframe
+  useEffect(() => {
+    if (!metaConnected) { setRefreshIn(0); return }
+    const mins = tf === 'M5' ? 5 : tf === 'M15' ? 15 : 60
+    let secs = mins * 60
+    setRefreshIn(secs)
+    const id = setInterval(() => {
+      secs -= 1
+      setRefreshIn(secs)
+      if (secs <= 0) { secs = mins * 60; setRefreshIn(secs); loadCandlesFromMetaAPI() }
+    }, 1_000)
+    return () => clearInterval(id)
+  }, [metaConnected, tf, loadCandlesFromMetaAPI])
+
   // Fecha o painel de histórico ao clicar fora
   useEffect(() => {
     if (!historyOpen) return
@@ -337,6 +429,7 @@ export default function ChartPage() {
   const lastCandle = candles[candles.length - 1]
   const lastPrice  = lastCandle?.close ?? 0
   const lastTime   = lastCandle?.time  ?? 0
+  const totalPnl   = useMemo(() => metaPositions.reduce((s, p) => s + (p.profit ?? 0), 0), [metaPositions])
 
   // RAFI sempre positivo: separa por dir do candle
   const strongBullBars = rafiData.filter(p => p.value >= 2.5 && p.dir === 'bull').length
@@ -399,7 +492,7 @@ export default function ChartPage() {
     })
     setOcoState(prev => prev ? { ...prev, direction, tp: p(tp), sl: p(sl) } : null)
 
-    // Envia para MetaAPI em paralelo — não bloqueia o fluxo local
+    // Feature 3: envia para MetaAPI e mostra toast de feedback
     fetch('/api/metaapi/order', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -412,12 +505,19 @@ export default function ChartPage() {
       }),
     })
       .then(async res => {
-        if (!res.ok) {
+        if (res.ok) {
+          setOrderToast({ ok: true, msg: `Ordem ${direction === 'buy' ? 'COMPRA' : 'VENDA'} enviada para Pepperstone ✓` })
+          setTimeout(() => fetchLiveData(), 3000)
+        } else {
           const err = await res.json().catch(() => ({}))
-          console.warn('[MetaAPI] Ordem rejeitada:', err)
+          setOrderToast({ ok: false, msg: `Pepperstone rejeitou: ${err?.error ?? res.status}` })
         }
+        setTimeout(() => setOrderToast(null), 6000)
       })
-      .catch(err => console.warn('[MetaAPI] Falha ao enviar ordem:', err))
+      .catch(err => {
+        setOrderToast({ ok: false, msg: err.message ?? 'Falha de rede ao enviar ordem' })
+        setTimeout(() => setOrderToast(null), 6000)
+      })
   }, [ocoState, lastTime, rafiData, bbBands, handleAdd])
 
   const handleOCOClose = useCallback(() => setOcoVisible(false), [])
@@ -560,6 +660,35 @@ export default function ChartPage() {
           </div>
         </div>
 
+        {/* Feature 1: barra de saldo Pepperstone — só visível quando MetaAPI conectado */}
+        {metaConnected && metaAccount && (
+          <div className="flex items-center gap-4 px-3 py-1.5 bg-[#0b1219] rounded-lg border border-[#30363d]/60 text-[10px] shrink-0 flex-wrap">
+            <div className="flex items-center gap-1.5 font-semibold text-[#26c6da]">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#26c6da] inline-block animate-pulse" />
+              Pepperstone · MT5
+            </div>
+            <div className="w-px h-4 bg-[#30363d]" />
+            <span className="text-[#484f58]">Saldo</span>
+            <span className="font-mono font-bold text-[#f0f6fc]">{metaAccount.currency} {metaAccount.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+            <span className="text-[#484f58]">Equity</span>
+            <span className="font-mono font-bold text-[#f0f6fc]">{metaAccount.equity.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+            <span className="text-[#484f58]">Margem livre</span>
+            <span className="font-mono font-bold text-[#f0f6fc]">{metaAccount.freeMargin.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+            {metaPositions.length > 0 && (
+              <>
+                <div className="w-px h-4 bg-[#30363d]" />
+                <span className="text-[#484f58]">Abertas</span>
+                <span className="font-mono font-bold text-[#22c55e]">{metaPositions.length}</span>
+                <span className="text-[#484f58]">P&amp;L</span>
+                <span className={cn('font-mono font-bold', totalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
+                  {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} USD
+                </span>
+              </>
+            )}
+            <span className="ml-auto text-[#484f58]">Atualizado {metaAccount.updatedAt}</span>
+          </div>
+        )}
+
         {/* Gráfico duplo (candles + RAFI) */}
         <div className="flex-1 min-h-0 rounded-xl border border-[#30363d] overflow-hidden flex flex-col">
 
@@ -656,6 +785,15 @@ export default function ChartPage() {
                       )} />
                       {metaLoading ? 'Conectando…' : metaConnected ? 'MetaAPI · LIVE' : 'MetaAPI Ao Vivo'}
                     </button>
+                    {/* Feature 4: countdown para auto-refresh dos candles */}
+                    {metaConnected && refreshIn > 0 && (
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] border border-[#26c6da]/25 bg-[#26c6da]/6 text-[#26c6da] font-mono">
+                        <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10">
+                          <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeDasharray="20 6" />
+                        </svg>
+                        {Math.floor(refreshIn / 60)}:{String(refreshIn % 60).padStart(2, '0')}
+                      </div>
+                    )}
                     {metaLoading && (
                       <div className="flex flex-col gap-0.5 min-w-[220px]">
                         <div className="flex items-center justify-between text-[9px]">
@@ -866,7 +1004,7 @@ export default function ChartPage() {
           </div>
 
           {/* Chart */}
-          <div className="flex-1 min-h-0">
+          <div className="flex-1 min-h-0 relative">
             <RAFIChart
               candles={candles}
               rafiData={rafiData}
@@ -891,8 +1029,69 @@ export default function ChartPage() {
               onOCOClose={handleOCOClose}
               snapshotCaptureRef={snapshotCaptureRef}
             />
+            {/* Feature 5: alertas do bot — posições abertas/fechadas automaticamente */}
+            {botAlerts.length > 0 && (
+              <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-10 pointer-events-none">
+                {botAlerts.map(alert => (
+                  <div
+                    key={alert.id}
+                    className={cn(
+                      'flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-semibold shadow-lg',
+                      alert.kind === 'open'
+                        ? 'bg-[#22c55e]/15 border border-[#22c55e]/40 text-[#22c55e]'
+                        : 'bg-[#ef4444]/15 border border-[#ef4444]/40 text-[#ef4444]',
+                    )}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full inline-block"
+                      style={{ background: alert.kind === 'open' ? '#22c55e' : '#ef4444' }} />
+                    <span>{alert.text}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
+
+        {/* Feature 2: painel de posições abertas — só visível quando MetaAPI conectado e há posições */}
+        {metaConnected && metaPositions.length > 0 && (
+          <div className="shrink-0 rounded-xl border border-[#30363d] bg-[#0b1219] overflow-hidden">
+            <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between">
+              <span className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">
+                Posições Abertas · Pepperstone
+              </span>
+              <span className={cn('text-[10px] font-mono font-bold', totalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
+                P&amp;L total {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} USD
+              </span>
+            </div>
+            <div className="divide-y divide-[#21262d]">
+              {metaPositions.map(pos => {
+                const isBuy    = pos.type === 'POSITION_TYPE_BUY'
+                const pnlColor = pos.profit >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'
+                return (
+                  <div key={pos.id} className="flex items-center gap-3 px-4 py-2 text-[10px] hover:bg-[#161b22] transition-colors">
+                    <span className={cn('font-bold text-[11px]', isBuy ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
+                      {isBuy ? '▲' : '▼'}
+                    </span>
+                    <span className="font-semibold text-[#f0f6fc] w-14">{pos.symbol}</span>
+                    <span className="text-[#8b949e]">{pos.volume}L</span>
+                    <span className="text-[#484f58]">@ {pos.openPrice.toFixed(5)}</span>
+                    <span className="text-[#484f58]">→ {pos.currentPrice.toFixed(5)}</span>
+                    <span className={cn('font-mono font-bold ml-auto', pnlColor)}>
+                      {pos.profit >= 0 ? '+' : ''}{pos.profit.toFixed(2)} USD
+                    </span>
+                    <button
+                      onClick={() => handleClosePosition(pos.id)}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-semibold border border-[#ef4444]/40 text-[#ef4444] hover:bg-[#ef4444]/10 transition-colors"
+                      title="Fechar posição via MetaAPI"
+                    >
+                      <XIcon size={9} /> Fechar
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Rodapé informativo */}
         <div className={cn(
@@ -925,6 +1124,22 @@ export default function ChartPage() {
           externalEntry={clickedEntry}
         />
       </div>
+
+      {/* Feature 3: toast de feedback ao executar ordem OCO via MetaAPI */}
+      {orderToast && (
+        <div className={cn(
+          'fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-2xl border text-[11px] font-semibold max-w-xs',
+          orderToast.ok
+            ? 'bg-[#0d1117] border-[#22c55e]/50 text-[#22c55e]'
+            : 'bg-[#0d1117] border-[#ef4444]/50 text-[#ef4444]',
+        )}>
+          <span className={cn(
+            'w-2 h-2 rounded-full inline-block shrink-0',
+            orderToast.ok ? 'bg-[#22c55e]' : 'bg-[#ef4444]',
+          )} />
+          <span>{orderToast.msg}</span>
+        </div>
+      )}
     </div>
   )
 }

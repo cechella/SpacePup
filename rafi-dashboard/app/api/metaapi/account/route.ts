@@ -1,36 +1,33 @@
 import { NextResponse } from 'next/server'
+import MetaApi from 'metaapi.cloud-sdk'
 
-const BASE = 'https://mt-client-api-v1.london.agiliumtrade.ai'
-const TOKEN = process.env.METAAPI_TOKEN!
+const TOKEN   = process.env.METAAPI_TOKEN!
 const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
+
+export const runtime     = 'nodejs'
+export const maxDuration = 60
 
 export async function GET() {
   try {
-    const res = await fetch(
-      `${BASE}/users/current/accounts/${ACCOUNT}/account-information`,
-      {
-        headers: { 'auth-token': TOKEN },
-        next: { revalidate: 0 },
-      }
-    )
+    const api        = new MetaApi(TOKEN)
+    const account    = await api.metatraderAccountApi.getAccount(ACCOUNT)
+    const connection = account.getRPCConnection()
+    await connection.connect()
+    await connection.waitSynchronized(8)
+    const info = await connection.getAccountInformation()
+    await connection.close()
 
-    if (!res.ok) {
-      const err = await res.text()
-      return NextResponse.json({ error: err }, { status: res.status })
-    }
-
-    const data = await res.json()
     return NextResponse.json({
-      balance: data.balance,
-      equity: data.equity,
-      margin: data.margin,
-      freeMargin: data.freeMargin,
-      leverage: data.leverage,
-      currency: data.currency,
-      server: data.server,
-      connected: data.connected,
+      balance:    info.balance,
+      equity:     info.equity,
+      margin:     info.margin,
+      freeMargin: info.freeMargin,
+      leverage:   info.leverage,
+      currency:   info.currency ?? 'USD',
+      updatedAt:  new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
     })
   } catch (e: any) {
+    console.error('[MetaAPI account]', e.message)
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
 }

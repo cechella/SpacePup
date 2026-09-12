@@ -1,71 +1,50 @@
 import { NextResponse } from 'next/server'
+import MetaApi from 'metaapi.cloud-sdk'
 
-const BASE = 'https://mt-client-api-v1.london.agiliumtrade.ai'
-const TOKEN = process.env.METAAPI_TOKEN!
+const TOKEN   = process.env.METAAPI_TOKEN!
 const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
+
+export const runtime     = 'nodejs'
+export const maxDuration = 60
 
 export async function POST(req: Request) {
   try {
     const body = await req.json()
-    const { direction, symbol = 'EURUSD', lot, stopLossPips, takeProfitPips, comment = 'RAFI-Dashboard' } = body
+    const { symbol = 'EURUSD', actionType, volume, stopLoss, takeProfit, comment = 'RAFI-Dashboard' } = body
 
-    // Busca preço atual
-    const priceRes = await fetch(
-      `${BASE}/users/current/accounts/${ACCOUNT}/symbols/${symbol}/current-price?keepSubscription=false`,
-      { headers: { 'auth-token': TOKEN } }
-    )
-    if (!priceRes.ok) throw new Error('Não foi possível obter preço atual')
-    const price = await priceRes.json()
-
-    const isBuy = direction === 'buy'
-    const entry = isBuy ? price.ask : price.bid
-    const pipSize = 0.0001
-
-    const sl = isBuy
-      ? +(entry - stopLossPips * pipSize).toFixed(5)
-      : +(entry + stopLossPips * pipSize).toFixed(5)
-
-    const tp = isBuy
-      ? +(entry + takeProfitPips * pipSize).toFixed(5)
-      : +(entry - takeProfitPips * pipSize).toFixed(5)
-
-    // Validação crítica: nunca sem stop-loss
-    if (!sl || sl <= 0) {
-      return NextResponse.json({ error: 'Stop-loss obrigatório' }, { status: 400 })
+    if (!actionType || !volume || !stopLoss) {
+      return NextResponse.json({ error: 'actionType, volume e stopLoss são obrigatórios' }, { status: 400 })
     }
 
-    const orderPayload = {
-      actionType: 'ORDER_TYPE_BUY' === (isBuy ? 'ORDER_TYPE_BUY' : 'ORDER_TYPE_SELL')
-        ? 'ORDER_TYPE_BUY'
-        : 'ORDER_TYPE_SELL',
-      symbol,
-      volume: lot,
-      stopLoss: sl,
-      takeProfit: tp,
-      comment,
+    const api        = new MetaApi(TOKEN)
+    const account    = await api.metatraderAccountApi.getAccount(ACCOUNT)
+    const connection = account.getRPCConnection()
+    await connection.connect()
+    await connection.waitSynchronized(8)
+
+    let result: any
+    if (actionType === 'ORDER_TYPE_BUY') {
+      result = await connection.createMarketBuyOrder(symbol, volume, stopLoss, takeProfit, { comment })
+    } else if (actionType === 'ORDER_TYPE_SELL') {
+      result = await connection.createMarketSellOrder(symbol, volume, stopLoss, takeProfit, { comment })
+    } else {
+      await connection.close()
+      return NextResponse.json({ error: `actionType inválido: ${actionType}` }, { status: 400 })
     }
 
-    const res = await fetch(
-      `${BASE}/users/current/accounts/${ACCOUNT}/trade`,
-      {
-        method: 'POST',
-        headers: { 'auth-token': TOKEN, 'Content-Type': 'application/json' },
-        body: JSON.stringify(orderPayload),
-      }
-    )
-
-    const result = await res.json()
-    if (!res.ok) return NextResponse.json({ error: result }, { status: res.status })
+    await connection.close()
 
     return NextResponse.json({
-      orderId: result.orderId,
-      entry,
-      sl,
-      tp,
-      direction,
-      lot,
+      orderId:    result?.orderId,
+      positionId: result?.positionId,
+      direction:  actionType === 'ORDER_TYPE_BUY' ? 'buy' : 'sell',
+      symbol,
+      volume,
+      stopLoss,
+      takeProfit,
     })
   } catch (e: any) {
+    console.error('[MetaAPI order]', e.message)
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
 }
