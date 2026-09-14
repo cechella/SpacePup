@@ -86,6 +86,12 @@ ARQUIVO_STOP = Path('STOP')           # crie este arquivo para parar o bot
 INTERVALO_S  = 5                      # segundos entre verificações de candle
 MAGIC_NUMBER = 20250101               # identificador das ordens do bot no MT5
 
+# Retry com backoff para falhas temporárias do Supabase.
+# O bot tenta _SUPABASE_MAX_RETRIES vezes antes de fazer HALT definitivo.
+# Esperas: 15s, 30s, 60s, 120s, 240s (máx 300s).
+_SUPABASE_MAX_RETRIES = 5
+_SUPABASE_RETRY_BASE_S = 15
+
 # Parâmetros obrigatórios: devem existir no config.yaml (ou serem sobrepostos pelo Supabase).
 # O bot não inicia se algum estiver ausente — evita valores fantasmas embutidos no código.
 PARAMS_OBRIGATORIOS = [
@@ -195,6 +201,10 @@ class RafiBot:
 
         # Timestamp (Unix) do último sinal emitido em modo autoscan — controla gap mínimo
         self._autoscan_ultimo_ts: int = 0
+
+        # Contador de falhas consecutivas do Supabase — usado pelo retry com backoff.
+        # Zera ao primeiro ciclo bem-sucedido; quando atinge _SUPABASE_MAX_RETRIES o bot para.
+        self._supabase_falhas: int = 0
 
         # ── Estado de diagnóstico do ciclo (reiniciado a cada análise) ───────────
         self._ultimo_motivo_rejeicao: str = ''   # publicado no log "sem sinal"
@@ -422,18 +432,42 @@ class RafiBot:
                 # Ciclo de health do broker (avalia score e estado a cada candle M5)
                 try:
                     self._health.executar_ciclo_health()
+                    self._supabase_falhas = 0  # reconectou — zera contador
                 except RuntimeError as e:
-                    logger.error(f"HALT por indisponibilidade do Supabase: {e}")
-                    publicar_log(f"HALT: {e}", level='error')
-                    break
+                    self._supabase_falhas += 1
+                    espera = min(_SUPABASE_RETRY_BASE_S * (2 ** (self._supabase_falhas - 1)), 300)
+                    if self._supabase_falhas >= _SUPABASE_MAX_RETRIES:
+                        logger.error(
+                            f"HALT — {_SUPABASE_MAX_RETRIES} falhas consecutivas no Supabase: {e}"
+                        )
+                        publicar_log(f"HALT: {e}", level='error')
+                        break
+                    logger.warning(
+                        f"[Supabase] Falha {self._supabase_falhas}/{_SUPABASE_MAX_RETRIES} "
+                        f"no health cycle: {e}. Aguardando {espera}s e tentando novamente..."
+                    )
+                    time.sleep(espera)
+                    continue  # pula restante do ciclo; tenta novamente sem esperar candle M5
 
                 # Ciclo principal
                 try:
                     self._ciclo()
                 except SupabaseIndisponivel as e:
-                    logger.error(f"HALT por indisponibilidade do Supabase (faixas de lote): {e}")
-                    publicar_log(f"HALT: {e}", level='error')
-                    break
+                    self._supabase_falhas += 1
+                    espera = min(_SUPABASE_RETRY_BASE_S * (2 ** (self._supabase_falhas - 1)), 300)
+                    if self._supabase_falhas >= _SUPABASE_MAX_RETRIES:
+                        logger.error(
+                            f"HALT — {_SUPABASE_MAX_RETRIES} falhas consecutivas no Supabase "
+                            f"(faixas de lote): {e}"
+                        )
+                        publicar_log(f"HALT: {e}", level='error')
+                        break
+                    logger.warning(
+                        f"[Supabase] Falha {self._supabase_falhas}/{_SUPABASE_MAX_RETRIES} "
+                        f"(faixas de lote): {e}. Aguardando {espera}s e tentando novamente..."
+                    )
+                    time.sleep(espera)
+                    continue
 
                 # Verifica backtest solicitado pelo admin (roda em thread separada)
                 if not self._backtest_em_andamento:
