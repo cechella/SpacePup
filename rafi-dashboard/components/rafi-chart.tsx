@@ -376,12 +376,14 @@ export function RAFIChart({
         candleSeries.setMarkers(markers)
       }
 
-      // Mostra sempre os últimos 80 candles (legível em desktop e mobile)
+      // Mostra sempre os últimos 80 candles + 5 barras de espaço para a barra ao vivo.
+      // NÃO chamar scrollToRealTime() — esse método usa o relógio do sistema e empurra
+      // a janela para o horário atual (~15h UTC), deixando os candles históricos e a
+      // barra ao vivo completamente fora da tela quando os dados têm gap de horas.
       mChart.timeScale().setVisibleLogicalRange({
         from: Math.max(0, candles.length - 80),
         to:   candles.length + 5,
       })
-      mChart.timeScale().scrollToRealTime()
 
       // ── Gráfico RAFI ─────────────────────────────────────────────────────
       rChart = createChart(rafiEl, {
