@@ -272,13 +272,15 @@ export function RAFIChart({
       }
 
       mChart.timeScale().fitContent()
-      // Sempre mostra os últimos 120 candles (preço atual na borda direita)
+      // Sempre mostra os últimos 120 candles com o preço atual na borda direita
       if (candles.length > 150) {
         mChart.timeScale().setVisibleLogicalRange({
           from: candles.length - 121,
           to:   candles.length + 5,
         })
       }
+      // Garante que o último candle (preço vivo) esteja visível ao abrir
+      mChart.timeScale().scrollToRealTime()
 
       // Se há posições abertas, ajusta escala Y para incluir SL e TP visíveis
       const pos0 = positionsRef.current?.[0]

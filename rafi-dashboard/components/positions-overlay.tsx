@@ -167,7 +167,11 @@ export function PositionsOverlay({ positions, livePrice, getY, getPrice, onModif
                   }}
                   onPointerDown={e => handlePointerDown(e, pos.id, 'tp', pos.stopLoss, pos.takeProfit)}
                 >
-                  TP {effectiveTP.toFixed(5)}
+                  {(() => {
+                    const pnl = (isBuy ? 1 : -1) * (effectiveTP - pos.openPrice) * pos.volume * 100000
+                    const sign = pnl >= 0 ? '+' : ''
+                    return `TP ${effectiveTP.toFixed(5)}  ${sign}$${Math.abs(pnl).toFixed(2)}`
+                  })()}
                 </div>
               </>
             )}
@@ -195,7 +199,11 @@ export function PositionsOverlay({ positions, livePrice, getY, getPrice, onModif
                   }}
                   onPointerDown={e => handlePointerDown(e, pos.id, 'sl', pos.stopLoss, pos.takeProfit)}
                 >
-                  SL {effectiveSL.toFixed(5)}
+                  {(() => {
+                    const pnl = (isBuy ? 1 : -1) * (effectiveSL - pos.openPrice) * pos.volume * 100000
+                    const sign = pnl >= 0 ? '+' : ''
+                    return `SL ${effectiveSL.toFixed(5)}  ${sign}$${Math.abs(pnl).toFixed(2)}`
+                  })()}
                 </div>
               </>
             )}
