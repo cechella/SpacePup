@@ -101,12 +101,18 @@ export function PositionsOverlay({ positions, livePrice, getY, getPrice, onModif
 
         if (yEntry === null) return null
 
-        // P&L em tempo real
+        // P&L em tempo real (linha de entrada)
         const price  = livePrice ?? pos.openPrice
         const rawPnl = (isBuy ? 1 : -1) * (price - pos.openPrice) * pos.volume * 100000
         const pnl    = isNaN(rawPnl) ? pos.profit : rawPnl
         const pnlClr = pnl >= 0 ? '#22c55e' : '#ef4444'
-        const pnlStr = `${pnl >= 0 ? '+' : ''}$${Math.abs(pnl).toFixed(2)}`
+        const pnlStr = `${pnl >= 0 ? '+' : '-'}$${Math.abs(pnl).toFixed(2)}`
+
+        // Valor projetado em dólares se bater no TP ou SL
+        const dir      = isBuy ? 1 : -1
+        const tpDollar = dir * (effectiveTP - pos.openPrice) * pos.volume * 100000
+        const slDollar = dir * (effectiveSL - pos.openPrice) * pos.volume * 100000
+        const fmt      = (v: number) => `${v >= 0 ? '+' : '-'}$${Math.abs(v).toFixed(2)}`
 
         return (
           <div key={pos.id}>
@@ -167,11 +173,8 @@ export function PositionsOverlay({ positions, livePrice, getY, getPrice, onModif
                   }}
                   onPointerDown={e => handlePointerDown(e, pos.id, 'tp', pos.stopLoss, pos.takeProfit)}
                 >
-                  {(() => {
-                    const pnl = (isBuy ? 1 : -1) * (effectiveTP - pos.openPrice) * pos.volume * 100000
-                    const sign = pnl >= 0 ? '+' : ''
-                    return `TP ${effectiveTP.toFixed(5)}  ${sign}$${Math.abs(pnl).toFixed(2)}`
-                  })()}
+                  TP {effectiveTP.toFixed(5)}&nbsp;&nbsp;
+                  <span style={{ color: tpDollar >= 0 ? '#10b981' : '#ef4444' }}>{fmt(tpDollar)}</span>
                 </div>
               </>
             )}
@@ -199,11 +202,8 @@ export function PositionsOverlay({ positions, livePrice, getY, getPrice, onModif
                   }}
                   onPointerDown={e => handlePointerDown(e, pos.id, 'sl', pos.stopLoss, pos.takeProfit)}
                 >
-                  {(() => {
-                    const pnl = (isBuy ? 1 : -1) * (effectiveSL - pos.openPrice) * pos.volume * 100000
-                    const sign = pnl >= 0 ? '+' : ''
-                    return `SL ${effectiveSL.toFixed(5)}  ${sign}$${Math.abs(pnl).toFixed(2)}`
-                  })()}
+                  SL {effectiveSL.toFixed(5)}&nbsp;&nbsp;
+                  <span style={{ color: slDollar >= 0 ? '#10b981' : '#ef4444' }}>{fmt(slDollar)}</span>
                 </div>
               </>
             )}
