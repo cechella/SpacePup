@@ -6,6 +6,7 @@ import { generateDemoData, type Timeframe } from '@/lib/demo-data'
 import { calcRAFI, calcSRLevels, calcBollingerBands, autoScanBreakouts } from '@/lib/indicators'
 import { parseCSV, detectTimeframe, fmtDate, type LoadResult } from '@/lib/csv-loader'
 import { TradePanel, type ManualTrade } from '@/components/trade-panel'
+import { SessionSidebar } from '@/components/session-sidebar'
 import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
 import { getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
@@ -136,6 +137,34 @@ export default function ChartPage() {
   const snapshotCaptureRef  = useRef<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>(null)
   // Callback imperativo: SSE chama direto, sem passar pelo scheduler do React
   const chartUpdateCandleRef = useRef<((price: number) => void) | null>(null)
+
+  // Estado de disciplina derivado do histórico de operações já carregado
+  const disciplineState = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10)  // 'YYYY-MM-DD'
+
+    // Stops hoje: trades fechados com lucro negativo no dia atual
+    const stopsToday = metaHistory.filter(t => {
+      const tradeDate = t.time?.slice(0, 10) ?? ''
+      return tradeDate === today && t.profit < 0
+    }).length
+
+    // Perdas consecutivas: contar da trade mais recente para trás
+    let consecutiveLosses = 0
+    for (const t of [...metaHistory].reverse()) {
+      if (t.profit < 0) consecutiveLosses++
+      else break
+    }
+
+    // Drawdown semanal: soma de todas as perdas dos últimos 7 dias / saldo atual
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1_000
+    const weeklyPnl = metaHistory
+      .filter(t => new Date(t.time).getTime() >= weekAgo)
+      .reduce((sum, t) => sum + (t.profit ?? 0), 0)
+    const bal = metaAccount?.balance ?? 100
+    const weeklyDrawdownPct = bal > 0 ? (weeklyPnl / bal) * 100 : 0
+
+    return { stopsToday, consecutiveLosses, weeklyDrawdownPct }
+  }, [metaHistory, metaAccount])
 
   // Inicializa altura do gráfico e detecta desktop
   useEffect(() => {
@@ -1866,20 +1895,20 @@ export default function ChartPage() {
         </div>
       </div>
 
-      {/* ── Painel lateral — oculto em mobile, acessível pela aba Operação ── */}
-      <div className="hidden md:block w-80 shrink-0">
-        <TradePanel
-          trades={trades}
-          onAdd={handleAdd}
-          onRemove={handleRemove}
-          onUpdate={handleUpdate}
-          lastPrice={lastPrice}
-          lastCandleTime={lastTime}
-          externalEntry={clickedEntry}
-          freeMargin={metaAccount?.freeMargin ?? null}
-          livePrice={livePrice}
-        />
-      </div>
+      {/* ── Sidebar inteligente — oculta em mobile, acessível pela aba Operação ── */}
+      <SessionSidebar
+        trades={trades}
+        onAdd={handleAdd}
+        onRemove={handleRemove}
+        onUpdate={handleUpdate}
+        lastPrice={lastPrice}
+        lastCandleTime={lastTime}
+        externalEntry={clickedEntry}
+        freeMargin={metaAccount?.freeMargin ?? null}
+        livePrice={livePrice}
+        balance={metaAccount?.balance ?? null}
+        discipline={disciplineState}
+      />
 
       {/* ── Barra de abas mobile ──────────────────────────────────────── */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 h-[60px] bg-[#161b22] border-t border-[#30363d] flex z-20">
