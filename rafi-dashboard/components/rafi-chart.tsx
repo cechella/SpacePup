@@ -43,10 +43,38 @@ export function RAFIChart({
   const candleSeriesRef = useRef<any>(null)
   const chartRef        = useRef<any>(null)
   const positionsRef    = useRef(positions)
+  const yScaleRef       = useRef<{ top: number; bottom: number }>({ top: 0.12, bottom: 0.12 })
   const [chartReady, setChartReady] = useState(false)
 
   useEffect(() => { onPriceClickRef.current = onPriceClick }, [onPriceClick])
   useEffect(() => { positionsRef.current = positions }, [positions])
+
+  // Faixa arrastável de escala Y — funciona no mobile sem depender do lightweight-charts
+  const handleYScaleTouch = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return
+    e.preventDefault()
+    const startY   = e.touches[0].clientY
+    const startTop = yScaleRef.current.top
+    const startBot = yScaleRef.current.bottom
+
+    const onMove = (ev: TouchEvent) => {
+      if (ev.touches.length !== 1) return
+      const dy     = ev.touches[0].clientY - startY
+      // Arrastar pra cima → mais espaço (escala mais elástica)
+      // Arrastar pra baixo → menos espaço (zoom in)
+      const delta  = dy / 300
+      const top    = Math.min(0.45, Math.max(0.02, startTop + delta))
+      const bottom = Math.min(0.45, Math.max(0.02, startBot + delta))
+      yScaleRef.current = { top, bottom }
+      chartRef.current?.applyOptions({ rightPriceScale: { scaleMargins: { top, bottom } } })
+    }
+    const onEnd = () => {
+      window.removeEventListener('touchmove', onMove)
+      window.removeEventListener('touchend',  onEnd)
+    }
+    window.addEventListener('touchmove', onMove, { passive: false })
+    window.addEventListener('touchend',  onEnd)
+  }, [])
 
   // Funções estáveis para conversão preço ↔ Y e tempo ↔ X
   const getY     = useCallback((price: number): number | null =>
@@ -386,6 +414,24 @@ export function RAFIChart({
         ref={mainWrapperRef}
         style={{ cursor: panMode ? 'grab' : 'crosshair' }}
       >
+        {/* Faixa arrastável de escala Y (mobile) — borda direita */}
+        {chartReady && (
+          <div
+            onTouchStart={handleYScaleTouch}
+            style={{
+              position: 'absolute', right: 0, top: '15%', bottom: '15%',
+              width: 36, zIndex: 20,
+              display: 'flex', flexDirection: 'column', alignItems: 'center',
+              justifyContent: 'center', gap: 3,
+              cursor: 'ns-resize', touchAction: 'none', userSelect: 'none',
+            }}
+            title="Arraste pra cima/baixo para ajustar a escala"
+          >
+            <div style={{ width: 2, height: 18, background: '#3b82f655', borderRadius: 2 }} />
+            <span style={{ fontSize: 10, color: '#3b82f688', lineHeight: 1, fontFamily: 'monospace' }}>↕</span>
+            <div style={{ width: 2, height: 18, background: '#3b82f655', borderRadius: 2 }} />
+          </div>
+        )}
         <div ref={mainRef} className="absolute inset-0" />
         {chartReady && trades.length > 0 && (
           <TradesOverlay trades={trades} getX={getX} getY={getY} />
