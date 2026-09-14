@@ -1394,6 +1394,7 @@ class RafiBot:
             bb_width    = sinal['bb_width'],
             result      = 'pending',
             ts          = ts,
+            broker_id   = self._broker_id,
         )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -1443,7 +1444,9 @@ class RafiBot:
         # ── Reconcilia posições fantasma ──────────────────────────────────────
         # Trades com result='pending' no DB que não estão abertos no MT5 foram
         # fechados enquanto o bot estava offline — fecha-os agora no Supabase.
-        pendentes_db = buscar_trades_pendentes()
+        # Filtra por broker_id para não tocar em trades de outros brokers que
+        # ainda estejam abertos em seus próprios terminais MT5.
+        pendentes_db = buscar_trades_pendentes(broker_id=self._broker_id)
         fantasmas = 0
         for t in pendentes_db:
             ticket = t['ticket']

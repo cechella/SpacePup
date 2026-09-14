@@ -100,6 +100,7 @@ def sincronizar_trade(
     bb_width:    Optional[float] = None,
     result:      str             = 'pending',
     ts:          Optional[int]   = None,
+    broker_id:   str             = 'main',  # ID do broker — filtra reconciliação multi-broker
 ) -> bool:
     """
     Upserta um trade no Supabase para aparecer no admin.
@@ -131,6 +132,7 @@ def sincronizar_trade(
         'rafi_dir':    rafi_dir,
         'bb_width':    round(bb_width, 5) if bb_width is not None else None,
         'snapshot':    None,
+        'broker_id':   broker_id,
         'updated_at':  datetime.utcnow().isoformat(),
     }
 
@@ -143,19 +145,25 @@ def sincronizar_trade(
         return False
 
 
-def buscar_trades_pendentes() -> list:
+def buscar_trades_pendentes(broker_id: str = 'main') -> list:
     """
-    Retorna todos os trades com result='pending' na tabela rafi_trades.
+    Retorna trades com result='pending' deste broker na tabela rafi_trades.
 
-    Usado no startup para reconciliar posições fantasma — fechadas no MT5 enquanto
-    o bot estava offline, mas ainda marcadas como pendentes no Supabase.
+    Filtra por broker_id para evitar que o bot de um broker reconcilie
+    posições ainda abertas em outro broker (multi-broker Supabase compartilhado).
     Retorna lista de dicts com 'ticket' (int) e 'ts' (int).
     """
     cliente = _get_cliente()
     if cliente is None:
         return []
     try:
-        res = cliente.table('rafi_trades').select('id,time').eq('result', 'pending').execute()
+        res = (
+            cliente.table('rafi_trades')
+            .select('id,time')
+            .eq('result', 'pending')
+            .eq('broker_id', broker_id)
+            .execute()
+        )
         trades = []
         for row in (res.data or []):
             try:
