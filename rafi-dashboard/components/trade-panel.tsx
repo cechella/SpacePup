@@ -18,12 +18,17 @@ export interface ManualTrade {
   lot:        number
   leverage:   number
   result?:    'win' | 'loss' | 'pending'
-  // Features para ML
-  rafi?:      number
-  rafiDir?:   'bull' | 'bear'
-  bbWidth?:   number
-  snapshot?:  string  // miniatura JPEG base64 do gráfico no momento do trade
-  pnlUsd?:   number  // P&L real do backtest (pip a pip); quando presente, sobrepõe o recálculo do dashboard
+  // Features para ML (indicadores técnicos)
+  rafi?:         number
+  rafiDir?:      'bull' | 'bear'
+  bbWidth?:      number
+  snapshot?:     string  // miniatura JPEG base64 do gráfico no momento do trade
+  pnlUsd?:       number  // P&L real do backtest (pip a pip); quando presente, sobrepõe o recálculo do dashboard
+  // Contexto de sessão — aprendizado da IA
+  overlapPhase?: 'early' | 'mid' | 'late' | null  // fase do overlap London+NY
+  sessionMinute?: number | null  // minutos desde 13:30 UTC (0-180)
+  dayOfWeek?:    0 | 1 | 2 | 3 | null  // Seg=0 Ter=1 Qua=2 Qui=3
+  entryType?:    'manual' | 'bot'
 }
 
 interface Props {

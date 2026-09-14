@@ -14,7 +14,7 @@ Ou adicione ao arquivo .env na raiz do rafi-bot/.
 import os
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -88,6 +88,37 @@ def publicar_config_hash_startup(config_hash: str) -> bool:
         return False
 
 
+def _contexto_sessao(ts: int) -> dict:
+    """
+    Calcula contexto do overlap London+NY para aprendizado da IA.
+    Retorna overlap_phase, session_minute e day_of_week a partir de um Unix timestamp.
+    """
+    d        = datetime.fromtimestamp(ts, tz=timezone.utc)
+    utc_min  = d.hour * 60 + d.minute
+    START    = 13 * 60 + 30   # 13:30 UTC
+    END      = 16 * 60 + 30   # 16:30 UTC
+    ses_min  = utc_min - START
+
+    overlap_phase = None
+    if START <= utc_min < END:
+        if ses_min < 30:
+            overlap_phase = 'early'
+        elif ses_min < 90:
+            overlap_phase = 'mid'
+        else:
+            overlap_phase = 'late'
+
+    # weekday(): 0=Seg … 6=Dom; Seg-Qui = 0-3
+    wd = d.weekday()
+    day_of_week = wd if wd <= 3 else None
+
+    return {
+        'overlap_phase':  overlap_phase,
+        'session_minute': ses_min if overlap_phase else None,
+        'day_of_week':    day_of_week,
+    }
+
+
 def sincronizar_trade(
     ticket:      int,
     direction:   str,         # 'buy' ou 'sell'
@@ -114,26 +145,32 @@ def sincronizar_trade(
     if cliente is None:
         return False
 
-    ts = ts or int(time.time())
-    p  = lambda v: round(v, 5) if v is not None else None
+    ts  = ts or int(time.time())
+    p   = lambda v: round(v, 5) if v is not None else None
+    ctx = _contexto_sessao(ts)  # contexto de sessão para aprendizado da IA
 
     row = {
-        'id':          f"{ts}-mt5-{ticket}",
-        'direction':   'buy' if direction == 'compra' else 'sell',
-        'entry':       p(entry),
-        'stop_loss':   p(stop_loss),
-        'take_profit': p(take_profit),
-        'label':       f"MT5 {'▲ COMPRA' if direction == 'compra' else '▼ VENDA'} @ {entry:.5f} | {lot:.2f}L | #{ticket}",
-        'time':        ts,
-        'lot':         lot,
-        'leverage':    1000,
-        'result':      result,
-        'rafi':        round(rafi, 3) if rafi is not None else None,
-        'rafi_dir':    rafi_dir,
-        'bb_width':    round(bb_width, 5) if bb_width is not None else None,
-        'snapshot':    None,
-        'broker_id':   broker_id,
-        'updated_at':  datetime.utcnow().isoformat(),
+        'id':             f"{ts}-mt5-{ticket}",
+        'direction':      'buy' if direction == 'compra' else 'sell',
+        'entry':          p(entry),
+        'stop_loss':      p(stop_loss),
+        'take_profit':    p(take_profit),
+        'label':          f"MT5 {'▲ COMPRA' if direction == 'compra' else '▼ VENDA'} @ {entry:.5f} | {lot:.2f}L | #{ticket}",
+        'time':           ts,
+        'lot':            lot,
+        'leverage':       1000,
+        'result':         result,
+        'rafi':           round(rafi, 3) if rafi is not None else None,
+        'rafi_dir':       rafi_dir,
+        'bb_width':       round(bb_width, 5) if bb_width is not None else None,
+        'snapshot':       None,
+        'broker_id':      broker_id,
+        # Contexto de sessão para aprendizado da IA
+        'overlap_phase':  ctx['overlap_phase'],
+        'session_minute': ctx['session_minute'],
+        'day_of_week':    ctx['day_of_week'],
+        'entry_type':     'bot',
+        'updated_at':     datetime.utcnow().isoformat(),
     }
 
     try:

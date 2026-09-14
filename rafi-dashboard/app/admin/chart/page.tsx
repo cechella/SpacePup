@@ -54,6 +54,30 @@ function makeOCO(price: number, lot: number, time?: number): OCOState {
   }
 }
 
+// Calcula contexto de sessão para aprendizado da IA
+function getOverlapContext(unixSec: number): {
+  overlapPhase:  'early' | 'mid' | 'late' | null
+  sessionMinute: number | null
+  dayOfWeek:     0 | 1 | 2 | 3 | null
+} {
+  const d      = new Date(unixSec * 1000)
+  const utcMin = d.getUTCHours() * 60 + d.getUTCMinutes()
+  const START  = 13 * 60 + 30   // 13:30 UTC — início do overlap
+  const END    = 16 * 60 + 30   // 16:30 UTC — fim do overlap
+  const sesMin = utcMin - START
+
+  let overlapPhase: 'early' | 'mid' | 'late' | null = null
+  if (utcMin >= START && utcMin < END) {
+    overlapPhase = sesMin < 30 ? 'early' : sesMin < 90 ? 'mid' : 'late'
+  }
+
+  // getUTCDay: 0=Dom 1=Seg … 5=Sex → Seg-Qui = 0-3
+  const jsDay = d.getUTCDay()
+  const dayOfWeek = (jsDay >= 1 && jsDay <= 4) ? (jsDay - 1) as 0|1|2|3 : null
+
+  return { overlapPhase, sessionMinute: overlapPhase !== null ? sesMin : null, dayOfWeek }
+}
+
 const STORAGE_KEY     = 'rafi-trade-log'
 const CSV_HISTORY_KEY = 'rafi-csv-history'
 const META_AUTO_KEY   = 'rafi-meta-auto'
@@ -709,21 +733,29 @@ export default function ChartPage() {
     const bbWidth   = lastUpper !== undefined && lastLower !== undefined
       ? lastUpper - lastLower : undefined
 
+    const entryTs  = ocoState.entryTime ?? lastTime
+    const sesCtx   = getOverlapContext(entryTs)
+
     handleAdd({
-      id:         `${Date.now()}-oco-${Math.random().toString(36).slice(2, 5)}`,
+      id:           `${Date.now()}-oco-${Math.random().toString(36).slice(2, 5)}`,
       direction,
-      entry:      p(entry),
-      stopLoss:   p(sl),
-      takeProfit: p(tp),
-      label:      `OCO ${direction === 'buy' ? '▲ COMPRA' : '▼ VENDA'} @ ${formatPrice(entry)} | ${ocoState.lot.toFixed(2)}L`,
-      time:       ocoState.entryTime ?? lastTime,
-      lot:        ocoState.lot,
-      leverage:   ocoState.leverage,
-      result:     'pending',
-      rafi:       lastRafi?.value,
-      rafiDir:    lastRafi?.dir,
+      entry:        p(entry),
+      stopLoss:     p(sl),
+      takeProfit:   p(tp),
+      label:        `OCO ${direction === 'buy' ? '▲ COMPRA' : '▼ VENDA'} @ ${formatPrice(entry)} | ${ocoState.lot.toFixed(2)}L`,
+      time:         entryTs,
+      lot:          ocoState.lot,
+      leverage:     ocoState.leverage,
+      result:       'pending',
+      rafi:         lastRafi?.value,
+      rafiDir:      lastRafi?.dir,
       bbWidth,
-      snapshot:   snapshotCaptureRef.current?.(ocoState.entryTime ?? lastTime, { entry: p(entry), sl: p(sl), tp: p(tp), direction }) ?? undefined,
+      snapshot:     snapshotCaptureRef.current?.(entryTs, { entry: p(entry), sl: p(sl), tp: p(tp), direction }) ?? undefined,
+      // Contexto de sessão para aprendizado da IA
+      overlapPhase:  sesCtx.overlapPhase,
+      sessionMinute: sesCtx.sessionMinute,
+      dayOfWeek:     sesCtx.dayOfWeek,
+      entryType:    'manual',
     })
     setOcoState(prev => prev ? { ...prev, direction, tp: p(tp), sl: p(sl) } : null)
     // Muda para Navegar imediatamente após disparar — limpa o gráfico para acompanhar a posição

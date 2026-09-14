@@ -20,6 +20,11 @@ export interface TradeRecord {
   snapshot?: string
   pnlUsd?: number
   capitalInicial?: number
+  // Contexto de sessão para aprendizado da IA
+  overlapPhase?:  'early' | 'mid' | 'late' | null
+  sessionMinute?: number | null
+  dayOfWeek?:     0 | 1 | 2 | 3 | null
+  entryType?:     'manual' | 'bot'
 }
 
 function fromRow(row: Record<string, unknown>): TradeRecord {
@@ -40,6 +45,10 @@ function fromRow(row: Record<string, unknown>): TradeRecord {
     snapshot:   (row.snapshot as string) ?? undefined,
     pnlUsd:        row.pnl_usd != null ? Number(row.pnl_usd) : row.pnl != null ? Number(row.pnl) : undefined,
     capitalInicial: row.capital_inicial != null ? Number(row.capital_inicial) : undefined,
+    overlapPhase:  (row.overlap_phase as TradeRecord['overlapPhase']) ?? undefined,
+    sessionMinute: row.session_minute != null ? Number(row.session_minute) : undefined,
+    dayOfWeek:     row.day_of_week != null ? Number(row.day_of_week) as 0|1|2|3 : undefined,
+    entryType:     (row.entry_type as TradeRecord['entryType']) ?? undefined,
   }
 }
 
@@ -61,6 +70,10 @@ function toRow(t: TradeRecord) {
     snapshot:    t.snapshot ?? null,
     pnl_usd:         t.pnlUsd ?? null,
     capital_inicial: t.capitalInicial ?? null,
+    overlap_phase:   t.overlapPhase  ?? null,
+    session_minute:  t.sessionMinute ?? null,
+    day_of_week:     t.dayOfWeek     ?? null,
+    entry_type:      t.entryType     ?? 'manual',
     updated_at:      new Date().toISOString(),
   }
 }
