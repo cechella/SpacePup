@@ -8,6 +8,7 @@ import type { RAFIPoint, SRLevel, BBBands } from '@/lib/indicators'
 import type { ManualTrade } from './trade-panel'
 import { OCOOverlay, type OCOState } from './oco-overlay'
 import { TradesOverlay } from './trades-overlay'
+import { PositionsOverlay, type LivePosition } from './positions-overlay'
 
 interface Props {
   candles:            CandleData[]
@@ -23,13 +24,17 @@ interface Props {
   onOCOClose?:        () => void
   // Preço ao vivo para atualizar o último candle sem recriar o gráfico
   livePrice?:         number | null
+  // Posições abertas ao vivo (MetaAPI)
+  positions?:         LivePosition[]
+  onModifyPosition?:  (id: string, sl: number, tp: number) => void
   // Ref para captura focada no candle de entrada com overlay OCO desenhado
   snapshotCaptureRef?: React.MutableRefObject<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>
 }
 
 export function RAFIChart({
   candles, rafiData, srLevels, trades, bbBands, onPriceClick, panMode,
-  ocoState, onOCOChange, onOCOExecute, onOCOClose, livePrice, snapshotCaptureRef,
+  ocoState, onOCOChange, onOCOExecute, onOCOClose, livePrice,
+  positions, onModifyPosition, snapshotCaptureRef,
 }: Props) {
   const mainRef         = useRef<HTMLDivElement>(null)
   const mainWrapperRef  = useRef<HTMLDivElement>(null)
@@ -337,6 +342,16 @@ export function RAFIChart({
         <div ref={mainRef} className="absolute inset-0" />
         {chartReady && trades.length > 0 && (
           <TradesOverlay trades={trades} getX={getX} getY={getY} />
+        )}
+        {chartReady && positions && positions.length > 0 && (
+          <PositionsOverlay
+            positions={positions}
+            livePrice={livePrice}
+            getY={getY}
+            getPrice={getPrice}
+            onModify={onModifyPosition ?? (() => {})}
+            containerRef={mainRef}
+          />
         )}
         {ocoState && chartReady && (
           <OCOOverlay

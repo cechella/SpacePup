@@ -458,13 +458,15 @@ export default function ChartPage() {
     fetchHistory(historyPeriod)
   }, [metaConnected, historyPeriod, fetchHistory])
 
-  // Features 1, 2, 5: poll saldo + posições a cada 30s quando MetaAPI ativo
+  // Features 1, 2, 5: poll saldo + posições a cada 5s quando MetaAPI ativo
   useEffect(() => {
     if (!metaConnected) { setMetaAccount(null); setMetaPositions([]); setBotAlerts([]); return }
     fetchLiveData()
-    const id = setInterval(fetchLiveData, 30_000)
+    const id = setInterval(fetchLiveData, 5_000)
     return () => clearInterval(id)
   }, [metaConnected, fetchLiveData])
+
+
 
   // Tick ao vivo via SSE: atualiza o último candle a cada ~300ms (igual MetaTrader 5)
   useEffect(() => {
@@ -1334,6 +1336,8 @@ export default function ChartPage() {
               onOCOExecute={handleOCOExecute}
               onOCOClose={handleOCOClose}
               livePrice={livePrice}
+              positions={metaPositions as any}
+              onModifyPosition={(id, sl, tp) => handleModifyPosition(id, String(sl), String(tp))}
               snapshotCaptureRef={snapshotCaptureRef}
             />
           </div>
@@ -1483,6 +1487,69 @@ export default function ChartPage() {
                   </div>
                 )
               })}
+            </div>
+          </div>
+        )}
+
+        {/* ── Posições Abertas ao Vivo — sempre visível (mobile + desktop) ── */}
+        {metaConnected && metaPositions.length > 0 && (
+          <div className="shrink-0 rounded-xl border border-[#3b82f633] bg-[#0b1219] overflow-hidden">
+            <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between">
+              <span className="text-[10px] font-semibold text-[#3b82f6] uppercase tracking-wider flex items-center gap-1.5">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse" />
+                Posições Abertas
+              </span>
+              <span className={cn('text-[10px] font-mono font-bold', totalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
+                P&amp;L {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} USD
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-[10px] border-collapse">
+                <thead>
+                  <tr className="border-b border-[#21262d]">
+                    {['Par', 'Dir', 'Lote', 'Entrada', 'TP', 'SL', 'P&L ao vivo', ''].map(h => (
+                      <th key={h} className="px-3 py-1.5 text-left text-[8px] font-semibold text-[#484f58] uppercase tracking-widest whitespace-nowrap">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#21262d]/50">
+                  {metaPositions.map(pos => {
+                    const isBuy  = pos.type === 'POSITION_TYPE_BUY'
+                    const price  = livePrice ?? pos.openPrice
+                    const rawPnl = (isBuy ? 1 : -1) * (price - pos.openPrice) * pos.volume * 100000
+                    const pnl    = isNaN(rawPnl) ? pos.profit : rawPnl
+                    const pnlClr = pnl >= 0 ? '#22c55e' : '#ef4444'
+                    return (
+                      <tr key={pos.id} className="hover:bg-[#161b22] transition-colors">
+                        <td className="px-3 py-2 font-mono font-bold text-[#f0f6fc]">{pos.symbol}</td>
+                        <td className="px-3 py-2">
+                          <span className={cn('font-bold', isBuy ? 'text-[#3b82f6]' : 'text-[#f59e0b]')}>
+                            {isBuy ? '▲ BUY' : '▼ SELL'}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 font-mono text-[#8b949e]">{pos.volume}L</td>
+                        <td className="px-3 py-2 font-mono text-[#8b949e]">{pos.openPrice.toFixed(5)}</td>
+                        <td className="px-3 py-2 font-mono text-[#10b981]">{pos.takeProfit ? pos.takeProfit.toFixed(5) : '—'}</td>
+                        <td className="px-3 py-2 font-mono text-[#ef4444]">{pos.stopLoss  ? pos.stopLoss.toFixed(5)  : '—'}</td>
+                        <td className="px-3 py-2 font-mono font-bold tabular-nums" style={{ color: pnlClr }}>
+                          {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)} USD
+                        </td>
+                        <td className="px-3 py-2">
+                          <button
+                            onClick={() => handleClosePosition(pos.id)}
+                            className="px-2 py-0.5 rounded text-[9px] font-bold bg-[#ef4444]/15 border border-[#ef4444]/40 text-[#ef4444] hover:bg-[#ef4444]/25 transition-colors whitespace-nowrap"
+                          >
+                            × Fechar
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
