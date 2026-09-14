@@ -125,12 +125,48 @@ export default function ChartPage() {
   // Mobile: gaveta lateral e aba ativa
   const [sidebarOpen,  setSidebarOpen]  = useState(false)
   const [mobileTab,    setMobileTab]    = useState<'chart' | 'positions' | 'trade' | 'history'>('chart')
+  // Resize vertical do gráfico — desktop only
+  const [chartH,    setChartH]    = useState(460)
+  const [isDesktop, setIsDesktop] = useState(false)
+  const chartHRef = useRef(460)
+  useEffect(() => { chartHRef.current = chartH }, [chartH])
   const prevPositionsRef = useRef<typeof metaPositions>([])
   const fileInputRef        = useRef<HTMLInputElement>(null)
   const historyPanelRef     = useRef<HTMLDivElement>(null)
   const snapshotCaptureRef  = useRef<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>(null)
   // Callback imperativo: SSE chama direto, sem passar pelo scheduler do React
   const chartUpdateCandleRef = useRef<((price: number) => void) | null>(null)
+
+  // Inicializa altura do gráfico e detecta desktop
+  useEffect(() => {
+    setIsDesktop(window.innerWidth >= 768)
+    try {
+      const saved = parseInt(localStorage.getItem('mesa_chart_h') || '', 10)
+      if (saved >= 200 && saved <= 1400) { setChartH(saved); chartHRef.current = saved }
+    } catch {}
+  }, [])
+
+  // Arrasto da borda inferior do gráfico para redimensionar (desktop)
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const startY = e.clientY
+    const startH = chartHRef.current
+    document.body.style.cursor    = 'row-resize'
+    document.body.style.userSelect = 'none'
+    const onMove = (ev: MouseEvent) => {
+      const newH = Math.max(200, Math.min(window.innerHeight - 200, startH + ev.clientY - startY))
+      setChartH(newH)
+    }
+    const onUp = () => {
+      document.body.style.cursor    = ''
+      document.body.style.userSelect = ''
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup',   onUp)
+      try { localStorage.setItem('mesa_chart_h', String(chartHRef.current)) } catch {}
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup',   onUp)
+  }, [])
 
   // Salva um LoadResult no histórico de CSVs (localStorage, máx MAX_CSV_HISTORY)
   const saveToHistory = useCallback((result: LoadResult) => {
@@ -1053,7 +1089,10 @@ export default function ChartPage() {
         )}
 
         {/* Gráfico duplo (candles + RAFI) */}
-        <div className="flex-1 min-h-0 rounded-xl border border-[#30363d] overflow-hidden flex flex-col md:flex-none md:h-[460px]">
+        <div
+          className="flex-1 min-h-0 rounded-xl border border-[#30363d] overflow-hidden flex flex-col md:flex-none"
+          style={isDesktop ? { height: chartH } : undefined}
+        >
 
           {/* Toolbar do gráfico — oculta em mobile (controles ficam na gaveta) */}
           <div className="px-4 py-2 border-b border-[#30363d] bg-[#161b22] hidden md:flex items-center justify-between shrink-0">
@@ -1419,6 +1458,22 @@ export default function ChartPage() {
             />
           </div>
         </div>
+
+        {/* Handle de resize vertical — desktop only */}
+        {isDesktop && (
+          <div
+            className="hidden md:flex items-center justify-center h-2 shrink-0 cursor-row-resize group select-none"
+            onMouseDown={handleResizeStart}
+            onDoubleClick={() => { setChartH(460); try { localStorage.removeItem('mesa_chart_h') } catch {} }}
+            title="Arraste para redimensionar · Duplo clique para restaurar"
+          >
+            <div className="flex items-center gap-0.5 opacity-30 group-hover:opacity-100 transition-opacity">
+              <span className="w-6 h-[2px] rounded-full bg-[#484f58] group-hover:bg-[#3b82f6] transition-colors" />
+              <span className="w-1.5 h-[2px] rounded-full bg-[#484f58] group-hover:bg-[#3b82f6] transition-colors" />
+              <span className="w-6 h-[2px] rounded-full bg-[#484f58] group-hover:bg-[#3b82f6] transition-colors" />
+            </div>
+          </div>
+        )}
 
         {/* Feature 2: painel de posições abertas — só visível quando MetaAPI conectado e há posições (oculto em mobile, acessível pela aba Posições) */}
         {metaConnected && metaPositions.length > 0 && (
