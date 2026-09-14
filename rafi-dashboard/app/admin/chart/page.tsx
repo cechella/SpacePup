@@ -668,6 +668,22 @@ export default function ChartPage() {
     return metaAccount.balance + floating
   }, [metaAccount, metaPositions, livePrice])
 
+  // Valor atual do RAFI (último candle) — passado para o CO-PILOTO IA
+  const currentRafiValue = useMemo(() => {
+    const last = rafiData[rafiData.length - 1]
+    return last?.value ?? null
+  }, [rafiData])
+
+  // BB expandindo? Compara os 2 últimos widths
+  const currentBbExpanding = useMemo(() => {
+    const upper = bbBands?.upper
+    const lower = bbBands?.lower
+    if (!upper || !lower || upper.length < 2 || lower.length < 2) return null
+    const w1 = (upper[upper.length - 2]?.value ?? 0) - (lower[lower.length - 2]?.value ?? 0)
+    const w2 = (upper[upper.length - 1]?.value ?? 0) - (lower[lower.length - 1]?.value ?? 0)
+    return w2 > w1
+  }, [bbBands])
+
   // RAFI sempre positivo: separa por dir do candle
   const strongBullBars = rafiData.filter(p => p.value >= 2.5).length
   const strongBearBars = rafiData.filter(p => p.value <= -2.5).length
@@ -1940,6 +1956,8 @@ export default function ChartPage() {
         livePrice={livePrice}
         balance={metaAccount?.balance ?? null}
         discipline={disciplineState}
+        rafiValue={currentRafiValue}
+        bbExpanding={currentBbExpanding}
       />
 
       {/* ── Barra de abas mobile ──────────────────────────────────────── */}

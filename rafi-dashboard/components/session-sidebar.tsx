@@ -29,11 +29,106 @@ function progress(start: number, end: number): number {
   return (utcMin() - start) / (end - start)
 }
 
-function aiScore(): { pct: number; label: string; color: string } {
-  if (isActive(OVERLAP.start, OVERLAP.end)) return { pct: 78, label: 'Overlap ativo',     color: '#00e676' }
-  if (isActive(NY.start, NY.end))           return { pct: 65, label: 'Só NY ativo',        color: '#aa55ff' }
-  if (isActive(LONDON.start, LONDON.end))   return { pct: 61, label: 'Só London ativo',    color: '#4499ff' }
-  return                                           { pct: 32, label: 'Fora de sessão',      color: '#484f58' }
+const DAY_ABBR = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
+const DAY_NAME = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado']
+
+interface CopilotResult {
+  score:      number
+  label:      string
+  scoreColor: string
+  factors:    { label: string; ok: boolean | null }[]
+  similars:   ManualTrade[]
+  profileMsg: string
+  dataCount:  number
+}
+
+function computeCopilot(
+  trades: ManualTrade[],
+  rafiValue: number | null,
+  bbExpanding: boolean | null,
+): CopilotResult {
+  const now    = new Date()
+  const utcMin = now.getUTCHours() * 60 + now.getUTCMinutes()
+  const OVERLAP_START = 13 * 60 + 30
+  const OVERLAP_END   = 16 * 60 + 30
+  const inOverlap     = utcMin >= OVERLAP_START && utcMin < OVERLAP_END
+  const sesMin        = utcMin - OVERLAP_START
+  const overlapPhase  = inOverlap
+    ? sesMin < 30 ? 'early' : sesMin < 90 ? 'mid' : 'late'
+    : null
+  const jsDay    = now.getUTCDay()
+  const dayOfWeek = jsDay >= 1 && jsDay <= 4 ? jsDay - 1 : null
+  const rafiStrong = rafiValue != null ? Math.abs(rafiValue) >= 2.5 : null
+
+  const completed = trades.filter(t => t.result === 'win' || t.result === 'loss')
+  // similares = mesma fase de overlap (dentro ou fora)
+  const similars  = completed.filter(t => (t.overlapPhase != null) === inOverlap)
+  const wins      = similars.filter(t => t.result === 'win').length
+  const losses    = similars.filter(t => t.result === 'loss').length
+  const total     = wins + losses
+
+  let score: number
+  let profileMsg: string
+
+  if (total >= 10) {
+    const baseRate = Math.round((wins / total) * 100)
+    const bonus    = (rafiStrong ? 5 : 0) + (bbExpanding ? 3 : 0)
+    score = Math.min(Math.max(baseRate + bonus, 20), 95)
+    profileMsg = `Seu perfil: ${baseRate}% de acerto neste contexto. Últimas ${total} ocorrências: ${wins}W · ${losses}L.`
+  } else if (total > 0) {
+    const baseRate = Math.round((wins / total) * 100)
+    score = Math.max(baseRate, 40)
+    profileMsg = `${total} trades similares (${wins}W · ${losses}L). Acumulando dados…`
+  } else {
+    score = 45
+    if (inOverlap)           score += 15
+    if (rafiStrong === true) score += 10
+    if (bbExpanding === true) score += 5
+    if (dayOfWeek === 0 || dayOfWeek === 1) score += 5
+    score = Math.min(score, 82)
+    profileMsg = 'Opere para que a IA aprenda seu perfil.'
+  }
+
+  const scoreColor = score >= 70 ? '#00e676' : score >= 55 ? '#ffcc44' : '#ef4444'
+  const label      = score >= 70 ? 'Alta confiança' : score >= 55 ? 'Confiança média' : 'Baixa confiança'
+
+  const phaseLabel = overlapPhase === 'early' ? 'early 0-30min'
+    : overlapPhase === 'mid'  ? 'mid 30-90min'
+    : overlapPhase === 'late' ? 'late 90-180min'
+    : null
+
+  const factors: CopilotResult['factors'] = [
+    {
+      label: inOverlap
+        ? `Overlap ativo${phaseLabel ? ` · ${phaseLabel}` : ''}`
+        : 'Overlap inativo · aguardar 13:30 UTC',
+      ok: inOverlap,
+    },
+    ...(rafiValue != null ? [{
+      label: `RAFI ${rafiValue.toFixed(1)} ${rafiStrong ? '> 2.5 — forte' : Math.abs(rafiValue) >= 2.0 ? '> 2.0 — moderado' : '< 2.0 — fraco'}`,
+      ok: rafiStrong,
+    }] : []),
+    ...(bbExpanding != null ? [{
+      label: bbExpanding ? 'BB expandindo — volatilidade abrindo' : 'BB contraindo — aguardar expansão',
+      ok: bbExpanding,
+    }] : []),
+    {
+      label: dayOfWeek != null
+        ? `${DAY_NAME[jsDay]} — dia operável`
+        : 'Fora de Segunda–Quinta',
+      ok: dayOfWeek != null,
+    },
+  ]
+
+  return {
+    score,
+    label,
+    scoreColor,
+    factors,
+    similars: completed.slice(-4).reverse(),
+    profileMsg,
+    dataCount: completed.length,
+  }
 }
 
 const MILESTONES = [100, 1_000, 10_000, 100_000, 1_000_000]
@@ -61,6 +156,8 @@ interface Props {
   livePrice:        number | null
   balance:          number | null
   discipline:       DisciplineState
+  rafiValue:        number | null
+  bbExpanding:      boolean | null
 }
 
 export function SessionSidebar({
@@ -69,6 +166,8 @@ export function SessionSidebar({
   freeMargin, livePrice,
   balance,
   discipline,
+  rafiValue,
+  bbExpanding,
 }: Props) {
   // Tick a cada 30s para atualizar countdowns
   const [, setTick] = useState(0)
@@ -80,7 +179,7 @@ export function SessionSidebar({
   const londonActive  = isActive(LONDON.start, LONDON.end)
   const nyActive      = isActive(NY.start, NY.end)
   const overlapActive = isActive(OVERLAP.start, OVERLAP.end)
-  const ai = aiScore()
+  const copilot = computeCopilot(trades, rafiValue, bbExpanding)
 
   const capital    = balance ?? 100
   const journey    = journeyProgress(capital)
@@ -141,42 +240,100 @@ export function SessionSidebar({
         })}
       </div>
 
-      {/* ── IA P(WIN) ────────────────────────────────── */}
+      {/* ── CO-PILOTO IA ─────────────────────────────── */}
       <div className="rounded-xl border border-[#1c3050] bg-[#0f1824] p-3">
-        <div className="flex items-center gap-1.5 mb-2">
+        {/* Header */}
+        <div className="flex items-center gap-1.5 mb-3">
+          <span className="w-1.5 h-1.5 rounded-full bg-[#00e676] animate-pulse shrink-0" />
           <Brain size={11} className="text-[#7a96b8]" />
-          <span className="text-[9px] font-bold text-[#7a96b8] uppercase tracking-widest">IA P(Win)</span>
+          <span className="text-[9px] font-bold text-[#7a96b8] uppercase tracking-widest">CO-PILOTO IA</span>
+          <span className="ml-auto text-[8px] font-bold text-[#00e676]">● IA ONLINE</span>
         </div>
-        <div className="flex items-center gap-3">
-          {/* Anel SVG */}
-          <svg width="52" height="52" viewBox="0 0 52 52" className="shrink-0">
-            <circle cx="26" cy="26" r="21" fill="none" stroke="#131f2e" strokeWidth="6" />
+
+        {/* Score ring + label */}
+        <div className="flex items-center gap-3 mb-3">
+          <svg width="56" height="56" viewBox="0 0 56 56" className="shrink-0">
+            <circle cx="28" cy="28" r="22" fill="none" stroke="#131f2e" strokeWidth="7" />
             <circle
-              cx="26" cy="26" r="21" fill="none"
-              stroke={ai.color} strokeWidth="6"
-              strokeDasharray={`${(ai.pct / 100) * 131.9} 131.9`}
+              cx="28" cy="28" r="22" fill="none"
+              stroke={copilot.scoreColor} strokeWidth="7"
+              strokeDasharray={`${(copilot.score / 100) * 138.2} 138.2`}
               strokeLinecap="round"
-              transform="rotate(-90 26 26)"
+              transform="rotate(-90 28 28)"
+              style={{ transition: 'stroke-dasharray 0.8s ease' }}
             />
-            <text
-              x="26" y="30"
-              textAnchor="middle"
-              fill={ai.color}
-              fontSize="11"
-              fontWeight="700"
-              fontFamily="monospace"
-            >
-              {ai.pct}%
+            <text x="28" y="33" textAnchor="middle" fill={copilot.scoreColor} fontSize="12" fontWeight="700" fontFamily="monospace">
+              {copilot.score}%
             </text>
           </svg>
           <div className="min-w-0">
-            <div className="text-[12px] font-bold leading-none" style={{ color: ai.color }}>
-              {ai.pct}% confiança
+            <div className="text-[13px] font-bold leading-tight" style={{ color: copilot.scoreColor }}>
+              {copilot.label}
             </div>
-            <div className="text-[9px] text-[#7a96b8] mt-1">{ai.label}</div>
-            <div className="text-[8px] text-[#334455] mt-0.5">baseado na sessão atual</div>
+            <div className="text-[9px] text-[#7a96b8] mt-0.5">Setup analisado pela IA</div>
           </div>
         </div>
+
+        {/* Fatores Analisados */}
+        <div className="mb-3">
+          <div className="text-[8px] text-[#334455] uppercase tracking-widest mb-1.5">Fatores Analisados</div>
+          <div className="flex flex-col gap-1">
+            {copilot.factors.map((f, i) => (
+              <div key={i} className="flex items-start gap-1.5">
+                <span
+                  className="text-[10px] mt-[1px] shrink-0 font-bold"
+                  style={{ color: f.ok === null ? '#334455' : f.ok ? '#00e676' : '#ef4444' }}
+                >
+                  {f.ok === null ? '·' : f.ok ? '✓' : '✗'}
+                </span>
+                <span
+                  className="text-[10px] leading-tight"
+                  style={{ color: f.ok === null ? '#334455' : f.ok ? '#7a96b8' : 'rgba(239,68,68,0.7)' }}
+                >
+                  {f.label}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Mensagem de perfil */}
+        <div className="bg-[#131f2e] rounded-lg px-2.5 py-2 mb-3">
+          <p className="text-[9px] text-[#7a96b8] leading-relaxed">{copilot.profileMsg}</p>
+        </div>
+
+        {/* Últimos similares */}
+        {copilot.similars.length > 0 && (
+          <div>
+            <div className="text-[8px] text-[#334455] uppercase tracking-widest mb-1.5">Últimos Similares</div>
+            <div className="flex flex-col gap-1">
+              {copilot.similars.map(t => {
+                const win  = t.result === 'win'
+                const d    = new Date((t.time ?? 0) * 1000)
+                const abbr = DAY_ABBR[d.getUTCDay()]
+                const hm   = `${String(d.getUTCHours()).padStart(2,'0')}h${String(d.getUTCMinutes()).padStart(2,'0')}`
+                const pnl  = (t as ManualTrade & { pnlUsd?: number }).pnlUsd
+                const pnlStr = pnl != null
+                  ? `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(0)}`
+                  : win ? 'WIN' : 'LOSS'
+                const rafi = (t as ManualTrade & { rafi?: number }).rafi
+                return (
+                  <div key={t.id} className="flex items-center justify-between bg-[#131f2e] rounded-lg px-2 py-1.5">
+                    <span className={cn('text-[10px] font-mono font-bold', win ? 'text-[#00e676]' : 'text-[#ef4444]')}>
+                      {pnlStr}
+                    </span>
+                    <span className="text-[9px] text-[#7a96b8] font-mono">
+                      {abbr} {hm}{rafi != null ? ` · RAFI ${rafi.toFixed(1)}` : ''}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="text-[8px] text-[#334455] mt-1.5 text-center">
+              baseado em {copilot.dataCount} trades históricos
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── DISCIPLINA ───────────────────────────────── */}
