@@ -127,6 +127,8 @@ export default function ChartPage() {
   const fileInputRef        = useRef<HTMLInputElement>(null)
   const historyPanelRef     = useRef<HTMLDivElement>(null)
   const snapshotCaptureRef  = useRef<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>(null)
+  // Callback imperativo: SSE chama direto, sem passar pelo scheduler do React
+  const chartUpdateCandleRef = useRef<((price: number) => void) | null>(null)
 
   // Salva um LoadResult no histórico de CSVs (localStorage, máx MAX_CSV_HISTORY)
   const saveToHistory = useCallback((result: LoadResult) => {
@@ -485,8 +487,9 @@ export default function ChartPage() {
           const data = JSON.parse(e.data)
           if (data.bid && data.ask) {
             const mid = (data.bid + data.ask) / 2
-            livePriceRef.current = mid   // imediato — RAF lê sem esperar o React
-            setLivePrice(mid)            // estado para P&L nos badges e tabela
+            chartUpdateCandleRef.current?.(mid) // direto ao gráfico, sem React
+            livePriceRef.current = mid
+            setLivePrice(mid)                   // estado para P&L
           }
         } catch {}
       }
@@ -1341,6 +1344,7 @@ export default function ChartPage() {
               onOCOClose={handleOCOClose}
               livePrice={livePrice}
               livePriceRef={livePriceRef}
+              chartUpdateCandleRef={chartUpdateCandleRef}
               positions={metaPositions as any}
               onModifyPosition={(id, sl, tp) => handleModifyPosition(id, String(sl), String(tp))}
               snapshotCaptureRef={snapshotCaptureRef}

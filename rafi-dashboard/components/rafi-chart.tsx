@@ -24,8 +24,10 @@ interface Props {
   onOCOClose?:        () => void
   // Preço ao vivo para P&L nos badges/tabela (estado React ~300ms)
   livePrice?:         number | null
-  // Ref direto para RAF — lido a cada frame, sem esperar o scheduler do React
+  // Ref direto (RAF legado — mantido para overlay P&L)
   livePriceRef?:      React.MutableRefObject<number | null>
+  // Callback imperativo: page.tsx preenche; SSE chama direto, sem React
+  chartUpdateCandleRef?: React.MutableRefObject<((price: number) => void) | null>
   // Posições abertas ao vivo (MetaAPI)
   positions?:         LivePosition[]
   onModifyPosition?:  (id: string, sl: number, tp: number) => void
@@ -36,7 +38,7 @@ interface Props {
 export function RAFIChart({
   candles, rafiData, srLevels, trades, bbBands, onPriceClick, panMode,
   ocoState, onOCOChange, onOCOExecute, onOCOClose, livePrice, livePriceRef,
-  positions, onModifyPosition, snapshotCaptureRef,
+  chartUpdateCandleRef, positions, onModifyPosition, snapshotCaptureRef,
 }: Props) {
   const mainRef         = useRef<HTMLDivElement>(null)
   const mainWrapperRef  = useRef<HTMLDivElement>(null)
@@ -350,35 +352,45 @@ export function RAFIChart({
     }
   }, [candles, rafiData, srLevels, trades, bbBands])
 
-  // RAF loop: atualiza o candle ao vivo no próximo frame disponível,
-  // sem depender do scheduler do React — fluido durante zoom/pinch
+  // Registra o callback imperativo: SSE em page.tsx chama direto, sem React scheduler.
+  // Fluido mesmo durante zoom/pinch porque bypassa o fila de renders.
   useEffect(() => {
-    if (!chartReady) return
-    let rafId: number
-    let lastApplied: number | null = null
-
-    const loop = () => {
-      const price = livePriceRef?.current ?? null
+    if (!chartReady || !chartUpdateCandleRef) return
+    chartUpdateCandleRef.current = (price: number) => {
+      if (!candleSeriesRef.current) return
       const cands = candlesRef.current
-      if (price !== null && price !== lastApplied && candleSeriesRef.current && cands.length > 0) {
-        lastApplied = price
-        const last   = cands[cands.length - 1]
-        const isBull = price >= last.open
-        candleSeriesRef.current.update({
-          time:      last.time as any,
-          open:      last.open,
-          high:      Math.max(last.high, price),
-          low:       Math.min(last.low,  price),
-          close:     price,
-          color:     isBull ? '#10b981' : '#ef4444',
-          wickColor: isBull ? '#10b981' : '#ef4444',
-        })
-      }
-      rafId = requestAnimationFrame(loop)
+      if (cands.length === 0) return
+      const last   = cands[cands.length - 1]
+      const isBull = price >= last.open
+      candleSeriesRef.current.update({
+        time:      last.time as any,
+        open:      last.open,
+        high:      Math.max(last.high, price),
+        low:       Math.min(last.low,  price),
+        close:     price,
+        color:     isBull ? '#10b981' : '#ef4444',
+        wickColor: isBull ? '#10b981' : '#ef4444',
+      })
     }
-    rafId = requestAnimationFrame(loop)
-    return () => cancelAnimationFrame(rafId)
-  }, [chartReady, livePriceRef])
+    return () => { if (chartUpdateCandleRef) chartUpdateCandleRef.current = null }
+  }, [chartReady, chartUpdateCandleRef])
+
+  // Fallback via estado React — garante atualização caso o SSE não esteja ativo
+  useEffect(() => {
+    if (!candleSeriesRef.current || !livePrice || candlesRef.current.length === 0) return
+    const cands = candlesRef.current
+    const last   = cands[cands.length - 1]
+    const isBull = livePrice >= last.open
+    candleSeriesRef.current.update({
+      time:      last.time as any,
+      open:      last.open,
+      high:      Math.max(last.high, livePrice),
+      low:       Math.min(last.low,  livePrice),
+      close:     livePrice,
+      color:     isBull ? '#10b981' : '#ef4444',
+      wickColor: isBull ? '#10b981' : '#ef4444',
+    })
+  }, [livePrice])
 
 
   return (
