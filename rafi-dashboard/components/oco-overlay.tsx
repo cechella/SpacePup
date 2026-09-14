@@ -140,6 +140,48 @@ export function OCOOverlay({
   const cardRef     = useRef<HTMLDivElement>(null)
   const cardDragRef = useRef<{ mx: number; my: number; cx: number; cy: number } | null>(null)
 
+  // Pinch-to-scale: lê escala salva no localStorage
+  const [cardScale, setCardScale] = useState<number>(() => {
+    try { return Math.min(1.6, Math.max(0.5, Number(localStorage.getItem('rafi-oco-scale')) || 1)) } catch { return 1 }
+  })
+  const cardScaleRef = useRef(cardScale)
+  useEffect(() => { cardScaleRef.current = cardScale }, [cardScale])
+
+  // Listeners touch não-passivos para pinch (React não permite passive:false em onTouchMove)
+  useEffect(() => {
+    const el = cardRef.current
+    if (!el) return
+
+    const dist = (t: TouchList) =>
+      Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY)
+
+    let pinch: { d: number; base: number } | null = null
+
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) pinch = { d: dist(e.touches), base: cardScaleRef.current }
+    }
+    const onMove = (e: TouchEvent) => {
+      if (!pinch || e.touches.length !== 2) return
+      e.preventDefault()
+      const next = Math.min(1.6, Math.max(0.5, pinch.base * (dist(e.touches) / pinch.d)))
+      setCardScale(next)
+    }
+    const onEnd = () => {
+      if (!pinch) return
+      pinch = null
+      try { localStorage.setItem('rafi-oco-scale', String(cardScaleRef.current)) } catch {}
+    }
+
+    el.addEventListener('touchstart', onStart, { passive: true })
+    el.addEventListener('touchmove',  onMove,  { passive: false })
+    el.addEventListener('touchend',   onEnd)
+    return () => {
+      el.removeEventListener('touchstart', onStart)
+      el.removeEventListener('touchmove',  onMove)
+      el.removeEventListener('touchend',   onEnd)
+    }
+  }, [])
+
   // Inline edit
   const [editing, setEditing] = useState<'tp' | 'sl' | 'lot' | null>(null)
   const [editVal, setEditVal] = useState('')
@@ -475,8 +517,8 @@ export function OCOOverlay({
         ref={cardRef}
         className="absolute"
         style={cardPos
-          ? { left: cardPos.x, top: cardPos.y, pointerEvents: 'all' }
-          : { right: 'clamp(4px, 5vw, 88px)', top: cardTop, pointerEvents: 'all' }
+          ? { left: cardPos.x, top: cardPos.y, pointerEvents: 'all', transform: `scale(${cardScale})`, transformOrigin: 'top right' }
+          : { right: 'clamp(4px, 5vw, 88px)', top: cardTop, pointerEvents: 'all', transform: `scale(${cardScale})`, transformOrigin: 'top right' }
         }
       >
         <div
