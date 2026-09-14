@@ -116,6 +116,8 @@ export default function ChartPage() {
   const [historyLoading, setHistoryLoading] = useState(false)
   // Preço ao vivo: atualiza o último candle tick a tick
   const [livePrice, setLivePrice] = useState<number | null>(null)
+  // Ref direto para RAF no gráfico — sem passar pelo scheduler do React
+  const livePriceRef = useRef<number | null>(null)
   // Edição inline de SL/TP: { positionId, sl: string, tp: string }
   const [editingPos, setEditingPos] = useState<{ id: string; sl: string; tp: string } | null>(null)
   // Mobile: gaveta lateral e aba ativa
@@ -482,7 +484,9 @@ export default function ChartPage() {
         try {
           const data = JSON.parse(e.data)
           if (data.bid && data.ask) {
-            setLivePrice((data.bid + data.ask) / 2)
+            const mid = (data.bid + data.ask) / 2
+            livePriceRef.current = mid   // imediato — RAF lê sem esperar o React
+            setLivePrice(mid)            // estado para P&L nos badges e tabela
           }
         } catch {}
       }
@@ -1336,6 +1340,7 @@ export default function ChartPage() {
               onOCOExecute={handleOCOExecute}
               onOCOClose={handleOCOClose}
               livePrice={livePrice}
+              livePriceRef={livePriceRef}
               positions={metaPositions as any}
               onModifyPosition={(id, sl, tp) => handleModifyPosition(id, String(sl), String(tp))}
               snapshotCaptureRef={snapshotCaptureRef}

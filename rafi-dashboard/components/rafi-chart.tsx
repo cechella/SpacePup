@@ -22,8 +22,10 @@ interface Props {
   onOCOChange?:       (s: OCOState) => void
   onOCOExecute?:      (dir: 'buy' | 'sell') => void
   onOCOClose?:        () => void
-  // Preço ao vivo para atualizar o último candle sem recriar o gráfico
+  // Preço ao vivo para P&L nos badges/tabela (estado React ~300ms)
   livePrice?:         number | null
+  // Ref direto para RAF — lido a cada frame, sem esperar o scheduler do React
+  livePriceRef?:      React.MutableRefObject<number | null>
   // Posições abertas ao vivo (MetaAPI)
   positions?:         LivePosition[]
   onModifyPosition?:  (id: string, sl: number, tp: number) => void
@@ -33,7 +35,7 @@ interface Props {
 
 export function RAFIChart({
   candles, rafiData, srLevels, trades, bbBands, onPriceClick, panMode,
-  ocoState, onOCOChange, onOCOExecute, onOCOClose, livePrice,
+  ocoState, onOCOChange, onOCOExecute, onOCOClose, livePrice, livePriceRef,
   positions, onModifyPosition, snapshotCaptureRef,
 }: Props) {
   const mainRef         = useRef<HTMLDivElement>(null)
@@ -43,11 +45,13 @@ export function RAFIChart({
   const candleSeriesRef = useRef<any>(null)
   const chartRef        = useRef<any>(null)
   const positionsRef    = useRef(positions)
+  const candlesRef      = useRef(candles)
   const yScaleRef       = useRef<{ top: number; bottom: number }>({ top: 0.12, bottom: 0.12 })
   const [chartReady, setChartReady] = useState(false)
 
   useEffect(() => { onPriceClickRef.current = onPriceClick }, [onPriceClick])
   useEffect(() => { positionsRef.current = positions }, [positions])
+  useEffect(() => { candlesRef.current = candles }, [candles])
 
   // Faixa arrastável de escala Y — funciona no mobile sem depender do lightweight-charts
   const handleYScaleTouch = useCallback((e: React.TouchEvent) => {
@@ -346,21 +350,35 @@ export function RAFIChart({
     }
   }, [candles, rafiData, srLevels, trades, bbBands])
 
-  // Atualiza o último candle tick a tick sem recriar o gráfico
+  // RAF loop: atualiza o candle ao vivo no próximo frame disponível,
+  // sem depender do scheduler do React — fluido durante zoom/pinch
   useEffect(() => {
-    if (!candleSeriesRef.current || !livePrice || candles.length === 0) return
-    const last = candles[candles.length - 1]
-    const isBull = livePrice >= last.open
-    candleSeriesRef.current.update({
-      time:       last.time as any,
-      open:       last.open,
-      high:       Math.max(last.high, livePrice),
-      low:        Math.min(last.low,  livePrice),
-      close:      livePrice,
-      color:      isBull ? '#10b981' : '#ef4444',
-      wickColor:  isBull ? '#10b981' : '#ef4444',
-    })
-  }, [livePrice])
+    if (!chartReady) return
+    let rafId: number
+    let lastApplied: number | null = null
+
+    const loop = () => {
+      const price = livePriceRef?.current ?? null
+      const cands = candlesRef.current
+      if (price !== null && price !== lastApplied && candleSeriesRef.current && cands.length > 0) {
+        lastApplied = price
+        const last   = cands[cands.length - 1]
+        const isBull = price >= last.open
+        candleSeriesRef.current.update({
+          time:      last.time as any,
+          open:      last.open,
+          high:      Math.max(last.high, price),
+          low:       Math.min(last.low,  price),
+          close:     price,
+          color:     isBull ? '#10b981' : '#ef4444',
+          wickColor: isBull ? '#10b981' : '#ef4444',
+        })
+      }
+      rafId = requestAnimationFrame(loop)
+    }
+    rafId = requestAnimationFrame(loop)
+    return () => cancelAnimationFrame(rafId)
+  }, [chartReady, livePriceRef])
 
 
   return (
