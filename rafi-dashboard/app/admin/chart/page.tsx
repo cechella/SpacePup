@@ -602,6 +602,22 @@ export default function ChartPage() {
     if (metaPositions.length > 0) setPanMode(true)
   }, [metaPositions.length])
 
+  // Ao conectar MetaAPI, reseta OCO com preço ao vivo real (evita SL/TP da demo serem enviados)
+  // Aguarda 1s para o SSE inicializar e livePriceRef ter o preço atual
+  useEffect(() => {
+    if (!metaConnected) return
+    const timer = setTimeout(() => {
+      const price = livePriceRef.current ?? lastPrice
+      if (price > 0) {
+        setOcoState(makeOCO(price, currentLot))
+        setClickedEntry(null)
+        setClickedTime(undefined)
+      }
+    }, 1000)
+    return () => clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metaConnected])
+
   const handleAdd = useCallback((t: ManualTrade) => {
     setTrades(p => [...p, t])
     upsertTrade(t as any).catch((err) => console.error('[Supabase] upsertTrade:', err))
