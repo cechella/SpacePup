@@ -564,6 +564,21 @@ export default function ChartPage() {
   const lastTime   = lastCandle?.time  ?? 0
   const totalPnl   = useMemo(() => metaPositions.reduce((s, p) => s + (p.profit ?? 0), 0), [metaPositions])
 
+  // Equity ao vivo: saldo fixo + P&L calculado tick a tick via preço SSE
+  // Evita o atraso do poll de 5s — exibe o capital total em tempo real
+  const liveEquity = useMemo(() => {
+    if (!metaAccount) return null
+    if (metaPositions.length === 0 || livePrice === null) return metaAccount.balance
+    const floating = metaPositions.reduce((sum, pos) => {
+      if (/eurusd/i.test(pos.symbol)) {
+        const dir = /buy/i.test(pos.type) ? 1 : -1
+        return sum + (livePrice - pos.openPrice) * dir * pos.volume * 100000
+      }
+      return sum + (pos.profit ?? 0)  // posições não-EURUSD: usa último valor conhecido
+    }, 0)
+    return metaAccount.balance + floating
+  }, [metaAccount, metaPositions, livePrice])
+
   // RAFI sempre positivo: separa por dir do candle
   const strongBullBars = rafiData.filter(p => p.value >= 2.5).length
   const strongBearBars = rafiData.filter(p => p.value <= -2.5).length
@@ -580,6 +595,12 @@ export default function ChartPage() {
       setOcoVisible(true)
     }
   }, [lastPrice, currentLot])
+
+  // Auto-muda para Navegar quando há posição aberta — overlay OCO atrapalha a visão
+  // O usuário pode voltar para OCO manualmente a qualquer momento
+  useEffect(() => {
+    if (metaPositions.length > 0) setPanMode(true)
+  }, [metaPositions.length])
 
   const handleAdd = useCallback((t: ManualTrade) => {
     setTrades(p => [...p, t])
@@ -624,6 +645,8 @@ export default function ChartPage() {
       snapshot:   snapshotCaptureRef.current?.(ocoState.entryTime ?? lastTime, { entry: p(entry), sl: p(sl), tp: p(tp), direction }) ?? undefined,
     })
     setOcoState(prev => prev ? { ...prev, direction, tp: p(tp), sl: p(sl) } : null)
+    // Muda para Navegar imediatamente após disparar — limpa o gráfico para acompanhar a posição
+    setPanMode(true)
 
     // Feature 3: envia para MetaAPI e mostra toast de feedback
     fetch('/api/metaapi/order', {
@@ -792,7 +815,7 @@ export default function ChartPage() {
             <div className="space-y-2">
               {([
                 { label: 'Saldo',       val: `${metaAccount.currency} ${metaAccount.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, color: '#f0f6fc' },
-                { label: 'Equity',      val: metaAccount.equity.toLocaleString('pt-BR', { minimumFractionDigits: 2 }),     color: '#22c55e' },
+                { label: 'Equity',      val: (liveEquity ?? metaAccount.equity).toLocaleString('pt-BR', { minimumFractionDigits: 2 }), color: '#22c55e' },
                 { label: 'Margem livre',val: metaAccount.freeMargin.toLocaleString('pt-BR', { minimumFractionDigits: 2 }), color: '#f0f6fc' },
               ] as const).map(r => (
                 <div key={r.label} className="flex justify-between items-center text-[12px]">
@@ -995,7 +1018,7 @@ export default function ChartPage() {
             <span className="text-[#484f58]">Saldo</span>
             <span className="font-mono font-bold text-[#f0f6fc]">{metaAccount.currency} {metaAccount.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
             <span className="text-[#484f58]">Equity</span>
-            <span className="font-mono font-bold text-[#f0f6fc]">{metaAccount.equity.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+            <span className="font-mono font-bold text-[#f0f6fc]">{(liveEquity ?? metaAccount.equity).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
             <span className="text-[#484f58]">Margem livre</span>
             <span className="font-mono font-bold text-[#f0f6fc]">{metaAccount.freeMargin.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
             {metaPositions.length > 0 && (
