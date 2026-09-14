@@ -874,7 +874,7 @@ export default function ChartPage() {
       </div>
 
       {/* ── Área do gráfico ─────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0 p-2 md:p-4 gap-2 md:gap-3 overflow-hidden pb-16 md:pb-0">
+      <div className="flex-1 flex flex-col min-w-0 p-2 md:p-4 gap-2 md:gap-3 overflow-hidden md:overflow-y-auto pb-16 md:pb-0">
 
         {/* Header mobile — apenas em telas pequenas */}
         <div className="flex md:hidden flex-col gap-1.5 shrink-0 pt-1">
@@ -987,7 +987,7 @@ export default function ChartPage() {
         )}
 
         {/* Gráfico duplo (candles + RAFI) */}
-        <div className="flex-1 min-h-0 rounded-xl border border-[#30363d] overflow-hidden flex flex-col">
+        <div className="flex-1 min-h-0 rounded-xl border border-[#30363d] overflow-hidden flex flex-col md:flex-none md:h-[460px]">
 
           {/* Toolbar do gráfico — oculta em mobile (controles ficam na gaveta) */}
           <div className="px-4 py-2 border-b border-[#30363d] bg-[#161b22] hidden md:flex items-center justify-between shrink-0">
@@ -1312,7 +1312,7 @@ export default function ChartPage() {
           </div>
 
           {/* Chart */}
-          <div className="flex-1 min-h-0 md:min-h-[420px]">
+          <div className="flex-1 min-h-0">
             <RAFIChart
               candles={candles}
               rafiData={rafiData}
