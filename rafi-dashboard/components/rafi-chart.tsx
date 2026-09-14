@@ -238,12 +238,9 @@ export function RAFIChart({
 
         // Linha de preço ao vivo: atualiza sempre, visível independente da barra estar na tela
         liveLine.applyOptions({ price })
-
-        // Mantém o gráfico ancorado na última barra — scrollToPosition(0) vai para o
-        // rightOffset do último dado, sem depender do relógio do cliente.
-        // scrollToRealTime() usa o clock do sistema e empurra o gráfico ~3h para a direita
-        // quando os dados históricos têm gap de horas (conta demo/fora do horário).
-        mChart.timeScale().scrollToPosition(0, false)
+        // Sem scroll aqui — setVisibleLogicalRange no init já inclui o slot da barra ao vivo
+        // (índice 100, within [20, 105]). Qualquer scrollTo* movia o viewport de volta para
+        // uma posição errada a cada tick, fazendo a barra parecer "congelada".
       }
 
       // Caminho 1: callback direto — o SSE chama chartUpdateCandleRef.current(mid) a cada ~300ms.
