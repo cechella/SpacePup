@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { TradePanel, type ManualTrade } from '@/components/trade-panel'
+import { type CheckinResult } from '@/components/checkin-modal'
 import { cn } from '@/lib/utils'
 import { Clock, Brain, ShieldCheck, Trophy } from 'lucide-react'
 
@@ -46,6 +47,7 @@ function computeCopilot(
   trades: ManualTrade[],
   rafiValue: number | null,
   bbExpanding: boolean | null,
+  checkinPenalty: number = 0,
 ): CopilotResult {
   const now    = new Date()
   const utcMin = now.getUTCHours() * 60 + now.getUTCMinutes()
@@ -88,6 +90,9 @@ function computeCopilot(
     score = Math.min(score, 82)
     profileMsg = 'Opere para que a IA aprenda seu perfil.'
   }
+
+  // Aplica penalidade do check-in de estado mental
+  score = Math.max(score - checkinPenalty, 5)
 
   const scoreColor = score >= 70 ? '#00e676' : score >= 55 ? '#ffcc44' : '#ef4444'
   const label      = score >= 70 ? 'Alta confiança' : score >= 55 ? 'Confiança média' : 'Baixa confiança'
@@ -158,6 +163,7 @@ interface Props {
   discipline:       DisciplineState
   rafiValue:        number | null
   bbExpanding:      boolean | null
+  checkin:          CheckinResult | null
 }
 
 export function SessionSidebar({
@@ -168,6 +174,7 @@ export function SessionSidebar({
   discipline,
   rafiValue,
   bbExpanding,
+  checkin,
 }: Props) {
   // Tick a cada 30s para atualizar countdowns
   const [, setTick] = useState(0)
@@ -179,7 +186,8 @@ export function SessionSidebar({
   const londonActive  = isActive(LONDON.start, LONDON.end)
   const nyActive      = isActive(NY.start, NY.end)
   const overlapActive = isActive(OVERLAP.start, OVERLAP.end)
-  const copilot = computeCopilot(trades, rafiValue, bbExpanding)
+  const checkinPenalty = checkin?.scorePenalty ?? 0
+  const copilot = computeCopilot(trades, rafiValue, bbExpanding, checkinPenalty)
 
   const capital    = balance ?? 100
   const journey    = journeyProgress(capital)
@@ -239,6 +247,46 @@ export function SessionSidebar({
           )
         })}
       </div>
+
+      {/* ── CHECK-IN MENTAL ─────────────────────────── */}
+      {checkin && (
+        <div className={cn(
+          'rounded-xl border p-3',
+          checkin.blocked
+            ? 'border-[#ef4444]/30 bg-[#ef4444]/8'
+            : checkin.scorePenalty >= 20
+            ? 'border-[#f59e0b]/30 bg-[#f59e0b]/8'
+            : 'border-[#00e676]/20 bg-[#00e676]/8',
+        )}>
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <span className="text-[11px]">🧠</span>
+            <span className="text-[9px] font-bold text-[#7a96b8] uppercase tracking-widest">Estado Mental</span>
+            <span
+              className="ml-auto text-[8px] font-bold px-1.5 py-0.5 rounded-full border"
+              style={{
+                color: checkin.blocked ? '#ef4444' : checkin.scorePenalty >= 20 ? '#f59e0b' : '#00e676',
+                borderColor: checkin.blocked ? '#ef4444' + '50' : checkin.scorePenalty >= 20 ? '#f59e0b' + '50' : '#00e676' + '50',
+                background:  checkin.blocked ? '#ef444418' : checkin.scorePenalty >= 20 ? '#f59e0b18' : '#00e67618',
+              }}
+            >
+              {checkin.blocked ? 'BLOQUEADO' : checkin.scorePenalty >= 20 ? 'ATENÇÃO' : 'PRONTO'}
+            </span>
+          </div>
+          <div className="flex gap-2 text-[9px]">
+            {[
+              { k: 'Sono',    v: checkin.sono    === 'otimo' ? '😴✓' : checkin.sono    === 'mal' ? '😴✗' : '😴' },
+              { k: 'Energia', v: checkin.energia === 'alta'  ? '⚡✓' : checkin.energia === 'baixa'? '⚡✗' : '⚡' },
+              { k: 'Mental',  v: checkin.mental  === 'focado'? '🎯✓' : checkin.mental  === 'ruim' ? '🎯✗' : '🎯' },
+              { k: 'Humor',   v: checkin.humor   === 'feliz' ? '😊✓' : checkin.humor   === 'triste'? '😢✗': '😐' },
+            ].map(item => (
+              <div key={item.k} className="flex-1 text-center text-[#7a96b8]">
+                <div className="text-[11px]">{item.v}</div>
+                <div className="text-[8px] text-[#334455]">{item.k}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── CO-PILOTO IA ─────────────────────────────── */}
       <div className="rounded-xl border border-[#1c3050] bg-[#0f1824] p-3">

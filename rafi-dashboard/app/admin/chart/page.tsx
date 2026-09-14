@@ -7,6 +7,7 @@ import { calcRAFI, calcSRLevels, calcBollingerBands, autoScanBreakouts } from '@
 import { parseCSV, detectTimeframe, fmtDate, type LoadResult } from '@/lib/csv-loader'
 import { TradePanel, type ManualTrade } from '@/components/trade-panel'
 import { SessionSidebar } from '@/components/session-sidebar'
+import { CheckinModal, type CheckinResult } from '@/components/checkin-modal'
 import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
 import { getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
@@ -156,11 +157,38 @@ export default function ChartPage() {
   const chartHRef = useRef(460)
   useEffect(() => { chartHRef.current = chartH }, [chartH])
   const prevPositionsRef = useRef<typeof metaPositions>([])
+  // Check-in de estado mental do dia
+  const [checkin,     setCheckin]     = useState<CheckinResult | null>(null)
+  const [showCheckin, setShowCheckin] = useState(false)
   const fileInputRef        = useRef<HTMLInputElement>(null)
   const historyPanelRef     = useRef<HTMLDivElement>(null)
   const snapshotCaptureRef  = useRef<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>(null)
   // Callback imperativo: SSE chama direto, sem passar pelo scheduler do React
   const chartUpdateCandleRef = useRef<((price: number) => void) | null>(null)
+
+  // Mostra check-in se estiver em horário operável e ainda não fez hoje
+  useEffect(() => {
+    const CHECKIN_KEY = 'rafi-checkin-date'
+    const today = new Date().toISOString().slice(0, 10)
+    const done  = typeof window !== 'undefined' && localStorage.getItem(CHECKIN_KEY) === today
+    if (done) return
+
+    const d      = new Date()
+    const utcMin = d.getUTCHours() * 60 + d.getUTCMinutes()
+    const jsDay  = d.getUTCDay()
+    const isWeekday   = jsDay >= 1 && jsDay <= 4
+    const isNearOverlap = utcMin >= 13 * 60 && utcMin < 16 * 60 + 30
+    if (isWeekday && isNearOverlap) setShowCheckin(true)
+  }, [])
+
+  function handleCheckinComplete(result: CheckinResult) {
+    setCheckin(result)
+    setShowCheckin(false)
+    try {
+      const today = new Date().toISOString().slice(0, 10)
+      localStorage.setItem('rafi-checkin-date', today)
+    } catch { /* */ }
+  }
 
   // Estado de disciplina derivado do histórico de operações já carregado
   const disciplineState = useMemo(() => {
@@ -908,6 +936,9 @@ export default function ChartPage() {
 
   return (
     <div className="flex h-full overflow-hidden relative">
+
+      {/* ── Check-in de estado mental ── */}
+      {showCheckin && <CheckinModal onComplete={handleCheckinComplete} />}
 
       {/* ── Mobile: backdrop da gaveta ── */}
       <div
@@ -1958,6 +1989,7 @@ export default function ChartPage() {
         discipline={disciplineState}
         rafiValue={currentRafiValue}
         bbExpanding={currentBbExpanding}
+        checkin={checkin}
       />
 
       {/* ── Barra de abas mobile ──────────────────────────────────────── */}
