@@ -50,11 +50,13 @@ export function RAFIChart({
   const candlesRef      = useRef(candles)
   const yScaleRef       = useRef<{ top: number; bottom: number }>({ top: 0.12, bottom: 0.12 })
   // Rastreia a barra atual em andamento (não retornada pelo getHistoricalCandles)
-  const currentBarRef   = useRef<{ time: number; open: number; high: number; low: number } | null>(null)
+  const currentBarRef      = useRef<{ time: number; open: number; high: number; low: number } | null>(null)
   // ID do RAF loop do tick ao vivo
-  const rafIdRef        = useRef<number>(0)
+  const rafIdRef           = useRef<number>(0)
   // Ref local sincronizado com livePrice (estado React provado que atualiza via P&L)
-  const innerPriceRef   = useRef<number | null>(null)
+  const innerPriceRef      = useRef<number | null>(null)
+  // Controla scroll único para o candle ao vivo na primeira atualização
+  const hasScrolledToLive  = useRef(false)
   const [chartReady, setChartReady] = useState(false)
 
   useEffect(() => { onPriceClickRef.current = onPriceClick }, [onPriceClick])
@@ -175,48 +177,74 @@ export function RAFIChart({
       chartRef.current        = mChart
       setChartReady(true)
 
+      // Linha de preço ao vivo — sempre visível independente de zoom/pan na barra
+      const liveLine = candleSeries.createPriceLine({
+        price:            0.0,
+        color:            '#26c6da',
+        lineWidth:        1,
+        lineStyle:        LineStyle.Dashed,
+        axisLabelVisible: true,
+        title:            '',
+      })
+
       // Lógica compartilhada: calcula dados da barra ao vivo e chama candleSeries.update()
       // Usada tanto pelo RAF (~60fps) quanto pelo callback direto do SSE (~300ms)
       const applyLiveTick = (price: number) => {
         const cands = candlesRef.current
         if (cands.length === 0) return
-        const last        = cands[cands.length - 1]
-        const tfSec       = cands.length > 1
+
+        const last       = cands[cands.length - 1]
+        const tfSec      = cands.length > 1
           ? Math.round(Math.abs((cands[cands.length - 1].time as any) - (cands[cands.length - 2].time as any)))
           : 300
-        const nowSec         = Math.floor(Date.now() / 1000)
-        const currentBarTime = Math.floor(nowSec / tfSec) * tfSec
-        const lastBarTime    = last.time as unknown as number
+        const lastBarTime = last.time as unknown as number
+        // Tempo da barra ao vivo: sempre exatamente +1 período após o último candle fechado.
+        // NÃO usa Date.now() — elimina dependência de fuso horário / relógio do cliente.
+        const liveBarTime = lastBarTime + tfSec
 
-        let barTime: number, barOpen: number, barHigh: number, barLow: number
-        if (currentBarTime <= lastBarTime) {
-          // Atualiza o último candle fechado (caso de atraso de relógio)
-          currentBarRef.current = null
-          barTime = lastBarTime; barOpen = last.open
-          barHigh = Math.max(last.high, price); barLow = Math.min(last.low, price)
-        } else {
-          // Barra atual em andamento (currentBarTime > último candle fechado)
-          const b = currentBarRef.current
-          if (!b || b.time !== currentBarTime) {
-            currentBarRef.current = { time: currentBarTime, open: last.close, high: Math.max(last.close, price), low: Math.min(last.close, price) }
-          } else {
-            currentBarRef.current = { ...b, high: Math.max(b.high, price), low: Math.min(b.low, price) }
+        const b = currentBarRef.current
+        if (!b) {
+          // Primeira atualização: abre a barra ao vivo no fechamento do último candle
+          currentBarRef.current = {
+            time: liveBarTime,
+            open: last.close,
+            high: Math.max(last.close, price),
+            low:  Math.min(last.close, price),
           }
-          const nb = currentBarRef.current!
-          barTime = nb.time; barOpen = nb.open; barHigh = nb.high; barLow = nb.low
+        } else {
+          // Tick subsequente: apenas atualiza high/low/close
+          currentBarRef.current = {
+            ...b,
+            high: Math.max(b.high, price),
+            low:  Math.min(b.low, price),
+          }
         }
-        const isBull = price >= barOpen
+        const nb     = currentBarRef.current!
+        const isBull = price >= nb.open
+
         try {
           candleSeries.update({
-            time:      barTime as any,
-            open:      barOpen,
-            high:      barHigh,
-            low:       barLow,
+            time:      nb.time as any,
+            open:      nb.open,
+            high:      nb.high,
+            low:       nb.low,
             close:     price,
             color:     isBull ? '#10b981' : '#ef4444',
             wickColor: isBull ? '#10b981' : '#ef4444',
           })
-        } catch {}
+        } catch (err) {
+          // Pode falhar se o gráfico já foi destruído pelo cleanup — ignorar silenciosamente
+          return
+        }
+
+        // Linha de preço ao vivo: atualiza sempre, visível independente da barra estar na tela
+        liveLine.applyOptions({ price })
+
+        // Na primeira atualização ao vivo, rola o gráfico para mostrar o candle atual
+        if (!hasScrolledToLive.current) {
+          hasScrolledToLive.current = true
+          mChart.timeScale().scrollToRealTime()
+        }
       }
 
       // Caminho 1: callback direto — o SSE chama chartUpdateCandleRef.current(mid) a cada ~300ms.
@@ -417,6 +445,7 @@ export function RAFIChart({
     return () => {
       cancelAnimationFrame(rafIdRef.current)
       if (chartUpdateCandleRef) chartUpdateCandleRef.current = null
+      hasScrolledToLive.current = false
       setChartReady(false)
       candleSeriesRef.current = null
       roMain?.disconnect()
