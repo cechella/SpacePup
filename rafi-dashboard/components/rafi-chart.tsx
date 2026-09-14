@@ -21,13 +21,15 @@ interface Props {
   onOCOChange?:       (s: OCOState) => void
   onOCOExecute?:      (dir: 'buy' | 'sell') => void
   onOCOClose?:        () => void
+  // Preço ao vivo para atualizar o último candle sem recriar o gráfico
+  livePrice?:         number | null
   // Ref para captura focada no candle de entrada com overlay OCO desenhado
   snapshotCaptureRef?: React.MutableRefObject<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>
 }
 
 export function RAFIChart({
   candles, rafiData, srLevels, trades, bbBands, onPriceClick, panMode,
-  ocoState, onOCOChange, onOCOExecute, onOCOClose, snapshotCaptureRef,
+  ocoState, onOCOChange, onOCOExecute, onOCOClose, livePrice, snapshotCaptureRef,
 }: Props) {
   const mainRef         = useRef<HTMLDivElement>(null)
   const mainWrapperRef  = useRef<HTMLDivElement>(null)
@@ -306,6 +308,22 @@ export function RAFIChart({
       rChart?.remove()
     }
   }, [candles, rafiData, srLevels, trades, bbBands])
+
+  // Atualiza o último candle tick a tick sem recriar o gráfico
+  useEffect(() => {
+    if (!candleSeriesRef.current || !livePrice || candles.length === 0) return
+    const last = candles[candles.length - 1]
+    const isBull = livePrice >= last.open
+    candleSeriesRef.current.update({
+      time:       last.time as any,
+      open:       last.open,
+      high:       Math.max(last.high, livePrice),
+      low:        Math.min(last.low,  livePrice),
+      close:      livePrice,
+      color:      isBull ? '#10b981' : '#ef4444',
+      wickColor:  isBull ? '#10b981' : '#ef4444',
+    })
+  }, [livePrice])
 
 
   return (

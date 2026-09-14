@@ -510,18 +510,10 @@ export default function ChartPage() {
     return () => document.removeEventListener('mousedown', handler)
   }, [historyOpen])
 
-  const candles  = useMemo(() => {
-    const base = csvData?.candles ?? generateDemoData(tf)
-    if (!livePrice || base.length === 0) return base
-    // Aplica o preço ao vivo no último candle (tick em tempo real)
-    const updated = [...base]
-    const last = { ...updated[updated.length - 1] }
-    last.close = livePrice
-    if (livePrice > last.high) last.high = livePrice
-    if (livePrice < last.low)  last.low  = livePrice
-    updated[updated.length - 1] = last
-    return updated
-  }, [csvData, tf, livePrice])
+  const candles  = useMemo(
+    () => csvData?.candles ?? generateDemoData(tf),
+    [csvData, tf],
+  )
   const rafiData = useMemo(() => calcRAFI(candles),           [candles])
   const srLevels = useMemo(() => calcSRLevels(candles),       [candles])
   const bbBands  = useMemo(() => calcBollingerBands(candles), [candles])
@@ -1323,6 +1315,7 @@ export default function ChartPage() {
               onOCOChange={setOcoState}
               onOCOExecute={handleOCOExecute}
               onOCOClose={handleOCOClose}
+              livePrice={livePrice}
               snapshotCaptureRef={snapshotCaptureRef}
             />
           </div>
