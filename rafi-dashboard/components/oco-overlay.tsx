@@ -721,30 +721,36 @@ export function OCOOverlay({
             ))}
           </div>
 
-          {/* Margem ao vivo */}
-          {freeMargin != null && freeMargin > 0 && mktPrice > 0 && (
-            <div style={{ padding: '6px 12px', borderBottom: '1px solid #30363d', background: '#0a0f14' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <span style={{ fontSize: 8, color: '#484f58', letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: 600 }}>Margem livre</span>
-                <span style={{ fontSize: 10, color: '#f0f6fc', fontFamily: 'monospace', fontWeight: 700 }}>${freeMargin.toFixed(2)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <span style={{ fontSize: 8, color: '#484f58', letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: 600 }}>Lote máx</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 10, color: '#fbbf24', fontFamily: 'monospace', fontWeight: 700 }}>{maxLot.toFixed(2)}L</span>
+          {/* Margem ao vivo — sempre visível; mostra -- quando MetaAPI ainda não conectou */}
+          <div style={{ padding: '6px 12px', borderBottom: '1px solid #30363d', background: '#0a0f14' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <span style={{ fontSize: 8, color: '#484f58', letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: 600 }}>Margem livre</span>
+              <span style={{ fontSize: 10, color: freeMargin != null ? '#f0f6fc' : '#484f58', fontFamily: 'monospace', fontWeight: 700 }}>
+                {freeMargin != null ? `$${freeMargin.toFixed(2)}` : '--'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <span style={{ fontSize: 8, color: '#484f58', letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: 600 }}>Lote máx</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 10, color: maxLot > 0 ? '#fbbf24' : '#484f58', fontFamily: 'monospace', fontWeight: 700 }}>
+                  {maxLot > 0 ? `${maxLot.toFixed(2)}L` : '--'}
+                </span>
+                {maxLot > 0 && (
                   <button
                     type="button"
                     onClick={() => onChange({ ...state, lot: maxLot })}
                     style={{ fontSize: 8, padding: '1px 5px', borderRadius: 3, border: '1px solid #3b82f680', color: '#3b82f6', background: 'transparent', cursor: 'pointer' }}
                   >→ usar</button>
-                </div>
+                )}
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <span style={{ fontSize: 8, color: '#484f58', letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: 600 }}>Margem necessária</span>
-                <span style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: 700, color: marginOk ? '#4ade80' : '#f87171' }}>
-                  ${marginNeeded.toFixed(2)}{!marginOk && ' ⚠'}
-                </span>
-              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: marginPct > 0 ? 4 : 0 }}>
+              <span style={{ fontSize: 8, color: '#484f58', letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: 600 }}>Margem necessária</span>
+              <span style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: 700, color: marginNeeded > 0 ? (marginOk ? '#4ade80' : '#f87171') : '#484f58' }}>
+                {marginNeeded > 0 ? `$${marginNeeded.toFixed(2)}${!marginOk ? ' ⚠' : ''}` : '--'}
+              </span>
+            </div>
+            {marginPct > 0 && (
               <div style={{ height: 4, borderRadius: 2, background: '#21262d', overflow: 'hidden' }}>
                 <div style={{
                   height: '100%', borderRadius: 2,
@@ -753,8 +759,8 @@ export function OCOOverlay({
                   transition: 'width 0.3s',
                 }} />
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Toggle DIREÇÃO */}
           <div className="grid grid-cols-2" style={{ borderBottom: '1px solid #30363d' }}>
