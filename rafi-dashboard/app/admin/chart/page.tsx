@@ -114,6 +114,8 @@ export default function ChartPage() {
   }>>([])
   const [historyPeriod,  setHistoryPeriod]  = useState<'today' | '7d' | '30d' | '3m'>('7d')
   const [historyLoading, setHistoryLoading] = useState(false)
+  // Preço ao vivo: atualiza o último candle tick a tick
+  const [livePrice, setLivePrice] = useState<number | null>(null)
   // Edição inline de SL/TP: { positionId, sl: string, tp: string }
   const [editingPos, setEditingPos] = useState<{ id: string; sl: string; tp: string } | null>(null)
   // Mobile: gaveta lateral e aba ativa
@@ -464,6 +466,24 @@ export default function ChartPage() {
     return () => clearInterval(id)
   }, [metaConnected, fetchLiveData])
 
+  // Tick ao vivo: busca preço atual a cada 5s e atualiza o último candle
+  useEffect(() => {
+    if (!metaConnected) { setLivePrice(null); return }
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/metaapi/price?symbol=EURUSD')
+        if (!res.ok) return
+        const data = await res.json()
+        if (!data.error && data.bid && data.ask) {
+          setLivePrice((data.bid + data.ask) / 2)
+        }
+      } catch {}
+    }
+    poll()
+    const id = setInterval(poll, 5_000)
+    return () => clearInterval(id)
+  }, [metaConnected])
+
   // Feature 4: countdown de auto-refresh dos candles baseado no timeframe
   useEffect(() => {
     if (!metaConnected) { setRefreshIn(0); return }
@@ -490,10 +510,18 @@ export default function ChartPage() {
     return () => document.removeEventListener('mousedown', handler)
   }, [historyOpen])
 
-  const candles  = useMemo(
-    () => csvData?.candles ?? generateDemoData(tf),
-    [csvData, tf],
-  )
+  const candles  = useMemo(() => {
+    const base = csvData?.candles ?? generateDemoData(tf)
+    if (!livePrice || base.length === 0) return base
+    // Aplica o preço ao vivo no último candle (tick em tempo real)
+    const updated = [...base]
+    const last = { ...updated[updated.length - 1] }
+    last.close = livePrice
+    if (livePrice > last.high) last.high = livePrice
+    if (livePrice < last.low)  last.low  = livePrice
+    updated[updated.length - 1] = last
+    return updated
+  }, [csvData, tf, livePrice])
   const rafiData = useMemo(() => calcRAFI(candles),           [candles])
   const srLevels = useMemo(() => calcSRLevels(candles),       [candles])
   const bbBands  = useMemo(() => calcBollingerBands(candles), [candles])
