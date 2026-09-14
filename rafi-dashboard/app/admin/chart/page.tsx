@@ -1415,6 +1415,7 @@ export default function ChartPage() {
               positions={metaPositions as any}
               onModifyPosition={(id, sl, tp) => handleModifyPosition(id, String(sl), String(tp))}
               snapshotCaptureRef={snapshotCaptureRef}
+              freeMargin={metaAccount?.freeMargin ?? null}
             />
           </div>
         </div>

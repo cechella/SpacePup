@@ -31,6 +31,7 @@ interface Props {
   // Posições abertas ao vivo (MetaAPI)
   positions?:         LivePosition[]
   onModifyPosition?:  (id: string, sl: number, tp: number) => void
+  freeMargin?:        number | null
   // Ref para captura focada no candle de entrada com overlay OCO desenhado
   snapshotCaptureRef?: React.MutableRefObject<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>
 }
@@ -38,7 +39,7 @@ interface Props {
 export function RAFIChart({
   candles, rafiData, srLevels, trades, bbBands, onPriceClick, panMode,
   ocoState, onOCOChange, onOCOExecute, onOCOClose, livePrice, livePriceRef,
-  chartUpdateCandleRef, positions, onModifyPosition, snapshotCaptureRef,
+  chartUpdateCandleRef, positions, onModifyPosition, snapshotCaptureRef, freeMargin,
 }: Props) {
   const mainRef         = useRef<HTMLDivElement>(null)
   const mainWrapperRef  = useRef<HTMLDivElement>(null)
@@ -504,6 +505,8 @@ export function RAFIChart({
             getX={getX}
             getTime={getTime}
             containerRef={mainRef}
+            freeMargin={freeMargin}
+            livePrice={livePrice}
           />
         )}
       </div>

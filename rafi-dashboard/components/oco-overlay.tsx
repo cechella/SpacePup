@@ -118,12 +118,15 @@ interface Props {
   getX?:        (time: number)  => number | null
   getTime?:     (x: number)     => number | null
   containerRef: React.RefObject<HTMLDivElement>
+  freeMargin?:  number | null
+  livePrice?:   number | null
 }
 
 type DragField = 'entry' | 'sl' | 'tp'
 
 export function OCOOverlay({
   state, onChange, onExecute, onClose, getY, getPrice, getX, getTime, containerRef,
+  freeMargin, livePrice,
 }: Props) {
   const [dragging,   setDragging]   = useState<DragField | null>(null)
   const dragFieldRef = useRef<DragField | null>(null)
@@ -315,6 +318,16 @@ export function OCOOverlay({
   const tpUSD  = +(tpPips * pv).toFixed(2)
   const rr     = slPips > 0 ? tpPips / slPips : 0
   const isBuy  = state.direction === 'buy'
+
+  // ── Calculadora de margem ao vivo ────────────────────────────────────────
+  const mktPrice     = (livePrice ?? state.entry) || 0
+  const levNum       = state.leverage || 100
+  const maxLot       = freeMargin != null && freeMargin > 0 && mktPrice > 0
+    ? Math.floor((freeMargin * levNum) / (100000 * mktPrice) * 100) / 100
+    : 0
+  const marginNeeded = mktPrice > 0 ? (state.lot * 100000 * mktPrice) / levNum : 0
+  const marginPct    = freeMargin != null && freeMargin > 0 ? Math.min((marginNeeded / freeMargin) * 100, 100) : 0
+  const marginOk     = freeMargin == null || marginNeeded <= freeMargin
 
   const ok     = (y: number | null): y is number => y !== null && y > 8 && y < 9999
   const okX    = (x: number | null): x is number => x !== null && x > 0 && x < 99999
@@ -707,6 +720,41 @@ export function OCOOverlay({
               </button>
             ))}
           </div>
+
+          {/* Margem ao vivo */}
+          {freeMargin != null && freeMargin > 0 && mktPrice > 0 && (
+            <div style={{ padding: '6px 12px', borderBottom: '1px solid #30363d', background: '#0a0f14' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ fontSize: 8, color: '#484f58', letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: 600 }}>Margem livre</span>
+                <span style={{ fontSize: 10, color: '#f0f6fc', fontFamily: 'monospace', fontWeight: 700 }}>${freeMargin.toFixed(2)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ fontSize: 8, color: '#484f58', letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: 600 }}>Lote máx</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ fontSize: 10, color: '#fbbf24', fontFamily: 'monospace', fontWeight: 700 }}>{maxLot.toFixed(2)}L</span>
+                  <button
+                    type="button"
+                    onClick={() => onChange({ ...state, lot: maxLot })}
+                    style={{ fontSize: 8, padding: '1px 5px', borderRadius: 3, border: '1px solid #3b82f680', color: '#3b82f6', background: 'transparent', cursor: 'pointer' }}
+                  >→ usar</button>
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ fontSize: 8, color: '#484f58', letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: 600 }}>Margem necessária</span>
+                <span style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: 700, color: marginOk ? '#4ade80' : '#f87171' }}>
+                  ${marginNeeded.toFixed(2)}{!marginOk && ' ⚠'}
+                </span>
+              </div>
+              <div style={{ height: 4, borderRadius: 2, background: '#21262d', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', borderRadius: 2,
+                  width: `${marginPct}%`,
+                  background: marginPct <= 70 ? '#22c55e' : marginPct <= 90 ? '#f59e0b' : '#ef4444',
+                  transition: 'width 0.3s',
+                }} />
+              </div>
+            </div>
+          )}
 
           {/* Toggle DIREÇÃO */}
           <div className="grid grid-cols-2" style={{ borderBottom: '1px solid #30363d' }}>
