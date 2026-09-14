@@ -47,36 +47,41 @@ export function PositionsOverlay({ positions, livePrice, getY, getPrice, onModif
   ) => {
     e.preventDefault()
     e.stopPropagation()
-    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
     draggingRef.current = { posId, which, origSL, origTP }
     setDragState({ posId, which, price: which === 'sl' ? origSL : origTP })
-  }
 
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!draggingRef.current || !containerRef.current) return
-    const rect  = containerRef.current.getBoundingClientRect()
-    const price = getPrice(e.clientY - rect.top)
-    if (price === null) return
-    setDragState({ posId: draggingRef.current.posId, which: draggingRef.current.which, price })
-  }
-
-  const handlePointerUp = () => {
-    if (!draggingRef.current || !dragState) return
-    const { posId, which, origSL, origTP } = draggingRef.current
-    const rounded = (v: number) => Math.round(v * 100000) / 100000
-    const newSL = rounded(which === 'sl' ? dragState.price : origSL)
-    const newTP = rounded(which === 'tp' ? dragState.price : origTP)
-    onModify(posId, newSL, newTP)
-    draggingRef.current = null
-    setDragState(null)
+    // Rastreia no window para não bloquear eventos do gráfico quando não está arrastando
+    const onMove = (ev: PointerEvent) => {
+      if (!containerRef.current) return
+      const rect  = containerRef.current.getBoundingClientRect()
+      const price = getPrice(ev.clientY - rect.top)
+      if (price === null) return
+      setDragState({ posId, which, price })
+    }
+    const onUp = () => {
+      setDragState(prev => {
+        if (!prev || !draggingRef.current) return null
+        const { origSL, origTP } = draggingRef.current
+        const rounded = (v: number) => Math.round(v * 100000) / 100000
+        const newSL = rounded(which === 'sl' ? prev.price : origSL)
+        const newTP = rounded(which === 'tp' ? prev.price : origTP)
+        onModify(posId, newSL, newTP)
+        draggingRef.current = null
+        return null
+      })
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup',   onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup',   onUp)
   }
 
   return (
+    // pointerEvents: none no container — o gráfico recebe pinch/pan livremente
+    // Apenas os badges SL/TP têm pointerEvents: all
     <div
       className="absolute inset-0 overflow-hidden"
-      style={{ zIndex: 10 }}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
+      style={{ zIndex: 10, pointerEvents: 'none' }}
     >
       {positions.map(pos => {
         const isBuy      = pos.type === 'POSITION_TYPE_BUY'
@@ -85,8 +90,8 @@ export function PositionsOverlay({ positions, livePrice, getY, getPrice, onModif
         const slColor    = '#ef4444'
 
         // Considera drag em curso
-        const draggingSL = dragState?.posId === pos.id && dragState.which === 'sl'
-        const draggingTP = dragState?.posId === pos.id && dragState.which === 'tp'
+        const draggingSL  = dragState?.posId === pos.id && dragState.which === 'sl'
+        const draggingTP  = dragState?.posId === pos.id && dragState.which === 'tp'
         const effectiveSL = draggingSL ? dragState.price : pos.stopLoss
         const effectiveTP = draggingTP ? dragState.price : pos.takeProfit
 
@@ -96,7 +101,7 @@ export function PositionsOverlay({ positions, livePrice, getY, getPrice, onModif
 
         if (yEntry === null) return null
 
-        // P&L em tempo real (calculado pelo preço ao vivo, não espera poll de 5s)
+        // P&L em tempo real
         const price  = livePrice ?? pos.openPrice
         const rawPnl = (isBuy ? 1 : -1) * (price - pos.openPrice) * pos.volume * 100000
         const pnl    = isNaN(rawPnl) ? pos.profit : rawPnl
@@ -139,7 +144,7 @@ export function PositionsOverlay({ positions, livePrice, getY, getPrice, onModif
               {pos.openPrice.toFixed(5)}
             </div>
 
-            {/* ── Linha TP (arrastável) ── */}
+            {/* ── Linha TP ── */}
             {yTP !== null && (
               <>
                 <div style={{
@@ -158,7 +163,7 @@ export function PositionsOverlay({ positions, livePrice, getY, getPrice, onModif
                     padding: '2px 5px', borderRadius: 3,
                     whiteSpace: 'nowrap', fontFamily: 'monospace',
                     cursor: 'ns-resize', userSelect: 'none',
-                    pointerEvents: 'all',
+                    pointerEvents: 'all', touchAction: 'none',
                   }}
                   onPointerDown={e => handlePointerDown(e, pos.id, 'tp', pos.stopLoss, pos.takeProfit)}
                 >
@@ -167,7 +172,7 @@ export function PositionsOverlay({ positions, livePrice, getY, getPrice, onModif
               </>
             )}
 
-            {/* ── Linha SL (arrastável) ── */}
+            {/* ── Linha SL ── */}
             {ySL !== null && (
               <>
                 <div style={{
@@ -186,7 +191,7 @@ export function PositionsOverlay({ positions, livePrice, getY, getPrice, onModif
                     padding: '2px 5px', borderRadius: 3,
                     whiteSpace: 'nowrap', fontFamily: 'monospace',
                     cursor: 'ns-resize', userSelect: 'none',
-                    pointerEvents: 'all',
+                    pointerEvents: 'all', touchAction: 'none',
                   }}
                   onPointerDown={e => handlePointerDown(e, pos.id, 'sl', pos.stopLoss, pos.takeProfit)}
                 >
