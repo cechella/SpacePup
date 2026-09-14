@@ -466,22 +466,40 @@ export default function ChartPage() {
     return () => clearInterval(id)
   }, [metaConnected, fetchLiveData])
 
-  // Tick ao vivo: busca preço atual a cada 5s e atualiza o último candle
+  // Tick ao vivo via SSE: atualiza o último candle a cada ~300ms (igual MetaTrader 5)
   useEffect(() => {
     if (!metaConnected) { setLivePrice(null); return }
-    const poll = async () => {
-      try {
-        const res = await fetch('/api/metaapi/price?symbol=EURUSD')
-        if (!res.ok) return
-        const data = await res.json()
-        if (!data.error && data.bid && data.ask) {
-          setLivePrice((data.bid + data.ask) / 2)
-        }
-      } catch {}
+
+    let es: EventSource | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+    const connect = () => {
+      es = new EventSource('/api/metaapi/price-stream?symbol=EURUSD')
+
+      es.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data)
+          if (data.bid && data.ask) {
+            setLivePrice((data.bid + data.ask) / 2)
+          }
+        } catch {}
+      }
+
+      // Reconecta automaticamente se cair
+      es.onerror = () => {
+        es?.close()
+        es = null
+        reconnectTimer = setTimeout(connect, 2_000)
+      }
     }
-    poll()
-    const id = setInterval(poll, 5_000)
-    return () => clearInterval(id)
+
+    connect()
+
+    return () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      es?.close()
+      setLivePrice(null)
+    }
   }, [metaConnected])
 
   // Feature 4: countdown de auto-refresh dos candles baseado no timeframe
