@@ -8,14 +8,23 @@ export const runtime     = 'nodejs'
 export const maxDuration = 60
 
 export async function GET() {
+  let connection: any = null
   try {
-    const api        = new MetaApi(TOKEN)
-    const account    = await api.metatraderAccountApi.getAccount(ACCOUNT)
-    const connection = account.getRPCConnection()
+    const api     = new MetaApi(TOKEN)
+    const account = await api.metatraderAccountApi.getAccount(ACCOUNT)
+
+    // Deploy the account if it's not yet deployed (necessary after inactivity)
+    if (account.state !== 'DEPLOYED') {
+      await account.deploy()
+    }
+    await account.waitDeployed(60)
+
+    connection = account.getRPCConnection()
     await connection.connect()
-    await connection.waitSynchronized(8)
+    // Aumentado para 30s — o MetaAPI precisa de tempo para buscar
+    // o saldo atualizado do servidor MT5 da corretora após depósitos
+    await connection.waitSynchronized(30)
     const info = await connection.getAccountInformation()
-    await connection.close()
 
     return NextResponse.json({
       balance:    info.balance,
@@ -29,5 +38,9 @@ export async function GET() {
   } catch (e: any) {
     console.error('[MetaAPI account]', e.message)
     return NextResponse.json({ error: e.message }, { status: 500 })
+  } finally {
+    if (connection) {
+      try { await connection.close() } catch { /* ignora erro ao fechar */ }
+    }
   }
 }
