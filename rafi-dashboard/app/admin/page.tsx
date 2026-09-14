@@ -6,12 +6,12 @@ import {
   TrendingUp, TrendingDown, BarChart2, Activity,
   Target, AlertTriangle, ChevronRight, Download,
   Zap, Clock, Award, X as XIcon, Layers, Upload,
-  Lock, Radio, Shield,
+  Lock, Radio, Shield, Settings, Wifi, WifiOff,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SCALE_TIERS, SCALE_TIER_LABELS, getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
 import { fetchTrades, upsertTrades, updateTradeResult } from '@/lib/trades-db'
-import { getSessionConfig, SESSION_DEFAULTS, type SessionConfig } from '@/lib/session-config'
+import { getSessionConfig, saveSessionConfig, SESSION_DEFAULTS, type SessionConfig } from '@/lib/session-config'
 
 // ── Modal de preview do screenshot ───────────────────────────────────────────
 function SnapshotModal({ src, onClose }: { src: string; onClose: () => void }) {
@@ -441,6 +441,7 @@ function LotScalingWidget({ trades }: { trades: ManualTrade[] }) {
           <div>
             <span className="text-sm font-semibold text-[#f0f6fc]">Escalonamento Exponencial de Lote</span>
             <span className="ml-2 text-[9px] text-[#484f58]">$100 → $300k · EURUSD</span>
+
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -978,6 +979,10 @@ export default function AdminDashboard() {
   const [importMsg,      setImportMsg]      = useState<{ text: string; ok: boolean } | null>(null)
   const [sessionConfig,  setSessionConfig]  = useState<SessionConfig>(SESSION_DEFAULTS)
   const [tick,           setTick]           = useState(0)  // força re-render a cada minuto
+  const [metaAccount,    setMetaAccount]    = useState<{ balance: number; equity: number; freeMargin: number; updatedAt?: string } | null>(null)
+  const [metaLoading,    setMetaLoading]    = useState(false)
+  const [configOpen,     setConfigOpen]     = useState(false)
+  const [cfgDraft,       setCfgDraft]       = useState<SessionConfig>(SESSION_DEFAULTS)
   const importRef                           = useRef<HTMLInputElement>(null)
 
   // Atualiza o gate a cada minuto para refletir abertura/fechamento de sessão
@@ -985,6 +990,30 @@ export default function AdminDashboard() {
     const id = setInterval(() => setTick(t => t + 1), 60_000)
     return () => clearInterval(id)
   }, [])
+
+  // Puxa saldo real da conta Pepperstone via MetaAPI a cada 30s
+  useEffect(() => {
+    if (!mounted) return
+    const fetchAccount = async () => {
+      setMetaLoading(true)
+      try {
+        const res = await fetch('/api/metaapi/account')
+        if (res.ok) {
+          const data = await res.json()
+          setMetaAccount({
+            balance:    data.balance    ?? 0,
+            equity:     data.equity     ?? 0,
+            freeMargin: data.freeMargin ?? 0,
+            updatedAt:  data.updatedAt,
+          })
+        }
+      } catch {}
+      setMetaLoading(false)
+    }
+    fetchAccount()
+    const id = setInterval(fetchAccount, 30_000)
+    return () => clearInterval(id)
+  }, [mounted])
 
   useEffect(() => {
     setMounted(true)
@@ -1075,8 +1104,10 @@ export default function AdminDashboard() {
   )
   const capitalFinal = pnl + capitalInicial
 
-  // Capital real para a jornada = usa capitalInicial da sessão se não há dado de backtest
-  const capitalParaJornada = capitalInicial > 0 ? capitalFinal : sessionConfig.capitalInicial + pnl
+  // Capital real da jornada: prioriza saldo ao vivo da Pepperstone; cai para cálculo por trades se offline
+  const capitalParaJornada = metaAccount
+    ? metaAccount.balance
+    : (capitalInicial > 0 ? capitalFinal : sessionConfig.capitalInicial + pnl)
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const gate = useMemo(() => computeSessionGate(trades, sessionConfig), [trades, sessionConfig, tick])
@@ -1130,7 +1161,7 @@ export default function AdminDashboard() {
             RAFI Trading Bot
           </h1>
           <p className="text-xs text-[#484f58] mt-0.5">
-            Cockpit de mapeamento · EURUSD M5 · XM Ultra Low
+            Cockpit de mapeamento · EURUSD M5 · Pepperstone
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -1148,8 +1179,116 @@ export default function AdminDashboard() {
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[#3b82f6] text-white hover:bg-[#2563eb] transition-all font-semibold">
             <BarChart2 size={12} /> Mapear Trade
           </Link>
+          <button
+            onClick={() => { setCfgDraft(sessionConfig); setConfigOpen(o => !o) }}
+            title="Configurações da sessão"
+            className={cn(
+              'flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all font-semibold',
+              configOpen
+                ? 'bg-[#f59e0b]/20 border-[#f59e0b]/50 text-[#f59e0b]'
+                : 'bg-[#21262d] border-[#30363d] text-[#8b949e] hover:text-[#f0f6fc]',
+            )}>
+            <Settings size={12} /> Config
+          </button>
         </div>
       </div>
+
+      {/* ── Barra de status MetaAPI ─────────────────────────────────────────── */}
+      <div className={cn(
+        'flex items-center gap-3 px-4 py-2.5 rounded-xl border text-xs font-mono',
+        metaAccount
+          ? 'bg-[#10b981]/5 border-[#10b981]/25'
+          : 'bg-[#21262d] border-[#30363d]',
+      )}>
+        {metaLoading && !metaAccount
+          ? <span className="text-[#484f58] flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-[#484f58] animate-pulse" />Conectando Pepperstone…</span>
+          : metaAccount
+            ? <>
+                <Wifi size={13} className="text-[#10b981] shrink-0" />
+                <span className="text-[#10b981] font-semibold">Pepperstone</span>
+                <span className="text-[#484f58]">·</span>
+                <span className="text-[#f0f6fc]">Saldo <span className="text-[#10b981] font-bold">${metaAccount.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
+                <span className="text-[#484f58]">·</span>
+                <span className="text-[#8b949e]">Equity <span className="text-[#f0f6fc]">${metaAccount.equity.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
+                <span className="text-[#484f58]">·</span>
+                <span className="text-[#8b949e]">Margem livre <span className="text-[#3b82f6]">${metaAccount.freeMargin.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
+                {metaLoading && <span className="ml-1 w-1.5 h-1.5 rounded-full bg-[#10b981] animate-pulse" />}
+                {metaAccount.updatedAt && (
+                  <span className="ml-auto text-[#484f58] text-[10px]">
+                    {new Date(metaAccount.updatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </span>
+                )}
+              </>
+            : <>
+                <WifiOff size={13} className="text-[#484f58] shrink-0" />
+                <span className="text-[#484f58]">MetaAPI offline — exibindo dados calculados por trades</span>
+              </>
+        }
+      </div>
+
+      {/* ── Painel de configuração ─────────────────────────────────────────── */}
+      {configOpen && (
+        <div className="bg-[#161b22] border border-[#f59e0b]/30 rounded-xl p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Settings size={14} className="text-[#f59e0b]" />
+              <span className="text-sm font-semibold text-[#f0f6fc]">Configurações da Sessão</span>
+            </div>
+            <button onClick={() => setConfigOpen(false)} className="p-1 text-[#484f58] hover:text-[#f0f6fc]">
+              <XIcon size={14} />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+            {[
+              { key: 'capitalInicial',       label: 'Capital inicial ($)',   type: 'number', min: 1 },
+              { key: 'dailyGoal',            label: 'Meta diária ($)',       type: 'number', min: 0 },
+              { key: 'weeklyGoal',           label: 'Meta semanal ($)',      type: 'number', min: 0 },
+              { key: 'monthlyGoal',          label: 'Meta mensal ($)',       type: 'number', min: 0 },
+              { key: 'maxConsecutiveLosses', label: 'Max perdas seguidas',   type: 'number', min: 1 },
+              { key: 'maxWeeklyDrawdownPct', label: 'Drawdown máx semanal (%)', type: 'number', min: 1 },
+              { key: 'sessionStartUTC',      label: 'Início sessão (UTC)',   type: 'text' },
+              { key: 'sessionEndUTC',        label: 'Fim sessão (UTC)',      type: 'text' },
+            ].map(field => (
+              <div key={field.key} className="flex flex-col gap-1">
+                <label className="text-[10px] uppercase tracking-wider text-[#484f58]">{field.label}</label>
+                <input
+                  type={field.type}
+                  min={field.min}
+                  value={(cfgDraft as any)[field.key]}
+                  onChange={e => setCfgDraft(d => ({
+                    ...d,
+                    [field.key]: field.type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value,
+                  }))}
+                  className="bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-[#f0f6fc] font-mono text-xs focus:outline-none focus:border-[#f59e0b]/60"
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              onClick={() => {
+                saveSessionConfig(cfgDraft)
+                setSessionConfig(cfgDraft)
+                setConfigOpen(false)
+              }}
+              className="px-4 py-2 rounded-lg bg-[#f59e0b] text-[#0d1117] font-bold text-xs hover:bg-[#d97706] transition-colors">
+              Salvar
+            </button>
+            <button
+              onClick={() => setConfigOpen(false)}
+              className="px-4 py-2 rounded-lg bg-[#21262d] border border-[#30363d] text-[#8b949e] font-semibold text-xs hover:text-[#f0f6fc] transition-colors">
+              Cancelar
+            </button>
+            <button
+              onClick={() => { saveSessionConfig(SESSION_DEFAULTS); setSessionConfig(SESSION_DEFAULTS); setCfgDraft(SESSION_DEFAULTS) }}
+              className="ml-auto px-3 py-2 rounded-lg border border-[#30363d] text-[#484f58] font-semibold text-[10px] hover:text-[#8b949e] transition-colors">
+              Restaurar padrões
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── KPIs ───────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
@@ -1216,7 +1355,7 @@ export default function AdminDashboard() {
         <MLProgress current={trades.length} />
         {trades.length === 0 && (
           <p className="text-[10px] text-[#484f58] mt-3 text-center">
-            Vá para <Link href="/admin/chart" className="text-[#3b82f6] hover:underline">Gráfico RAFI</Link> e comece a mapear os setups da semana de Jun 23-26.
+            Vá para <Link href="/admin/chart" className="text-[#3b82f6] hover:underline">Gráfico RAFI</Link> e comece a mapear os setups de hoje.
           </p>
         )}
       </div>
