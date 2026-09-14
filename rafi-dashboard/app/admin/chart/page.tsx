@@ -1820,6 +1820,8 @@ export default function ChartPage() {
           lastPrice={lastPrice}
           lastCandleTime={lastTime}
           externalEntry={clickedEntry}
+          freeMargin={metaAccount?.freeMargin ?? null}
+          livePrice={livePrice}
         />
       </div>
 
@@ -1861,6 +1863,8 @@ export default function ChartPage() {
           lastPrice={lastPrice}
           lastCandleTime={lastTime}
           externalEntry={clickedEntry}
+          freeMargin={metaAccount?.freeMargin ?? null}
+          livePrice={livePrice}
         />
       </div>
 
