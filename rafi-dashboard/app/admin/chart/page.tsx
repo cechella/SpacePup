@@ -1518,9 +1518,9 @@ export default function ChartPage() {
                 <tbody className="divide-y divide-[#21262d]/50">
                   {metaPositions.map(pos => {
                     const isBuy  = pos.type === 'POSITION_TYPE_BUY'
-                    const price  = livePrice ?? pos.openPrice
-                    const rawPnl = (isBuy ? 1 : -1) * (price - pos.openPrice) * pos.volume * 100000
-                    const pnl    = isNaN(rawPnl) ? pos.profit : rawPnl
+                    const pnl    = livePrice
+                      ? (isBuy ? 1 : -1) * (livePrice - pos.openPrice) * pos.volume * 100000
+                      : (pos.profit ?? 0)
                     const pnlClr = pnl >= 0 ? '#22c55e' : '#ef4444'
                     return (
                       <tr key={pos.id} className="hover:bg-[#161b22] transition-colors">
@@ -1530,7 +1530,7 @@ export default function ChartPage() {
                             {isBuy ? '▲ BUY' : '▼ SELL'}
                           </span>
                         </td>
-                        <td className="px-3 py-2 font-mono text-[#8b949e]">{pos.volume}L</td>
+                        <td className="px-3 py-2 font-mono text-[#8b949e]">{Math.abs(pos.volume)}L</td>
                         <td className="px-3 py-2 font-mono text-[#8b949e]">{pos.openPrice.toFixed(5)}</td>
                         <td className="px-3 py-2 font-mono text-[#10b981]">{pos.takeProfit ? pos.takeProfit.toFixed(5) : '—'}</td>
                         <td className="px-3 py-2 font-mono text-[#ef4444]">{pos.stopLoss  ? pos.stopLoss.toFixed(5)  : '—'}</td>

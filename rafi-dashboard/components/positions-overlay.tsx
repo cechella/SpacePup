@@ -101,10 +101,10 @@ export function PositionsOverlay({ positions, livePrice, getY, getPrice, onModif
 
         if (yEntry === null) return null
 
-        // P&L em tempo real (linha de entrada)
-        const price  = livePrice ?? pos.openPrice
-        const rawPnl = (isBuy ? 1 : -1) * (price - pos.openPrice) * pos.volume * 100000
-        const pnl    = isNaN(rawPnl) ? pos.profit : rawPnl
+        // P&L em tempo real: usa pos.profit da API enquanto livePrice não chegou
+        const pnl    = livePrice
+          ? (isBuy ? 1 : -1) * (livePrice - pos.openPrice) * pos.volume * 100000
+          : (pos.profit ?? 0)
         const pnlClr = pnl >= 0 ? '#22c55e' : '#ef4444'
         const pnlStr = `${pnl >= 0 ? '+' : '-'}$${Math.abs(pnl).toFixed(2)}`
 
@@ -135,7 +135,7 @@ export function PositionsOverlay({ positions, livePrice, getY, getPrice, onModif
               whiteSpace: 'nowrap', fontFamily: 'monospace',
               pointerEvents: 'none',
             }}>
-              {isBuy ? '▲ BUY' : '▼ SELL'} {pos.volume}L{' '}
+              {isBuy ? '▲ BUY' : '▼ SELL'} {Math.abs(pos.volume)}L{' '}
               <span style={{ color: pnlClr }}>{pnlStr}</span>
             </div>
 
