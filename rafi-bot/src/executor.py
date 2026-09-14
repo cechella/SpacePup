@@ -66,6 +66,7 @@ from .supabase_sync import (
     publicar_config_hash_startup,
     verificar_upload_pendente,
     atualizar_status_upload,
+    buscar_trades_pendentes,
 )
 from . import supabase_sync as _supabase_sync_mod
 from .broker_coordinator import BrokerCoordinator
@@ -1401,19 +1402,17 @@ class RafiBot:
 
     def _restaurar_posicoes_abertas(self) -> None:
         """
-        Reconstrói self._posicoes com as posições que o MT5 já tem abertas.
+        Reconstrói self._posicoes com as posições que o MT5 já tem abertas,
+        e reconcilia posições fantasma — trades marcados como 'pending' no
+        Supabase que não existem mais no MT5 (fechados enquanto o bot estava offline).
 
-        Chamado no startup, após conectar ao MT5. Garante que posições abertas
-        antes de um reinício do bot continuem sendo monitoradas — sem isso,
-        quando o SL/TP bater, o bot não detecta o fechamento e o trade fica
-        preso como 'pending' no Supabase para sempre.
-
+        Chamado no startup, após conectar ao MT5.
         Não envia nenhuma ordem nem altera parâmetros de risco.
         """
-        posicoes_mt5 = self.mt5.posicoes_abertas()
-        if not posicoes_mt5:
-            return
+        posicoes_mt5 = self.mt5.posicoes_abertas() or []
+        tickets_abertos_mt5 = {p['ticket'] for p in posicoes_mt5}
 
+        # ── Restaura posições realmente abertas no MT5 ────────────────────────
         restauradas = 0
         for p in posicoes_mt5:
             ticket = p['ticket']
@@ -1438,6 +1437,39 @@ class RafiBot:
         if restauradas:
             publicar_log(
                 f"{restauradas} posição(ões) restaurada(s) do MT5 após reinício",
+                level='warn',
+            )
+
+        # ── Reconcilia posições fantasma ──────────────────────────────────────
+        # Trades com result='pending' no DB que não estão abertos no MT5 foram
+        # fechados enquanto o bot estava offline — fecha-os agora no Supabase.
+        pendentes_db = buscar_trades_pendentes()
+        fantasmas = 0
+        for t in pendentes_db:
+            ticket = t['ticket']
+            if ticket in tickets_abertos_mt5:
+                continue  # ainda aberta no MT5 — correto, não toca
+
+            pnl_info = self.mt5.pnl_real_posicao(ticket)
+            if pnl_info is not None:
+                pnl_trade = pnl_info['liquido']
+                resultado  = 'win' if pnl_trade > 0 else 'loss'
+            else:
+                # Histórico não disponível (ticket muito antigo ou expirado)
+                pnl_trade = 0.0
+                resultado  = 'loss'
+
+            atualizar_resultado(ticket=ticket, result=resultado,
+                                ts=t['ts'], pnl=pnl_trade)
+            fantasmas += 1
+            logger.info(
+                f"[Reconcilia] Fantasma #{ticket} → {resultado.upper()} "
+                f"| P&L: ${pnl_trade:+.2f} (fechado offline)"
+            )
+
+        if fantasmas:
+            publicar_log(
+                f"{fantasmas} posição(ões) fantasma(s) reconciliada(s) no Supabase",
                 level='warn',
             )
 

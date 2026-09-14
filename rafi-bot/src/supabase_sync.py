@@ -143,6 +143,32 @@ def sincronizar_trade(
         return False
 
 
+def buscar_trades_pendentes() -> list:
+    """
+    Retorna todos os trades com result='pending' na tabela rafi_trades.
+
+    Usado no startup para reconciliar posições fantasma — fechadas no MT5 enquanto
+    o bot estava offline, mas ainda marcadas como pendentes no Supabase.
+    Retorna lista de dicts com 'ticket' (int) e 'ts' (int).
+    """
+    cliente = _get_cliente()
+    if cliente is None:
+        return []
+    try:
+        res = cliente.table('rafi_trades').select('id,time').eq('result', 'pending').execute()
+        trades = []
+        for row in (res.data or []):
+            try:
+                ticket = int(row['id'].split('-mt5-')[-1])
+                trades.append({'ticket': ticket, 'ts': row['time']})
+            except (ValueError, IndexError):
+                continue
+        return trades
+    except Exception as e:
+        logger.error(f"[Supabase] Erro ao buscar trades pendentes: {e}")
+        return []
+
+
 def atualizar_resultado(ticket: int, result: str, ts: int,
                         pnl: Optional[float] = None) -> bool:
     """
