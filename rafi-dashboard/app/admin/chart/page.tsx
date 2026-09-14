@@ -105,6 +105,8 @@ export default function ChartPage() {
   const [orderToast, setOrderToast] = useState<{ ok: boolean; msg: string } | null>(null)
   // Feature 4: countdown para próximo auto-refresh dos candles
   const [refreshIn,  setRefreshIn]  = useState(0)
+  // Countdown regressivo até o fechamento da barra atual
+  const [candleCountdown, setCandleCountdown] = useState(0)
   // Feature 5: alertas do bot (abertura/fechamento de posições)
   const [botAlerts,  setBotAlerts]  = useState<Array<{ id: string; kind: 'open' | 'close'; text: string }>>([])
   // Histórico de trades fechados da Pepperstone
@@ -525,6 +527,18 @@ export default function ChartPage() {
     return () => clearInterval(id)
   }, [metaConnected, tf, loadCandlesFromMetaAPI])
 
+  // Countdown regressivo sincronizado com o relógio real (fechamento da barra atual)
+  useEffect(() => {
+    const tfSec = tf === 'M5' ? 300 : tf === 'M15' ? 900 : 3600
+    const tick = () => {
+      const nowSec = Math.floor(Date.now() / 1000)
+      setCandleCountdown(tfSec - (nowSec % tfSec))
+    }
+    tick()
+    const id = setInterval(tick, 1_000)
+    return () => clearInterval(id)
+  }, [tf])
+
   // Fecha o painel de histórico ao clicar fora
   useEffect(() => {
     if (!historyOpen) return
@@ -909,8 +923,8 @@ export default function ChartPage() {
               </button>
             )}
           </div>
-          {/* Linha 2: botões M5 / M15 / H1 */}
-          <div className="flex gap-2">
+          {/* Linha 2: botões M5 / M15 / H1 + countdown */}
+          <div className="flex items-center gap-2">
             {TIMEFRAMES.map(t => (
               <button
                 key={t}
@@ -928,6 +942,14 @@ export default function ChartPage() {
                 {t}
               </button>
             ))}
+            {metaConnected && (
+              <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#0d1117] border border-[#30363d] shrink-0">
+                <span className="text-[#484f58] text-[10px]">⏱</span>
+                <span className="text-[#8b949e] text-[11px] font-mono tabular-nums">
+                  {String(Math.floor(candleCountdown / 60)).padStart(2, '0')}:{String(candleCountdown % 60).padStart(2, '0')}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1039,6 +1061,16 @@ export default function ChartPage() {
                   </button>
                 ))}
               </div>
+
+              {/* Countdown da barra atual */}
+              {metaConnected && (
+                <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#0d1117] border border-[#30363d]">
+                  <span className="text-[#484f58] text-[10px]">⏱</span>
+                  <span className="text-[#8b949e] text-[11px] font-mono tabular-nums">
+                    {String(Math.floor(candleCountdown / 60)).padStart(2, '0')}:{String(candleCountdown % 60).padStart(2, '0')}
+                  </span>
+                </div>
+              )}
 
               {/* Botão Carregar CSV + Histórico */}
               <div className="relative flex items-center gap-1" ref={historyPanelRef}>
