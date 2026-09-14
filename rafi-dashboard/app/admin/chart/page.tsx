@@ -942,14 +942,12 @@ export default function ChartPage() {
                 {t}
               </button>
             ))}
-            {metaConnected && (
-              <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#0d1117] border border-[#30363d] shrink-0">
-                <span className="text-[#484f58] text-[10px]">⏱</span>
-                <span className="text-[#8b949e] text-[11px] font-mono tabular-nums">
-                  {String(Math.floor(candleCountdown / 60)).padStart(2, '0')}:{String(candleCountdown % 60).padStart(2, '0')}
-                </span>
-              </div>
-            )}
+            <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#0d1117] border border-[#30363d] shrink-0">
+              <span className="text-[#484f58] text-[10px]">⏱</span>
+              <span className="text-[#8b949e] text-[11px] font-mono tabular-nums">
+                {String(Math.floor(candleCountdown / 60)).padStart(2, '0')}:{String(candleCountdown % 60).padStart(2, '0')}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -1063,14 +1061,12 @@ export default function ChartPage() {
               </div>
 
               {/* Countdown da barra atual */}
-              {metaConnected && (
-                <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#0d1117] border border-[#30363d]">
-                  <span className="text-[#484f58] text-[10px]">⏱</span>
-                  <span className="text-[#8b949e] text-[11px] font-mono tabular-nums">
-                    {String(Math.floor(candleCountdown / 60)).padStart(2, '0')}:{String(candleCountdown % 60).padStart(2, '0')}
-                  </span>
-                </div>
-              )}
+              <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#0d1117] border border-[#30363d]">
+                <span className="text-[#484f58] text-[10px]">⏱</span>
+                <span className="text-[#8b949e] text-[11px] font-mono tabular-nums">
+                  {String(Math.floor(candleCountdown / 60)).padStart(2, '0')}:{String(candleCountdown % 60).padStart(2, '0')}
+                </span>
+              </div>
 
               {/* Botão Carregar CSV + Histórico */}
               <div className="relative flex items-center gap-1" ref={historyPanelRef}>
