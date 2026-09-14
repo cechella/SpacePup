@@ -271,35 +271,12 @@ export function RAFIChart({
         candleSeries.setMarkers(markers)
       }
 
-      mChart.timeScale().fitContent()
-      // Sempre mostra os últimos 120 candles com o preço atual na borda direita
-      if (candles.length > 150) {
-        mChart.timeScale().setVisibleLogicalRange({
-          from: candles.length - 121,
-          to:   candles.length + 5,
-        })
-      }
-      // Garante que o último candle (preço vivo) esteja visível ao abrir
+      // Mostra sempre os últimos 80 candles (legível em desktop e mobile)
+      mChart.timeScale().setVisibleLogicalRange({
+        from: Math.max(0, candles.length - 80),
+        to:   candles.length + 5,
+      })
       mChart.timeScale().scrollToRealTime()
-
-      // Se há posições abertas, ajusta escala Y para incluir SL e TP visíveis
-      const pos0 = positionsRef.current?.[0]
-      if (pos0 && (pos0.stopLoss || pos0.takeProfit)) {
-        const prices = [pos0.openPrice, pos0.stopLoss, pos0.takeProfit].filter(Boolean)
-        const lo = Math.min(...prices)
-        const hi = Math.max(...prices)
-        const pad = (hi - lo) * 0.35
-        candleSeries.applyOptions({
-          autoscaleInfoProvider: () => ({
-            priceRange: { minValue: lo - pad, maxValue: hi + pad },
-            margins:    { above: 10, below: 10 },
-          }),
-        })
-        // Remove o override após 2s para não travar o auto-scale do usuário
-        setTimeout(() => {
-          candleSeries.applyOptions({ autoscaleInfoProvider: undefined })
-        }, 2_000)
-      }
 
       // ── Gráfico RAFI ─────────────────────────────────────────────────────
       rChart = createChart(rafiEl, {
@@ -368,28 +345,6 @@ export function RAFIChart({
       rChart?.remove()
     }
   }, [candles, rafiData, srLevels, trades, bbBands])
-
-  // Quando posições chegam após o gráfico estar pronto, ajusta Y para incluir SL e TP
-  useEffect(() => {
-    if (!candleSeriesRef.current || !chartReady) return
-    const pos0 = positions?.[0]
-    if (!pos0 || (!pos0.stopLoss && !pos0.takeProfit)) return
-    const prices = [pos0.openPrice, pos0.stopLoss, pos0.takeProfit].filter(Boolean)
-    const lo = Math.min(...prices)
-    const hi = Math.max(...prices)
-    const pad = (hi - lo) * 0.35
-    candleSeriesRef.current.applyOptions({
-      autoscaleInfoProvider: () => ({
-        priceRange: { minValue: lo - pad, maxValue: hi + pad },
-        margins:    { above: 10, below: 10 },
-      }),
-    })
-    // Libera override após 2s para o usuário poder escalar livremente
-    const t = setTimeout(() => {
-      candleSeriesRef.current?.applyOptions({ autoscaleInfoProvider: undefined })
-    }, 2_000)
-    return () => clearTimeout(t)
-  }, [positions, chartReady])
 
   // Atualiza o último candle tick a tick sem recriar o gráfico
   useEffect(() => {
