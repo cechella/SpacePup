@@ -55,8 +55,6 @@ export function RAFIChart({
   const rafIdRef           = useRef<number>(0)
   // Ref local sincronizado com livePrice (estado React provado que atualiza via P&L)
   const innerPriceRef      = useRef<number | null>(null)
-  // Controla scroll único para o candle ao vivo na primeira atualização
-  const hasScrolledToLive  = useRef(false)
   const [chartReady, setChartReady] = useState(false)
 
   useEffect(() => { onPriceClickRef.current = onPriceClick }, [onPriceClick])
@@ -159,6 +157,7 @@ export function RAFIChart({
           timeVisible:    true,
           secondsVisible: false,
           visible:        false,
+          rightOffset:    5,  // mantém 5 barras de espaço à direita — a barra ao vivo aparece aqui
         },
         width:  mainEl.clientWidth  || 600,
         height: mainEl.clientHeight || 300,
@@ -240,11 +239,8 @@ export function RAFIChart({
         // Linha de preço ao vivo: atualiza sempre, visível independente da barra estar na tela
         liveLine.applyOptions({ price })
 
-        // Na primeira atualização ao vivo, rola o gráfico para mostrar o candle atual
-        if (!hasScrolledToLive.current) {
-          hasScrolledToLive.current = true
-          mChart.timeScale().scrollToRealTime()
-        }
+        // Mantém o gráfico seguindo a barra ao vivo (como o auto-scroll do MetaTrader)
+        mChart.timeScale().scrollToRealTime()
       }
 
       // Caminho 1: callback direto — o SSE chama chartUpdateCandleRef.current(mid) a cada ~300ms.
@@ -445,7 +441,6 @@ export function RAFIChart({
     return () => {
       cancelAnimationFrame(rafIdRef.current)
       if (chartUpdateCandleRef) chartUpdateCandleRef.current = null
-      hasScrolledToLive.current = false
       setChartReady(false)
       candleSeriesRef.current = null
       roMain?.disconnect()
