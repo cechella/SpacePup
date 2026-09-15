@@ -642,13 +642,15 @@ export default function ChartPage() {
   }, [metaConnected, tf, loadCandlesFromMetaAPI])
 
   // Countdown regressivo ancorado no timestamp real do último candle
-  // Usa lastTime (open do candle) como referência — correto para qualquer fuso do broker
+  // Usa csvData (declarado antes dos effects) para evitar referência fora de ordem
   useEffect(() => {
     const tfSec = tf === 'M5' ? 300 : tf === 'M15' ? 900 : 3600
     const tick = () => {
       const nowSec = Math.floor(Date.now() / 1000)
-      if (lastTime > 0) {
-        setCandleCountdown(Math.max(0, lastTime + tfSec - nowSec))
+      const rows = csvData?.candles
+      const lt = rows && rows.length > 0 ? rows[rows.length - 1].time : 0
+      if (lt > 0) {
+        setCandleCountdown(Math.max(0, lt + tfSec - nowSec))
       } else {
         setCandleCountdown(tfSec - (nowSec % tfSec))
       }
@@ -656,7 +658,7 @@ export default function ChartPage() {
     tick()
     const id = setInterval(tick, 1_000)
     return () => clearInterval(id)
-  }, [tf, lastTime])
+  }, [tf, csvData])
 
   // Fecha o painel de histórico ao clicar fora
   useEffect(() => {
