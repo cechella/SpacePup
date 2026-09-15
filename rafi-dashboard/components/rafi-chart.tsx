@@ -115,6 +115,7 @@ export function RAFIChart({
     let rChart: IChartApi
     let roMain: ResizeObserver
     let roRafi: ResizeObserver
+    let rangeTimerId: ReturnType<typeof setTimeout> | null = null
 
     const init = async () => {
       const { createChart, ColorType, CrosshairMode, LineStyle } = await import('lightweight-charts')
@@ -498,11 +499,25 @@ export function RAFIChart({
       })
       roMain.observe(mainEl)
       roRafi.observe(rafiEl)
+
+      // Garantia final: re-aplica o range após o DOM e todos os ResizeObservers
+      // terem se resolvido. Cobre o caso em que o lightweight-charts entrega o evento
+      // de visibleLogicalRangeChange de forma assíncrona (pós-requestAnimationFrame),
+      // o que tornaria os flags mChartResizing/rChartResizing ineficazes no momento
+      // em que o evento realmente dispara.
+      rangeTimerId = setTimeout(() => {
+        rangeTimerId = null
+        try {
+          mChart.timeScale().setVisibleLogicalRange({ from: initialFrom, to: initialTo })
+          rChart.timeScale().setVisibleLogicalRange({ from: initialFrom, to: initialTo })
+        } catch {}
+      }, 400)
     }
 
     init()
 
     return () => {
+      if (rangeTimerId !== null) clearTimeout(rangeTimerId)
       cancelAnimationFrame(rafIdRef.current)
       if (chartUpdateCandleRef) chartUpdateCandleRef.current = null
       setChartReady(false)
