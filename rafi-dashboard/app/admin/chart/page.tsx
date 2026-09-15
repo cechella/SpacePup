@@ -592,41 +592,39 @@ export default function ChartPage() {
 
 
 
-  // Tick ao vivo via SSE: atualiza o último candle a cada ~300ms (igual MetaTrader 5)
+  // Tick ao vivo via polling: cada request é curto (~300ms), evita timeout do Vercel Edge (25s)
   useEffect(() => {
     if (!metaConnected) { setLivePrice(null); return }
 
-    let es: EventSource | null = null
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let active = true
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let lastBid = 0
+    let lastAsk = 0
 
-    const connect = () => {
-      es = new EventSource('/api/metaapi/price-stream?symbol=EURUSD')
-
-      es.onmessage = (e) => {
-        try {
-          const data = JSON.parse(e.data)
-          if (data.bid && data.ask) {
+    const poll = async () => {
+      if (!active) return
+      try {
+        const res = await fetch('/api/metaapi/price?symbol=EURUSD')
+        if (active && res.ok) {
+          const data = await res.json()
+          if (data.bid && data.ask && (data.bid !== lastBid || data.ask !== lastAsk)) {
+            lastBid = data.bid
+            lastAsk = data.ask
             const mid = (data.bid + data.ask) / 2
             chartUpdateCandleRef.current?.(mid) // direto ao gráfico, sem React
             livePriceRef.current = mid
             setLivePrice(mid)                   // estado para P&L
           }
-        } catch {}
-      }
-
-      // Reconecta automaticamente se cair
-      es.onerror = () => {
-        es?.close()
-        es = null
-        reconnectTimer = setTimeout(connect, 2_000)
-      }
+        }
+      } catch {}
+      if (active) timer = setTimeout(poll, 300)
     }
 
-    connect()
+    poll()
 
     return () => {
-      if (reconnectTimer) clearTimeout(reconnectTimer)
-      es?.close()
+      active = false
+      if (timer) clearTimeout(timer)
       setLivePrice(null)
     }
   }, [metaConnected])

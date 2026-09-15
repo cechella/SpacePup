@@ -10,9 +10,10 @@ export async function GET(req: Request) {
 
   try {
     const res = await fetch(
-      `${BASE}/users/current/accounts/${ACCOUNT}/symbols/${symbol}/current-price?keepSubscription=false`,
+      `${BASE}/users/current/accounts/${ACCOUNT}/symbols/${symbol}/current-price?keepSubscription=true`,
       {
         headers: { 'auth-token': TOKEN },
+        signal: AbortSignal.timeout(4000),
         next: { revalidate: 0 },
       }
     )
