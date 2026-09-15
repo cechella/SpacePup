@@ -641,17 +641,22 @@ export default function ChartPage() {
     return () => clearInterval(id)
   }, [metaConnected, tf, loadCandlesFromMetaAPI])
 
-  // Countdown regressivo sincronizado com o relógio real (fechamento da barra atual)
+  // Countdown regressivo ancorado no timestamp real do último candle
+  // Usa lastTime (open do candle) como referência — correto para qualquer fuso do broker
   useEffect(() => {
     const tfSec = tf === 'M5' ? 300 : tf === 'M15' ? 900 : 3600
     const tick = () => {
       const nowSec = Math.floor(Date.now() / 1000)
-      setCandleCountdown(tfSec - (nowSec % tfSec))
+      if (lastTime > 0) {
+        setCandleCountdown(Math.max(0, lastTime + tfSec - nowSec))
+      } else {
+        setCandleCountdown(tfSec - (nowSec % tfSec))
+      }
     }
     tick()
     const id = setInterval(tick, 1_000)
     return () => clearInterval(id)
-  }, [tf])
+  }, [tf, lastTime])
 
   // Fecha o painel de histórico ao clicar fora
   useEffect(() => {
