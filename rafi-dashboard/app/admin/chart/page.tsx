@@ -12,7 +12,7 @@ import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
 import { getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
 import { upsertTrade, fetchTrades, fetchCandles, countCandles } from '@/lib/trades-db'
-import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine, History, ChevronDown, Trash2, Database, Menu } from 'lucide-react'
+import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine, History, ChevronDown, Trash2, Database, Menu, ChevronsRight } from 'lucide-react'
 import type { CandleData } from '@/lib/types'
 import { generateTradeSnapshot } from '@/lib/trade-snapshot'
 
@@ -165,6 +165,8 @@ export default function ChartPage() {
   const snapshotCaptureRef  = useRef<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>(null)
   // Callback imperativo: SSE chama direto, sem passar pelo scheduler do React
   const chartUpdateCandleRef = useRef<((price: number) => void) | null>(null)
+  // Botão Shift (MT5): reposiciona o gráfico com espaço à direita
+  const shiftRangeRef = useRef<(() => void) | null>(null)
 
   // Mostra check-in na primeira abertura do dia (seg–qui), qualquer horário.
   // O check-in define se o trader está apto antes de ver qualquer dado de mercado.
@@ -1467,6 +1469,18 @@ export default function ChartPage() {
 
               <span className="text-[#30363d]">|</span>
 
+              {/* Botão Shift — reposiciona o gráfico igual ao MT5 (últimos candles + espaço à direita) */}
+              <button
+                onClick={() => shiftRangeRef.current?.()}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold border border-[#30363d] text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-all"
+                title="Ir para o final — posiciona o gráfico com espaço à direita (igual ao MT5)"
+              >
+                <ChevronsRight size={11} />
+                Shift
+              </button>
+
+              <span className="text-[#30363d]">|</span>
+
               {/* Modo: Navegar / OCO */}
               <div className="flex items-center gap-0.5 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]">
                 {/* Navegar */}
@@ -1566,6 +1580,7 @@ export default function ChartPage() {
               positions={metaPositions as any}
               onModifyPosition={(id, sl, tp) => handleModifyPosition(id, String(sl), String(tp))}
               snapshotCaptureRef={snapshotCaptureRef}
+              shiftRangeRef={shiftRangeRef}
               freeMargin={metaAccount?.freeMargin ?? null}
             />
           </div>

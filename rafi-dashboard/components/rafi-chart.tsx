@@ -34,12 +34,16 @@ interface Props {
   freeMargin?:        number | null
   // Ref para captura focada no candle de entrada com overlay OCO desenhado
   snapshotCaptureRef?: React.MutableRefObject<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>
+  // Botão Shift: page.tsx preenche; quando chamado, reposiciona o gráfico com
+  // espaço à direita (últimos 75 candles + 15 barras vazias), igual ao MT5.
+  shiftRangeRef?: React.MutableRefObject<(() => void) | null>
 }
 
 export function RAFIChart({
   candles, rafiData, srLevels, trades, bbBands, onPriceClick, panMode,
   ocoState, onOCOChange, onOCOExecute, onOCOClose, livePrice, livePriceRef,
   chartUpdateCandleRef, positions, onModifyPosition, snapshotCaptureRef, freeMargin,
+  shiftRangeRef,
 }: Props) {
   const mainRef         = useRef<HTMLDivElement>(null)
   const mainWrapperRef  = useRef<HTMLDivElement>(null)
@@ -386,6 +390,17 @@ export function RAFIChart({
       const initialTo   = candles.length + 15
       mChart.timeScale().setVisibleLogicalRange({ from: initialFrom, to: initialTo })
 
+      // Expõe função de shift para o botão na toolbar (igual ao MT5):
+      // reposiciona o gráfico mostrando os últimos candles + espaço à direita.
+      if (shiftRangeRef) {
+        shiftRangeRef.current = () => {
+          try {
+            mChart.timeScale().setVisibleLogicalRange({ from: initialFrom, to: initialTo })
+            rChart.timeScale().setVisibleLogicalRange({ from: initialFrom, to: initialTo })
+          } catch {}
+        }
+      }
+
       // ── Gráfico RAFI ─────────────────────────────────────────────────────
       rChart = createChart(rafiEl, {
         layout:    sharedLayout,
@@ -507,6 +522,7 @@ export function RAFIChart({
       if (rangeTimerId !== null) clearTimeout(rangeTimerId)
       cancelAnimationFrame(rafIdRef.current)
       if (chartUpdateCandleRef) chartUpdateCandleRef.current = null
+      if (shiftRangeRef) shiftRangeRef.current = null
       setChartReady(false)
       candleSeriesRef.current = null
       histSeriesRef.current   = null
