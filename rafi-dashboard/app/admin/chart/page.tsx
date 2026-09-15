@@ -380,8 +380,9 @@ export default function ChartPage() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(trades)) } catch {}
   }, [trades])
 
-  // Carrega candles ao vivo via MetaAPI — substitui dados locais
-  const loadCandlesFromMetaAPI = useCallback(async () => {
+  // Carrega candles ao vivo via MetaAPI — aceita timeframe override para troca de TF sem stale closure
+  const loadCandlesFromMetaAPI = useCallback(async (overrideTf?: string) => {
+    const activeTf = overrideTf ?? tf
     setMetaLoading(true)
     setMetaError(null)
     setMetaElapsed(0)
@@ -411,16 +412,16 @@ export default function ChartPage() {
       // Fetch incremental: se já temos candles em cache, pede só os novos
       const sinceTs  = cachedLastTsRef.current
       const url      = sinceTs > 0
-        ? `/api/metaapi/candles?symbol=EURUSD&timeframe=${tf}&since=${sinceTs}`
-        : `/api/metaapi/candles?symbol=EURUSD&timeframe=${tf}&limit=100`
+        ? `/api/metaapi/candles?symbol=EURUSD&timeframe=${activeTf}&since=${sinceTs}`
+        : `/api/metaapi/candles?symbol=EURUSD&timeframe=${activeTf}&limit=100`
 
       const res  = await fetch(url)
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? `MetaAPI: ${res.status}`)
       const incoming: CandleData[] = data.candles ?? data
       if (!Array.isArray(incoming) || incoming.length === 0) {
-        // Fetch incremental sem candles novos — apenas confirma conexão
-        if (sinceTs > 0 && csvData) {
+        // Fetch incremental sem candles novos — apenas confirma conexão (mercado fechado ou já atualizado)
+        if (sinceTs > 0) {
           setMetaConnected(true)
           return
         }
@@ -598,9 +599,6 @@ export default function ChartPage() {
 
   // Auto-connect: boot inteligente — Supabase primeiro (instantâneo), MetaAPI depois (incremental)
   useEffect(() => {
-    try {
-      if (localStorage.getItem(META_AUTO_KEY) !== 'true') return
-    } catch { return }
 
     let cancelled = false
 
@@ -1280,22 +1278,20 @@ export default function ChartPage() {
                 onChange={handleFileChange}
               />
 
-              {/* Timeframe — desabilitado quando CSV carregado, ativo quando MetaAPI */}
-              <div className={cn(
-                'flex items-center gap-0.5 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]',
-                csvData && !metaConnected && 'opacity-40 pointer-events-none',
-              )}>
+              {/* Timeframe — sempre habilitado; troca TF e refetch MetaAPI */}
+              <div className="flex items-center gap-0.5 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]">
                 {TIMEFRAMES.map(t => (
                   <button
                     key={t}
+                    disabled={metaLoading}
                     onClick={() => {
+                      if (t === tf) return
                       setTf(t)
                       setTrades([])
-                      // Se MetaAPI estiver ativo, recarrega no novo timeframe
-                      if (metaConnected) {
-                        setCsvData(null)
-                        setMetaConnected(false)
-                      }
+                      setCsvData(null)
+                      setMetaConnected(false)
+                      cachedLastTsRef.current = 0
+                      loadCandlesFromMetaAPI(t)
                     }}
                     className={cn(
                       'px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all',
