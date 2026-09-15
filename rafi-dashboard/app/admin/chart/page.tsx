@@ -12,7 +12,7 @@ import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
 import { getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
 import { upsertTrade, fetchTrades, fetchCandles, countCandles } from '@/lib/trades-db'
-import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine, History, ChevronDown, Trash2, Database, Menu, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine, History, ChevronDown, Trash2, Database, Menu } from 'lucide-react'
 import type { CandleData } from '@/lib/types'
 import { generateTradeSnapshot } from '@/lib/trade-snapshot'
 
@@ -167,8 +167,8 @@ export default function ChartPage() {
   const chartUpdateCandleRef = useRef<((price: number) => void) | null>(null)
   // Botão Shift (MT5): reposiciona o gráfico com espaço à direita
   const shiftRangeRef = useRef<(() => void) | null>(null)
-  // Scroll ±N barras (botões ← →)
-  const scrollByRef   = useRef<((bars: number) => void) | null>(null)
+  // Alinhar à direita: última barra na borda direita
+  const alignRightRef = useRef<(() => void) | null>(null)
 
   // Mostra check-in na primeira abertura do dia (seg–qui), qualquer horário.
   // O check-in define se o trader está apto antes de ver qualquer dado de mercado.
@@ -1471,32 +1471,35 @@ export default function ChartPage() {
 
               <span className="text-[#30363d]">|</span>
 
-              {/* Navegação MT5: ← scroll esquerda · ⇥ shift para o final · → scroll direita */}
+              {/* Alinhamento do gráfico — 2 botões estilo MT5 */}
               <div className="flex items-center gap-0 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]">
-                <button
-                  onClick={() => scrollByRef.current?.(-20)}
-                  className="flex items-center justify-center w-6 h-6 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-all"
-                  title="Scroll para a esquerda (candles mais antigos)"
-                >
-                  <ChevronLeft size={12} />
-                </button>
-                {/* Botão central: vai para o final com espaço à direita (igual ao MT5 Shift) */}
+                {/* Alinhar à esquerda: candles + espaço à direita (Shift MT5) */}
                 <button
                   onClick={() => shiftRangeRef.current?.()}
                   className="flex items-center justify-center w-7 h-6 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-all"
-                  title="Ir para o final — últimos candles com espaço à direita (Shift MT5)"
+                  title="Alinhar à esquerda — candles com espaço à direita (Shift MT5)"
                 >
-                  <svg width="14" height="10" viewBox="0 0 14 10" fill="none">
-                    <rect x="12" y="0" width="1.5" height="10" rx="0.5" fill="currentColor" opacity="0.7"/>
-                    <path d="M1 5h8M6 2l3 3-3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                  <svg width="16" height="11" viewBox="0 0 16 11" fill="none">
+                    <rect x="0.5" y="0.5" width="15" height="10" rx="1.5" stroke="currentColor" strokeOpacity="0.4"/>
+                    <rect x="2" y="3" width="2" height="5" rx="0.5" fill="currentColor"/>
+                    <rect x="5" y="2" width="2" height="7" rx="0.5" fill="currentColor"/>
+                    <rect x="8" y="4" width="2" height="4" rx="0.5" fill="currentColor"/>
+                    <rect x="13" y="1" width="1" height="9" rx="0.5" fill="currentColor" opacity="0.5"/>
                   </svg>
                 </button>
+                {/* Alinhar à direita: última barra na borda direita */}
                 <button
-                  onClick={() => scrollByRef.current?.(20)}
-                  className="flex items-center justify-center w-6 h-6 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-all"
-                  title="Scroll para a direita (candles mais recentes)"
+                  onClick={() => alignRightRef.current?.()}
+                  className="flex items-center justify-center w-7 h-6 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-all"
+                  title="Alinhar à direita — última barra na borda direita"
                 >
-                  <ChevronRight size={12} />
+                  <svg width="16" height="11" viewBox="0 0 16 11" fill="none">
+                    <rect x="0.5" y="0.5" width="15" height="10" rx="1.5" stroke="currentColor" strokeOpacity="0.4"/>
+                    <rect x="4" y="3" width="2" height="5" rx="0.5" fill="currentColor"/>
+                    <rect x="7" y="2" width="2" height="7" rx="0.5" fill="currentColor"/>
+                    <rect x="10" y="4" width="2" height="4" rx="0.5" fill="currentColor"/>
+                    <rect x="13" y="3" width="2" height="5" rx="0.5" fill="currentColor"/>
+                  </svg>
                 </button>
               </div>
 
@@ -1602,7 +1605,7 @@ export default function ChartPage() {
               onModifyPosition={(id, sl, tp) => handleModifyPosition(id, String(sl), String(tp))}
               snapshotCaptureRef={snapshotCaptureRef}
               shiftRangeRef={shiftRangeRef}
-              scrollByRef={scrollByRef}
+              alignRightRef={alignRightRef}
               freeMargin={metaAccount?.freeMargin ?? null}
             />
           </div>

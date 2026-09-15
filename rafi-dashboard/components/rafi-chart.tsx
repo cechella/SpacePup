@@ -34,17 +34,17 @@ interface Props {
   freeMargin?:        number | null
   // Ref para captura focada no candle de entrada com overlay OCO desenhado
   snapshotCaptureRef?: React.MutableRefObject<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>
-  // Botão Shift: reposiciona o gráfico (últimos 75 candles + 15 barras vazias à direita)
-  shiftRangeRef?: React.MutableRefObject<(() => void) | null>
-  // Scroll ±N barras (botões ← →)
-  scrollByRef?:   React.MutableRefObject<((bars: number) => void) | null>
+  // Alinhar à esquerda (Shift MT5): últimos candles + 15 barras vazias à direita
+  shiftRangeRef?:  React.MutableRefObject<(() => void) | null>
+  // Alinhar à direita: última barra na borda direita (sem espaço)
+  alignRightRef?:  React.MutableRefObject<(() => void) | null>
 }
 
 export function RAFIChart({
   candles, rafiData, srLevels, trades, bbBands, onPriceClick, panMode,
   ocoState, onOCOChange, onOCOExecute, onOCOClose, livePrice, livePriceRef,
   chartUpdateCandleRef, positions, onModifyPosition, snapshotCaptureRef, freeMargin,
-  shiftRangeRef, scrollByRef,
+  shiftRangeRef, alignRightRef,
 }: Props) {
   const mainRef         = useRef<HTMLDivElement>(null)
   const mainWrapperRef  = useRef<HTMLDivElement>(null)
@@ -402,13 +402,14 @@ export function RAFIChart({
         }
       }
 
-      // Scroll ±N barras: desloca o viewport mantendo a janela atual
-      if (scrollByRef) {
-        scrollByRef.current = (bars: number) => {
+      // Alinhar à direita: última barra na borda direita, sem espaço vazio
+      if (alignRightRef) {
+        alignRightRef.current = () => {
           try {
-            const r = mChart.timeScale().getVisibleLogicalRange()
-            if (!r) return
-            mChart.timeScale().setVisibleLogicalRange({ from: r.from + bars, to: r.to + bars })
+            const from = Math.max(0, candles.length - 90)
+            const to   = candles.length
+            mChart.timeScale().setVisibleLogicalRange({ from, to })
+            rChart.timeScale().setVisibleLogicalRange({ from, to })
           } catch {}
         }
       }
@@ -535,7 +536,7 @@ export function RAFIChart({
       cancelAnimationFrame(rafIdRef.current)
       if (chartUpdateCandleRef) chartUpdateCandleRef.current = null
       if (shiftRangeRef) shiftRangeRef.current = null
-      if (scrollByRef) scrollByRef.current = null
+      if (alignRightRef) alignRightRef.current = null
       setChartReady(false)
       candleSeriesRef.current = null
       histSeriesRef.current   = null
