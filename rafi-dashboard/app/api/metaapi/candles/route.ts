@@ -21,16 +21,19 @@ export async function GET(req: Request) {
   const symbol    = searchParams.get('symbol')    || 'EURUSD'
   const timeframe = searchParams.get('timeframe') || 'M5'
   const limit     = parseInt(searchParams.get('limit') || '100', 10)
+  // 'since': timestamp Unix em segundos — fetch incremental a partir desse candle
+  const since     = searchParams.get('since')
 
   const tf = TF_MAP[timeframe] ?? TF_MAP['M5']
 
-  // startTime: janela 3x maior que o necessário para garantir N candles recentes
-  // (MetaAPI pode ter gaps em fins de semana e sessões fechadas)
-  const windowMs  = limit * tf.minutes * 60 * 1000 * 3
-  const startTime = new Date(Date.now() - windowMs).toISOString()
+  // Se 'since' for passado, busca só candles novos (até 500); senão janela padrão
+  const startTime = since
+    ? new Date(parseInt(since, 10) * 1000).toISOString()
+    : new Date(Date.now() - limit * tf.minutes * 60 * 1000 * 3).toISOString()
+  const fetchLimit = since ? 500 : limit
 
   try {
-    const url = `${BASE}/users/current/accounts/${ACCOUNT}/historical-market-data/symbols/${symbol}/timeframes/${tf.rest}/candles?startTime=${encodeURIComponent(startTime)}&limit=${limit}`
+    const url = `${BASE}/users/current/accounts/${ACCOUNT}/historical-market-data/symbols/${symbol}/timeframes/${tf.rest}/candles?startTime=${encodeURIComponent(startTime)}&limit=${fetchLimit}`
 
     const res = await fetch(url, {
       headers: { 'auth-token': TOKEN },
@@ -56,8 +59,8 @@ export async function GET(req: Request) {
         volume: c.tickVolume ?? c.volume ?? 0,
       }))
       .sort((a: any, b: any) => a.time - b.time)
-      // Pega os últimos N candles após ordenar
-      .slice(-limit)
+      // Fetch normal: pega os últimos N; fetch incremental (since): retorna todos os novos
+      .slice(since ? 0 : -limit)
 
     if (candles.length === 0) {
       return NextResponse.json({ error: 'Nenhum candle retornado' }, { status: 404 })

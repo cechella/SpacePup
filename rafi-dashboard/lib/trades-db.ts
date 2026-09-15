@@ -149,3 +149,22 @@ export async function countCandles(): Promise<number> {
   if (error) return 0
   return count ?? 0
 }
+
+// Salva candles no Supabase em lotes de 500 (upsert por time)
+export async function saveCandles(candles: CandleRow[]): Promise<void> {
+  if (!candles.length) return
+  const db = createClient()
+  const BATCH = 500
+  for (let i = 0; i < candles.length; i += BATCH) {
+    const batch = candles.slice(i, i + BATCH).map(c => ({
+      time:   c.time,
+      open:   c.open,
+      high:   c.high,
+      low:    c.low,
+      close:  c.close,
+      volume: c.volume ?? 0,
+    }))
+    const { error } = await db.from('rafi_candles').upsert(batch, { onConflict: 'time' })
+    if (error) throw error
+  }
+}

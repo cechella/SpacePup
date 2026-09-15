@@ -3,20 +3,20 @@
 import { useState } from 'react'
 import { AlertTriangle, Trash2, CheckCircle2, RefreshCw } from 'lucide-react'
 
-// O que será apagado
+// O que sempre será apagado
 const WILL_DELETE = [
-  { label: 'Trades registrados',       desc: 'Entradas, SLs, TPs, resultados, snapshots', table: 'rafi_trades'        },
-  { label: 'Candles históricos',        desc: 'Candles salvos no banco para backtesting',  table: 'rafi_candles'       },
-  { label: 'Histórico de trades',       desc: 'Log de deals fechados',                     table: 'rafi_historico'     },
-  { label: 'Runs de backtest',          desc: 'Resultados de backtests anteriores',         table: 'rafi_backtest_runs' },
-  { label: 'Comandos do bot',           desc: 'Fila de comandos pendentes',                 table: 'rafi_bot_commands'  },
-  { label: 'Logs do bot',              desc: 'Log de execução do executor.py',             table: 'rafi_bot_logs'      },
-  { label: 'Status do bot',            desc: 'Estado atual do bot',                        table: 'rafi_bot_status'    },
-  { label: 'Uploads de CSV',           desc: 'Arquivos de dados importados',               table: 'rafi_uploads'       },
+  { label: 'Trades registrados',  desc: 'Entradas, SLs, TPs, resultados, snapshots', table: 'rafi_trades'        },
+  { label: 'Histórico de trades', desc: 'Log de deals fechados',                     table: 'rafi_historico'     },
+  { label: 'Runs de backtest',    desc: 'Resultados de backtests anteriores',         table: 'rafi_backtest_runs' },
+  { label: 'Comandos do bot',     desc: 'Fila de comandos pendentes',                 table: 'rafi_bot_commands'  },
+  { label: 'Logs do bot',        desc: 'Log de execução do executor.py',             table: 'rafi_bot_logs'      },
+  { label: 'Status do bot',      desc: 'Estado atual do bot',                        table: 'rafi_bot_status'    },
+  { label: 'Uploads de CSV',     desc: 'Arquivos de dados importados',               table: 'rafi_uploads'       },
 ]
 
-// O que NÃO será apagado
+// O que NÃO será apagado por padrão
 const WILL_KEEP = [
+  'Candles históricos EURUSD (use a opção abaixo para apagar)',
   'Configurações de risco (capital, % risco, max trades)',
   'Faixas de lote',
   'Corretoras cadastradas',
@@ -24,10 +24,11 @@ const WILL_KEEP = [
 ]
 
 export default function ResetPage() {
-  const [step, setStep]       = useState<'idle' | 'confirm' | 'running' | 'done' | 'error'>('idle')
-  const [typed, setTyped]     = useState('')
-  const [results, setResults] = useState<Record<string, string> | null>(null)
-  const [errMsg, setErrMsg]   = useState('')
+  const [step,         setStep]         = useState<'idle' | 'confirm' | 'running' | 'done' | 'error'>('idle')
+  const [typed,        setTyped]        = useState('')
+  const [clearCandles, setClearCandles] = useState(false)
+  const [results,      setResults]      = useState<Record<string, string> | null>(null)
+  const [errMsg,       setErrMsg]       = useState('')
 
   const PHRASE = 'RESETAR'
 
@@ -39,7 +40,7 @@ export default function ResetPage() {
       const res = await fetch('/api/admin/reset-db', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: 'RESETAR' }),
+        body: JSON.stringify({ confirm: 'RESETAR', clearCandles }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Erro desconhecido')
@@ -100,6 +101,26 @@ export default function ResetPage() {
               ))}
             </div>
           </div>
+
+          {/* Opção: apagar candles históricos */}
+          <label className="flex items-start gap-3 bg-[#161b22] border border-[#30363d] rounded-xl p-4 cursor-pointer hover:border-orange-500/40 transition-all">
+            <input
+              type="checkbox"
+              checked={clearCandles}
+              onChange={e => setClearCandles(e.target.checked)}
+              className="mt-0.5 accent-orange-400"
+            />
+            <div>
+              <div className="text-sm font-medium text-[#f0f6fc]">
+                Também apagar candles históricos
+              </div>
+              <div className="text-xs text-[#484f58] mt-0.5">
+                Recomendado apenas se quiser começar com dados de mercado completamente novos.
+                Deixe desmarcado para preservar o histórico de preços e ter o gráfico
+                carregando instantâneo desde o primeiro uso.
+              </div>
+            </div>
+          </label>
 
           <button
             onClick={() => setStep('confirm')}

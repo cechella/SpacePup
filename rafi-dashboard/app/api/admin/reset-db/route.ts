@@ -14,10 +14,9 @@ function getServiceClient() {
   return createClient(url, key, { auth: { persistSession: false } })
 }
 
-// Tabelas de DADOS (apagadas no reset)
-const DATA_TABLES = [
+// Tabelas de trades/IA — sempre apagadas no reset
+const TRADE_TABLES = [
   'rafi_trades',
-  'rafi_candles',
   'rafi_historico',
   'rafi_backtest_runs',
   'rafi_bot_commands',
@@ -25,6 +24,9 @@ const DATA_TABLES = [
   'rafi_bot_status',
   'rafi_uploads',
 ] as const
+
+// Tabela de candles — apagada só se clearCandles=true
+const CANDLE_TABLES = ['rafi_candles'] as const
 
 export async function POST(req: Request) {
   try {
@@ -38,10 +40,15 @@ export async function POST(req: Request) {
       )
     }
 
+    const clearCandles = body.clearCandles === true
+    const tables = clearCandles
+      ? [...TRADE_TABLES, ...CANDLE_TABLES]
+      : [...TRADE_TABLES]
+
     const supa = getServiceClient()
     const results: Record<string, string> = {}
 
-    for (const table of DATA_TABLES) {
+    for (const table of tables) {
       // DELETE sem filtro apaga tudo — requer service role para ignorar RLS
       const { error } = await supa.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000')
       if (error) {
@@ -57,6 +64,7 @@ export async function POST(req: Request) {
       ok: true,
       message: 'Banco de dados resetado com sucesso',
       tables: results,
+      candlesCleared: clearCandles,
       resetAt: new Date().toISOString(),
     })
   } catch (e: unknown) {
