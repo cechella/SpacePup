@@ -26,7 +26,11 @@ CREATE TABLE IF NOT EXISTS rafi_candles (
   created_at TIMESTAMPTZ   DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_rafi_candles_time ON rafi_candles(time DESC);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename='rafi_candles' AND indexname='idx_rafi_candles_time') THEN
+    CREATE INDEX idx_rafi_candles_time ON rafi_candles(time DESC);
+  END IF;
+END $$;
 ALTER TABLE rafi_candles ENABLE ROW LEVEL SECURITY;
 
 DO $$ BEGIN
@@ -269,7 +273,15 @@ CREATE TABLE IF NOT EXISTS rafi_historico (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_rafi_historico_time ON rafi_historico(time DESC);
+-- Índice só se a coluna 'time' existir (tabela pode ter schema diferente)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_schema='public' AND table_name='rafi_historico' AND column_name='time') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename='rafi_historico' AND indexname='idx_rafi_historico_time') THEN
+      CREATE INDEX idx_rafi_historico_time ON rafi_historico(time DESC);
+    END IF;
+  END IF;
+END $$;
 ALTER TABLE rafi_historico ENABLE ROW LEVEL SECURITY;
 
 DO $$ BEGIN
