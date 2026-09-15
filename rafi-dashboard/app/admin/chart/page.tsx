@@ -428,8 +428,8 @@ export default function ChartPage() {
         throw new Error('Nenhum candle retornado')
       }
 
-      // Mescla candles existentes (Supabase) com os novos (MetaAPI)
-      const existing = csvData?.candles ?? []
+      // Mescla candles existentes com os novos — só se já há dados carregados e são recentes
+      const existing = (csvData?.candles && cachedLastTsRef.current > 0) ? csvData.candles : []
       const merged   = [...existing, ...incoming]
       const seen     = new Set<number>()
       const deduped  = merged.filter(c => { if (seen.has(c.time)) return false; seen.add(c.time); return true })
@@ -597,36 +597,12 @@ export default function ChartPage() {
     } catch {}
   }, [])
 
-  // Auto-connect: boot inteligente — Supabase primeiro (instantâneo), MetaAPI depois (incremental)
+  // Auto-connect: boot direto ao MetaAPI — sem cache Supabase (dados ficam defasados)
   useEffect(() => {
-
     let cancelled = false
-
-    async function boot() {
-      // Passo 1: carrega candles do Supabase instantaneamente
-      try {
-        const rows = await fetchCandles()
-        if (!cancelled && rows.length > 0) {
-          const sorted = [...rows].sort((a, b) => a.time - b.time) as CandleData[]
-          cachedLastTsRef.current = sorted[sorted.length - 1].time as unknown as number
-          const result: LoadResult = {
-            candles:   sorted,
-            filename:  'Supabase · rafi_candles',
-            dateFrom:  fmtDate(sorted[0].time),
-            dateTo:    fmtDate(sorted[sorted.length - 1].time),
-            timeframe: detectTimeframe(sorted),
-            count:     sorted.length,
-          }
-          setCsvData(result)
-          setSbCandleCount(rows.length)
-        }
-      } catch {}
-
-      // Passo 2: fetch incremental do MetaAPI (só candles novos)
-      if (!cancelled) loadCandlesFromMetaAPI()
-    }
-
-    boot()
+    // Verifica contagem de candles no Supabase em background (apenas para exibição)
+    countCandles().then(n => setSbCandleCount(n)).catch(() => {})
+    if (!cancelled) loadCandlesFromMetaAPI()
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
