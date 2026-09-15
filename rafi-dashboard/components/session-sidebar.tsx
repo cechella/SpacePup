@@ -7,9 +7,10 @@ import { cn } from '@/lib/utils'
 import { Clock, Brain, ShieldCheck, Trophy } from 'lucide-react'
 
 // Janelas de sessão em minutos desde meia-noite UTC
-const LONDON  = { start: 8 * 60,       end: 16 * 60 + 30, label: 'London',   color: '#4499ff' }
-const NY      = { start: 13 * 60 + 30, end: 20 * 60,      label: 'New York', color: '#aa55ff' }
-const OVERLAP = { start: 13 * 60 + 30, end: 16 * 60 + 30 }
+// NY FX começa às 12:00 UTC (8am EDT), não às 13:30 (NYSE open)
+const LONDON  = { start: 8 * 60,  end: 16 * 60, label: 'London',   color: '#4499ff' }
+const NY      = { start: 12 * 60, end: 20 * 60, label: 'New York', color: '#aa55ff' }
+const OVERLAP = { start: 12 * 60, end: 16 * 60 }  // London–NY: 12:00–16:00 UTC
 
 function utcMin(): number {
   const d = new Date()
@@ -51,8 +52,8 @@ function computeCopilot(
 ): CopilotResult {
   const now    = new Date()
   const utcMin = now.getUTCHours() * 60 + now.getUTCMinutes()
-  const OVERLAP_START = 13 * 60 + 30
-  const OVERLAP_END   = 16 * 60 + 30
+  const OVERLAP_START = OVERLAP.start  // 12:00 UTC
+  const OVERLAP_END   = OVERLAP.end    // 16:00 UTC
   const inOverlap     = utcMin >= OVERLAP_START && utcMin < OVERLAP_END
   const sesMin        = utcMin - OVERLAP_START
   const overlapPhase  = inOverlap
@@ -205,47 +206,103 @@ export function SessionSidebar({
 
       {/* ── SESSÕES ─────────────────────────────────── */}
       <div className="rounded-xl border border-[#1c3050] bg-[#0f1824] p-3">
-        <div className="flex items-center gap-1.5 mb-3">
+
+        {/* Header + UTC */}
+        <div className="flex items-center gap-1.5 mb-2.5">
           <Clock size={11} className="text-[#7a96b8]" />
           <span className="text-[9px] font-bold text-[#7a96b8] uppercase tracking-widest">Sessões</span>
-          {overlapActive && (
-            <span className="ml-auto text-[8px] font-bold text-[#00e676] bg-[rgba(0,230,118,.1)] border border-[#00e676]/30 px-2 py-0.5 rounded-full animate-pulse">
-              ● OVERLAP
-            </span>
-          )}
+          <span className="ml-auto text-[9px] font-mono text-[#334455]">
+            {(() => {
+              const d = new Date()
+              return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')} UTC`
+            })()}
+          </span>
         </div>
 
-        {[LONDON, NY].map(s => {
-          const active = isActive(s.start, s.end)
-          const pct    = active ? progress(s.start, s.end) * 100 : 0
-          const label  = active
-            ? `fecha em ${fmtMin(minsLeft(s.end))}`
-            : `abre em ${fmtMin(minsUntil(s.start))}`
+        {/* Minimap 24h — posição relativa ao dia UTC */}
+        <div className="relative h-3.5 rounded bg-[#0a0e14] mb-1 overflow-hidden">
+          {/* London */}
+          <div className="absolute inset-y-0 bg-[#4499ff]/30"
+            style={{ left:`${(LONDON.start/1440)*100}%`, width:`${((LONDON.end-LONDON.start)/1440)*100}%` }} />
+          {/* NY */}
+          <div className="absolute inset-y-0 bg-[#aa55ff]/25"
+            style={{ left:`${(NY.start/1440)*100}%`, width:`${((NY.end-NY.start)/1440)*100}%` }} />
+          {/* Overlap — ouro quando inativo, verde quando ativo */}
+          <div className="absolute inset-y-0"
+            style={{
+              left:`${(OVERLAP.start/1440)*100}%`,
+              width:`${((OVERLAP.end-OVERLAP.start)/1440)*100}%`,
+              background: overlapActive ? 'rgba(0,230,118,0.35)' : 'rgba(245,158,11,0.22)',
+              borderLeft:  overlapActive ? '1.5px solid rgba(0,230,118,0.7)' : '1.5px solid rgba(245,158,11,0.5)',
+              borderRight: overlapActive ? '1.5px solid rgba(0,230,118,0.7)' : '1.5px solid rgba(245,158,11,0.5)',
+            }} />
+          {/* Cursor de tempo atual */}
+          <div className="absolute inset-y-0 w-px bg-white/80"
+            style={{ left:`${(utcMin()/1440)*100}%` }} />
+        </div>
+
+        {/* Eixo de horas */}
+        <div className="flex justify-between text-[7px] font-mono text-[#1c3050] mb-3 px-0.5">
+          {['00','06','12','16','20','24'].map(h => <span key={h}>{h}</span>)}
+        </div>
+
+        {/* Overlap — foco principal */}
+        {overlapActive ? (
+          <div className="rounded-lg border border-[#00e676]/30 bg-[#00e676]/[0.07] px-3 py-2 mb-2.5">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[8px] font-bold text-[#00e676] uppercase tracking-widest animate-pulse">● Overlap ativo</span>
+              <span className="text-[7px] font-mono text-[#00e676]/50">12:00–16:00 UTC</span>
+            </div>
+            <div className="text-[24px] font-mono font-bold text-[#00e676] leading-none tabular-nums">
+              {fmtMin(minsLeft(OVERLAP.end))}
+            </div>
+            <div className="text-[8px] text-[#00e676]/50 mt-0.5">restantes para operar</div>
+          </div>
+        ) : (() => {
+          const done = utcMin() >= OVERLAP.end
+          const away = done ? (1440 - utcMin()) + OVERLAP.start : minsUntil(OVERLAP.start)
           return (
-            <div key={s.label} className="mb-2.5 last:mb-0">
+            <div className="rounded-lg border border-[#1c3050] bg-[#131f2e] px-3 py-2 mb-2.5">
               <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-1.5">
-                  <span
-                    className="w-1.5 h-1.5 rounded-full"
-                    style={{ background: active ? s.color : '#334455' }}
-                  />
-                  <span className={cn('text-[10px] font-semibold', active ? 'text-[#ddeeff]' : 'text-[#334455]')}>
-                    {s.label}
-                  </span>
-                </div>
-                <span className={cn('text-[9px] font-mono', active ? 'text-[#7a96b8]' : 'text-[#334455]')}>
-                  {label}
+                <span className="text-[8px] text-[#7a96b8] uppercase tracking-widest">
+                  {done ? 'Overlap encerrado' : 'Overlap começa em'}
                 </span>
+                <span className="text-[7px] font-mono text-[#334455]">12:00–16:00 UTC</span>
               </div>
-              <div className="h-1.5 bg-[#131f2e] rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-1000"
-                  style={{ width: `${pct}%`, background: s.color, opacity: active ? 1 : 0 }}
-                />
-              </div>
+              {done
+                ? <div className="text-[10px] font-mono text-[#334455]">retorna amanhã — {fmtMin(away)}</div>
+                : <div className="text-[24px] font-mono font-bold text-[#4499ff] leading-none tabular-nums">{fmtMin(away)}</div>
+              }
+              {!done && <div className="text-[8px] text-[#334455] mt-0.5">maior liquidez do dia</div>}
             </div>
           )
-        })}
+        })()}
+
+        {/* London + NY — status compacto */}
+        <div className="flex gap-2">
+          {[LONDON, NY].map(s => {
+            const active = isActive(s.start, s.end)
+            const pct    = active ? progress(s.start, s.end) * 100 : 0
+            return (
+              <div key={s.label} className="flex-1">
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    style={{ background: active ? s.color : '#1c3050' }} />
+                  <span className={cn('text-[9px] font-semibold', active ? 'text-[#ddeeff]' : 'text-[#334455]')}>
+                    {s.label}
+                  </span>
+                  <span className={cn('ml-auto text-[8px] font-mono', active ? 'text-[#7a96b8]' : 'text-[#334455]')}>
+                    {active ? `−${fmtMin(minsLeft(s.end))}` : `+${fmtMin(minsUntil(s.start))}`}
+                  </span>
+                </div>
+                <div className="h-1 bg-[#0a0e14] rounded-full overflow-hidden">
+                  <div className="h-full rounded-full transition-all duration-[30000ms]"
+                    style={{ width:`${pct}%`, background: s.color, opacity: active ? 0.7 : 0 }} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
 
       {/* ── CHECK-IN MENTAL ─────────────────────────── */}
