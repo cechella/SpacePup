@@ -1,30 +1,29 @@
 import { NextResponse } from 'next/server'
-import MetaApi from 'metaapi.cloud-sdk'
 
+// Usa REST API direta do MetaAPI (igual à rota de preço) — sem SDK,
+// sem conexão TCP, sem waitSynchronized. Retorna dados instantâneos.
+const BASE    = 'https://mt-client-api-v1.london.agiliumtrade.ai'
 const TOKEN   = process.env.METAAPI_TOKEN!
 const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
 
-export const runtime     = 'nodejs'
-export const maxDuration = 60
+export const runtime = 'edge'
 
 export async function GET() {
-  let connection: any = null
   try {
-    const api     = new MetaApi(TOKEN)
-    const account = await api.metatraderAccountApi.getAccount(ACCOUNT)
+    const res = await fetch(
+      `${BASE}/users/current/accounts/${ACCOUNT}/accountInformation`,
+      {
+        headers: { 'auth-token': TOKEN },
+        signal:  AbortSignal.timeout(8_000),
+      }
+    )
 
-    // Deploy the account if it's not yet deployed (necessary after inactivity)
-    if (account.state !== 'DEPLOYED') {
-      await account.deploy()
+    if (!res.ok) {
+      const text = await res.text()
+      return NextResponse.json({ error: text }, { status: res.status })
     }
-    await account.waitDeployed(60)
 
-    connection = account.getRPCConnection()
-    await connection.connect()
-    // Aumentado para 30s — o MetaAPI precisa de tempo para buscar
-    // o saldo atualizado do servidor MT5 da corretora após depósitos
-    await connection.waitSynchronized(30)
-    const info = await connection.getAccountInformation()
+    const info = await res.json()
 
     return NextResponse.json({
       balance:    info.balance,
@@ -38,9 +37,5 @@ export async function GET() {
   } catch (e: any) {
     console.error('[MetaAPI account]', e.message)
     return NextResponse.json({ error: e.message }, { status: 500 })
-  } finally {
-    if (connection) {
-      try { await connection.close() } catch { /* ignora erro ao fechar */ }
-    }
   }
 }

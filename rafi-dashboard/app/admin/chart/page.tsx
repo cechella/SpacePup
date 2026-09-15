@@ -166,19 +166,16 @@ export default function ChartPage() {
   // Callback imperativo: SSE chama direto, sem passar pelo scheduler do React
   const chartUpdateCandleRef = useRef<((price: number) => void) | null>(null)
 
-  // Mostra check-in se estiver em horário operável e ainda não fez hoje
+  // Mostra check-in na primeira abertura do dia (seg–qui), qualquer horário.
+  // O check-in define se o trader está apto antes de ver qualquer dado de mercado.
   useEffect(() => {
     const CHECKIN_KEY = 'rafi-checkin-date'
     const today = new Date().toISOString().slice(0, 10)
     const done  = typeof window !== 'undefined' && localStorage.getItem(CHECKIN_KEY) === today
     if (done) return
 
-    const d      = new Date()
-    const utcMin = d.getUTCHours() * 60 + d.getUTCMinutes()
-    const jsDay  = d.getUTCDay()
-    const isWeekday   = jsDay >= 1 && jsDay <= 4
-    const isNearOverlap = utcMin >= 13 * 60 && utcMin < 16 * 60 + 30
-    if (isWeekday && isNearOverlap) setShowCheckin(true)
+    const jsDay = new Date().getUTCDay()
+    if (jsDay >= 1 && jsDay <= 4) setShowCheckin(true)  // seg=1 … qui=4
   }, [])
 
   function handleCheckinComplete(result: CheckinResult) {
