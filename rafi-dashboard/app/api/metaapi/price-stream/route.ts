@@ -26,6 +26,10 @@ export async function GET(req: NextRequest) {
 
       let lastBid = 0
       let lastAsk = 0
+      // Contador de ticks consecutivos sem preço válido — após 10 (~3s), reenvia o
+      // último preço conhecido como heartbeat para que o cliente nunca veja livePrice=null
+      // (causado pelo delay de reconexão WebSocket do MetaAPI após auto-refresh de candles)
+      let emptyCount = 0
 
       while (true) {
         // Para o loop se o cliente desconectou
@@ -42,11 +46,19 @@ export async function GET(req: NextRequest) {
           if (res.ok) {
             const data = await res.json()
             if (data.bid && data.ask) {
+              emptyCount = 0
               // Só envia se o preço mudou (evita ticks duplicados)
               if (data.bid !== lastBid || data.ask !== lastAsk) {
                 lastBid = data.bid
                 lastAsk = data.ask
                 send({ bid: data.bid, ask: data.ask, time: data.time, symbol })
+              }
+            } else {
+              emptyCount++
+              // Reenvia último preço válido como heartbeat durante reconexão MetaAPI
+              if (emptyCount >= 10 && lastBid > 0) {
+                emptyCount = 0
+                send({ bid: lastBid, ask: lastAsk, time: null, symbol })
               }
             }
           }

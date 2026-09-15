@@ -208,18 +208,22 @@ export function RAFIChart({
           ? Math.round(Math.abs((cands[cands.length - 1].time as any) - (cands[cands.length - 2].time as any)))
           : 300
         const lastBarTime = last.time as unknown as number
-        // Tempo da barra ao vivo: sempre exatamente +1 período após o último candle fechado.
-        // NÃO usa Date.now() — elimina dependência de fuso horário / relógio do cliente.
-        const liveBarTime = lastBarTime + tfSec
+        // Detecta se o último candle da carga ainda está aberto (MetaAPI às vezes retorna
+        // a barra atual). Se o próximo período ainda não chegou → atualiza essa mesma barra.
+        // Caso contrário (barra fechada) → abre uma nova barra exatamente +1 período depois.
+        const nowSec      = Math.floor(Date.now() / 1000)
+        const liveBarTime = (lastBarTime + tfSec) > nowSec ? lastBarTime : lastBarTime + tfSec
 
         const b = currentBarRef.current
         if (!b) {
-          // Primeira atualização: abre a barra ao vivo no fechamento do último candle
+          // Primeira atualização: se continuamos a barra atual usa o open real; se é barra nova
+          // usa o close do último candle fechado como open.
+          const liveOpen = liveBarTime === lastBarTime ? last.open : last.close
           currentBarRef.current = {
             time: liveBarTime,
-            open: last.close,
-            high: Math.max(last.close, price),
-            low:  Math.min(last.close, price),
+            open: liveOpen,
+            high: Math.max(liveOpen, price),
+            low:  Math.min(liveOpen, price),
           }
         } else {
           // Tick subsequente: apenas atualiza high/low/close
