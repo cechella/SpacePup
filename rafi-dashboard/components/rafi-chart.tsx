@@ -56,6 +56,8 @@ export function RAFIChart({
   const rafIdRef           = useRef<number>(0)
   // Ref local sincronizado com livePrice (estado React provado que atualiza via P&L)
   const innerPriceRef      = useRef<number | null>(null)
+  // Série do histograma RAFI — atualizada tick a tick junto com o candle ao vivo
+  const histSeriesRef      = useRef<any>(null)
   const [chartReady, setChartReady] = useState(false)
 
   useEffect(() => { onPriceClickRef.current = onPriceClick }, [onPriceClick])
@@ -239,6 +241,20 @@ export function RAFIChart({
 
         // Linha de preço ao vivo: atualiza sempre, visível independente da barra estar na tela
         liveLine.applyOptions({ price })
+
+        // Atualiza o histograma RAFI da barra ao vivo com a mesma fórmula de calcRAFI
+        if (histSeriesRef.current) {
+          const dir  = price >= nb.open ? 'bull' : 'bear'
+          const mom  = Math.abs((price - prevCloseForLive) / (prevCloseForLive || 1)) * 100
+          const body = Math.abs(price - nb.open)
+          const amp  = atrApproxForLive > 0 ? body / atrApproxForLive : 0
+          const magnitude  = Math.min(5, mom * 25 + amp * 3)
+          const rafiValue  = dir === 'bull' ? magnitude : -magnitude
+          try {
+            histSeriesRef.current.update({ time: nb.time as any, value: rafiValue, color: '#f59e0b' })
+          } catch {}
+        }
+
         // Sem scroll aqui — setVisibleLogicalRange no init já inclui o slot da barra ao vivo
         // (índice 100, within [20, 105]). Qualquer scrollTo* movia o viewport de volta para
         // uma posição errada a cada tick, fazendo a barra parecer "congelada".
@@ -409,6 +425,22 @@ export function RAFIChart({
         lastValueVisible: false,
       })
       histSeries.setData(rafiData as any)
+      histSeriesRef.current = histSeries
+
+      // Pré-computa base para cálculo RAFI ao vivo (mesma fórmula de calcRAFI)
+      const rafiPeriod       = 3
+      const prevCloseForLive = candles.length > rafiPeriod
+        ? candles[candles.length - rafiPeriod].close
+        : candles[candles.length - 1].close
+      // ATR aproximado: média de TR dos últimos 15 candles
+      const atrSlice     = candles.slice(-15)
+      const trVals       = atrSlice.map((c, i, arr) => {
+        if (i === 0) return c.high - c.low
+        const p = arr[i - 1]
+        return Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close))
+      })
+      const atrApproxForLive = trVals.reduce((s, t) => s + t, 0) / (trVals.length || 1)
+
       // RAFI > 0 = entrada válida; RAFI >= 2.5 = força forte
       histSeries.createPriceLine({ price:  2.5, color: '#f59e0b80', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true,  title: '+2.5' })
       histSeries.createPriceLine({ price: -2.5, color: '#f59e0b80', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true,  title: '-2.5' })
@@ -446,6 +478,7 @@ export function RAFIChart({
       if (chartUpdateCandleRef) chartUpdateCandleRef.current = null
       setChartReady(false)
       candleSeriesRef.current = null
+      histSeriesRef.current   = null
       roMain?.disconnect()
       roRafi?.disconnect()
       mChart?.remove()
