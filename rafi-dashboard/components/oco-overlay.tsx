@@ -530,8 +530,8 @@ export function OCOOverlay({
         ref={cardRef}
         className="absolute"
         style={cardPos
-          ? { left: cardPos.x, top: cardPos.y, pointerEvents: 'all', transform: `scale(${cardScale})`, transformOrigin: 'top right' }
-          : { right: 'clamp(4px, 5vw, 88px)', top: cardTop, pointerEvents: 'all', transform: `scale(${cardScale})`, transformOrigin: 'top right' }
+          ? { left: cardPos.x, top: cardPos.y, pointerEvents: 'all', transform: `scale(${cardScale})`, transformOrigin: 'top left' }
+          : { left: 8, top: cardTop, pointerEvents: 'all', transform: `scale(${cardScale})`, transformOrigin: 'top left' }
         }
       >
         <div

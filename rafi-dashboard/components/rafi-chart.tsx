@@ -160,7 +160,7 @@ export function RAFIChart({
           timeVisible:    true,
           secondsVisible: false,
           visible:        false,
-          rightOffset:    5,  // mantém 5 barras de espaço à direita — a barra ao vivo aparece aqui
+          rightOffset:    15,  // 15 barras vazias à direita — candles ficam mais à esquerda, barra ao vivo respira
         },
         width:  mainEl.clientWidth  || 600,
         height: mainEl.clientHeight || 300,
@@ -395,8 +395,8 @@ export function RAFIChart({
       // a janela para o horário atual (~15h UTC), deixando os candles históricos e a
       // barra ao vivo completamente fora da tela quando os dados têm gap de horas.
       mChart.timeScale().setVisibleLogicalRange({
-        from: Math.max(0, candles.length - 80),
-        to:   candles.length + 5,
+        from: Math.max(0, candles.length - 75),
+        to:   candles.length + 15,
       })
 
       // ── Gráfico RAFI ─────────────────────────────────────────────────────
