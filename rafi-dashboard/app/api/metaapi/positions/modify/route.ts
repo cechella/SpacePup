@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server'
-import MetaApi from 'metaapi.cloud-sdk'
 
+const BASE    = 'https://mt-client-api-v1.london.agiliumtrade.ai'
 const TOKEN   = process.env.METAAPI_TOKEN!
 const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
 
-export const runtime     = 'nodejs'
-export const maxDuration = 60
+export const runtime = 'edge'
 
 export async function PATCH(req: Request) {
   try {
@@ -18,20 +17,23 @@ export async function PATCH(req: Request) {
       )
     }
 
-    const api        = new MetaApi(TOKEN)
-    const account    = await api.metatraderAccountApi.getAccount(ACCOUNT)
-    const connection = account.getRPCConnection()
-    await connection.connect()
-    await connection.waitSynchronized(8)
+    const res = await fetch(
+      `${BASE}/users/current/accounts/${ACCOUNT}/trade`,
+      {
+        method:  'POST',
+        headers: { 'auth-token': TOKEN, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ actionType: 'POSITION_MODIFY', positionId, stopLoss, takeProfit }),
+        signal:  AbortSignal.timeout(8_000),
+      }
+    )
 
-    // Modifica SL e/ou TP da posição aberta
-    const result = await connection.modifyPosition(positionId, stopLoss, takeProfit)
+    if (!res.ok) {
+      const text = await res.text()
+      return NextResponse.json({ error: text }, { status: res.status })
+    }
 
-    await connection.close()
-
-    return NextResponse.json({ ok: true, result })
+    return NextResponse.json({ ok: true })
   } catch (e: any) {
-    console.error('[MetaAPI modify position]', e.message)
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
 }

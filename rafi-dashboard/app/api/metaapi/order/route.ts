@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server'
-import MetaApi from 'metaapi.cloud-sdk'
 
+const BASE    = 'https://mt-client-api-v1.london.agiliumtrade.ai'
 const TOKEN   = process.env.METAAPI_TOKEN!
 const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
 
-export const runtime     = 'nodejs'
-export const maxDuration = 60
+export const runtime = 'edge'
 
 export async function POST(req: Request) {
   try {
@@ -16,23 +15,26 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'actionType, volume e stopLoss são obrigatórios' }, { status: 400 })
     }
 
-    const api        = new MetaApi(TOKEN)
-    const account    = await api.metatraderAccountApi.getAccount(ACCOUNT)
-    const connection = account.getRPCConnection()
-    await connection.connect()
-    await connection.waitSynchronized(8)
-
-    let result: any
-    if (actionType === 'ORDER_TYPE_BUY') {
-      result = await connection.createMarketBuyOrder(symbol, volume, stopLoss, takeProfit, { comment })
-    } else if (actionType === 'ORDER_TYPE_SELL') {
-      result = await connection.createMarketSellOrder(symbol, volume, stopLoss, takeProfit, { comment })
-    } else {
-      await connection.close()
+    if (actionType !== 'ORDER_TYPE_BUY' && actionType !== 'ORDER_TYPE_SELL') {
       return NextResponse.json({ error: `actionType inválido: ${actionType}` }, { status: 400 })
     }
 
-    await connection.close()
+    const res = await fetch(
+      `${BASE}/users/current/accounts/${ACCOUNT}/trade`,
+      {
+        method:  'POST',
+        headers: { 'auth-token': TOKEN, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ actionType, symbol, volume, stopLoss, takeProfit, comment }),
+        signal:  AbortSignal.timeout(8_000),
+      }
+    )
+
+    if (!res.ok) {
+      const text = await res.text()
+      return NextResponse.json({ error: text }, { status: res.status })
+    }
+
+    const result = await res.json()
 
     return NextResponse.json({
       orderId:    result?.orderId,
@@ -44,7 +46,6 @@ export async function POST(req: Request) {
       takeProfit,
     })
   } catch (e: any) {
-    console.error('[MetaAPI order]', e.message)
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
 }
