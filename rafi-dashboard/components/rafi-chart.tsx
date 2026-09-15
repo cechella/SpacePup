@@ -34,16 +34,17 @@ interface Props {
   freeMargin?:        number | null
   // Ref para captura focada no candle de entrada com overlay OCO desenhado
   snapshotCaptureRef?: React.MutableRefObject<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>
-  // Botão Shift: page.tsx preenche; quando chamado, reposiciona o gráfico com
-  // espaço à direita (últimos 75 candles + 15 barras vazias), igual ao MT5.
+  // Botão Shift: reposiciona o gráfico (últimos 75 candles + 15 barras vazias à direita)
   shiftRangeRef?: React.MutableRefObject<(() => void) | null>
+  // Scroll ±N barras (botões ← →)
+  scrollByRef?:   React.MutableRefObject<((bars: number) => void) | null>
 }
 
 export function RAFIChart({
   candles, rafiData, srLevels, trades, bbBands, onPriceClick, panMode,
   ocoState, onOCOChange, onOCOExecute, onOCOClose, livePrice, livePriceRef,
   chartUpdateCandleRef, positions, onModifyPosition, snapshotCaptureRef, freeMargin,
-  shiftRangeRef,
+  shiftRangeRef, scrollByRef,
 }: Props) {
   const mainRef         = useRef<HTMLDivElement>(null)
   const mainWrapperRef  = useRef<HTMLDivElement>(null)
@@ -401,6 +402,17 @@ export function RAFIChart({
         }
       }
 
+      // Scroll ±N barras: desloca o viewport mantendo a janela atual
+      if (scrollByRef) {
+        scrollByRef.current = (bars: number) => {
+          try {
+            const r = mChart.timeScale().getVisibleLogicalRange()
+            if (!r) return
+            mChart.timeScale().setVisibleLogicalRange({ from: r.from + bars, to: r.to + bars })
+          } catch {}
+        }
+      }
+
       // ── Gráfico RAFI ─────────────────────────────────────────────────────
       rChart = createChart(rafiEl, {
         layout:    sharedLayout,
@@ -523,6 +535,7 @@ export function RAFIChart({
       cancelAnimationFrame(rafIdRef.current)
       if (chartUpdateCandleRef) chartUpdateCandleRef.current = null
       if (shiftRangeRef) shiftRangeRef.current = null
+      if (scrollByRef) scrollByRef.current = null
       setChartReady(false)
       candleSeriesRef.current = null
       histSeriesRef.current   = null

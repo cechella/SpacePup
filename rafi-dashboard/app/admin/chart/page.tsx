@@ -12,7 +12,7 @@ import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
 import { getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
 import { upsertTrade, fetchTrades, fetchCandles, countCandles } from '@/lib/trades-db'
-import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine, History, ChevronDown, Trash2, Database, Menu, ChevronsRight } from 'lucide-react'
+import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine, History, ChevronDown, Trash2, Database, Menu, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { CandleData } from '@/lib/types'
 import { generateTradeSnapshot } from '@/lib/trade-snapshot'
 
@@ -167,6 +167,8 @@ export default function ChartPage() {
   const chartUpdateCandleRef = useRef<((price: number) => void) | null>(null)
   // Botão Shift (MT5): reposiciona o gráfico com espaço à direita
   const shiftRangeRef = useRef<(() => void) | null>(null)
+  // Scroll ±N barras (botões ← →)
+  const scrollByRef   = useRef<((bars: number) => void) | null>(null)
 
   // Mostra check-in na primeira abertura do dia (seg–qui), qualquer horário.
   // O check-in define se o trader está apto antes de ver qualquer dado de mercado.
@@ -1469,15 +1471,34 @@ export default function ChartPage() {
 
               <span className="text-[#30363d]">|</span>
 
-              {/* Botão Shift — reposiciona o gráfico igual ao MT5 (últimos candles + espaço à direita) */}
-              <button
-                onClick={() => shiftRangeRef.current?.()}
-                className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold border border-[#30363d] text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-all"
-                title="Ir para o final — posiciona o gráfico com espaço à direita (igual ao MT5)"
-              >
-                <ChevronsRight size={11} />
-                Shift
-              </button>
+              {/* Navegação MT5: ← scroll esquerda · ⇥ shift para o final · → scroll direita */}
+              <div className="flex items-center gap-0 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]">
+                <button
+                  onClick={() => scrollByRef.current?.(-20)}
+                  className="flex items-center justify-center w-6 h-6 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-all"
+                  title="Scroll para a esquerda (candles mais antigos)"
+                >
+                  <ChevronLeft size={12} />
+                </button>
+                {/* Botão central: vai para o final com espaço à direita (igual ao MT5 Shift) */}
+                <button
+                  onClick={() => shiftRangeRef.current?.()}
+                  className="flex items-center justify-center w-7 h-6 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-all"
+                  title="Ir para o final — últimos candles com espaço à direita (Shift MT5)"
+                >
+                  <svg width="14" height="10" viewBox="0 0 14 10" fill="none">
+                    <rect x="12" y="0" width="1.5" height="10" rx="0.5" fill="currentColor" opacity="0.7"/>
+                    <path d="M1 5h8M6 2l3 3-3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+                <button
+                  onClick={() => scrollByRef.current?.(20)}
+                  className="flex items-center justify-center w-6 h-6 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-all"
+                  title="Scroll para a direita (candles mais recentes)"
+                >
+                  <ChevronRight size={12} />
+                </button>
+              </div>
 
               <span className="text-[#30363d]">|</span>
 
@@ -1581,6 +1602,7 @@ export default function ChartPage() {
               onModifyPosition={(id, sl, tp) => handleModifyPosition(id, String(sl), String(tp))}
               snapshotCaptureRef={snapshotCaptureRef}
               shiftRangeRef={shiftRangeRef}
+              scrollByRef={scrollByRef}
               freeMargin={metaAccount?.freeMargin ?? null}
             />
           </div>
