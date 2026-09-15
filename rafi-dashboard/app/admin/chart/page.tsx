@@ -11,7 +11,7 @@ import { CheckinModal, type CheckinResult } from '@/components/checkin-modal'
 import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
 import { getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
-import { upsertTrade, fetchTrades, fetchCandles, countCandles, saveCandles } from '@/lib/trades-db'
+import { upsertTrade, fetchTrades, fetchCandles, countCandles } from '@/lib/trades-db'
 import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine, History, ChevronDown, Trash2, Database, Menu } from 'lucide-react'
 import type { CandleData } from '@/lib/types'
 import { generateTradeSnapshot } from '@/lib/trade-snapshot'
@@ -165,8 +165,6 @@ export default function ChartPage() {
   const snapshotCaptureRef  = useRef<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>(null)
   // Callback imperativo: SSE chama direto, sem passar pelo scheduler do React
   const chartUpdateCandleRef = useRef<((price: number) => void) | null>(null)
-  // Timestamp (Unix seg) do candle mais recente salvo no Supabase — usado no fetch incremental
-  const cachedLastTsRef = useRef<number>(0)
   // Botão Shift (MT5): reposiciona o gráfico com espaço à direita
   const shiftRangeRef = useRef<(() => void) | null>(null)
   // Alinhar à direita: última barra na borda direita
@@ -380,14 +378,12 @@ export default function ChartPage() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(trades)) } catch {}
   }, [trades])
 
-  // Carrega candles ao vivo via MetaAPI — aceita timeframe override para troca de TF sem stale closure
-  const loadCandlesFromMetaAPI = useCallback(async (overrideTf?: string) => {
-    const activeTf = overrideTf ?? tf
+  // Carrega 100 candles ao vivo via MetaAPI — simples e direto
+  const loadCandlesFromMetaAPI = useCallback(async () => {
     setMetaLoading(true)
     setMetaError(null)
     setMetaElapsed(0)
 
-    // Fases simuladas — avançam enquanto o servidor processa
     const steps = [
       'Conectando ao MetaAPI...',
       'Autenticando token...',
@@ -399,7 +395,6 @@ export default function ChartPage() {
     let stepIdx = 0
     setMetaStep(steps[0])
 
-    // Avança fase a cada ~3s e conta segundos
     let elapsed = 0
     metaTimerRef.current = setInterval(() => {
       elapsed += 1
@@ -409,34 +404,12 @@ export default function ChartPage() {
     }, 1000)
 
     try {
-      // Fetch incremental: se já temos candles em cache, pede só os novos
-      const sinceTs  = cachedLastTsRef.current
-      const url      = sinceTs > 0
-        ? `/api/metaapi/candles?symbol=EURUSD&timeframe=${activeTf}&since=${sinceTs}`
-        : `/api/metaapi/candles?symbol=EURUSD&timeframe=${activeTf}&limit=100`
-
-      const res  = await fetch(url)
+      const res  = await fetch(`/api/metaapi/candles?symbol=EURUSD&timeframe=${tf}&limit=100`)
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? `MetaAPI: ${res.status}`)
-      const incoming: CandleData[] = data.candles ?? data
-      if (!Array.isArray(incoming) || incoming.length === 0) {
-        // Fetch incremental sem candles novos — apenas confirma conexão (mercado fechado ou já atualizado)
-        if (sinceTs > 0) {
-          setMetaConnected(true)
-          return
-        }
-        throw new Error('Nenhum candle retornado')
-      }
-
-      // Mescla candles existentes com os novos — só se já há dados carregados e são recentes
-      const existing = (csvData?.candles && cachedLastTsRef.current > 0) ? csvData.candles : []
-      const merged   = [...existing, ...incoming]
-      const seen     = new Set<number>()
-      const deduped  = merged.filter(c => { if (seen.has(c.time)) return false; seen.add(c.time); return true })
-      deduped.sort((a, b) => a.time - b.time)
-      // Mantém os últimos 500 candles em memória para não pesar o gráfico
-      const rows = deduped.slice(-500)
-
+      const rows: CandleData[] = data.candles ?? data
+      if (!Array.isArray(rows) || rows.length === 0) throw new Error('Nenhum candle retornado')
+      rows.sort((a, b) => a.time - b.time)
       const result: LoadResult = {
         candles:   rows,
         filename:  'MetaAPI · ao vivo',
@@ -449,12 +422,6 @@ export default function ChartPage() {
       setCsvError(null)
       setMetaConnected(true)
       saveToHistory(result)
-
-      // Atualiza referência do último candle e persiste novos no Supabase (fire-and-forget)
-      cachedLastTsRef.current = rows[rows.length - 1].time as unknown as number
-      saveCandles(incoming).then(() =>
-        countCandles().then(n => setSbCandleCount(n)).catch(() => {})
-      ).catch(() => {})
     } catch (err: any) {
       setMetaError(err?.message ?? 'Erro MetaAPI')
       setMetaConnected(false)
@@ -463,7 +430,7 @@ export default function ChartPage() {
       setMetaLoading(false)
       setMetaStep('')
     }
-  }, [tf, saveToHistory, csvData])
+  }, [tf, saveToHistory])
 
   // Features 1, 2, 5: busca saldo + posições abertas, detecta atividade do bot
   const fetchLiveData = useCallback(async () => {
@@ -597,13 +564,14 @@ export default function ChartPage() {
     } catch {}
   }, [])
 
-  // Auto-connect: boot direto ao MetaAPI — sem cache Supabase (dados ficam defasados)
+  // Auto-connect: reconecta MetaAPI se estava habilitado na sessão anterior
   useEffect(() => {
-    let cancelled = false
-    // Verifica contagem de candles no Supabase em background (apenas para exibição)
+    try {
+      if (localStorage.getItem(META_AUTO_KEY) === 'true') {
+        loadCandlesFromMetaAPI()
+      }
+    } catch {}
     countCandles().then(n => setSbCandleCount(n)).catch(() => {})
-    if (!cancelled) loadCandlesFromMetaAPI()
-    return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -1266,8 +1234,8 @@ export default function ChartPage() {
                       setTrades([])
                       setCsvData(null)
                       setMetaConnected(false)
-                      cachedLastTsRef.current = 0
-                      loadCandlesFromMetaAPI(t)
+                      // loadCandlesFromMetaAPI usa o tf atual do state — após setTf ele rodará com o novo TF
+                      setTimeout(() => loadCandlesFromMetaAPI(), 0)
                     }}
                     className={cn(
                       'px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all',

@@ -10,9 +10,6 @@ const TF_MAP: Record<string, { rest: string; minutes: number }> = {
   H1:  { rest: '1h',  minutes: 60 },
 }
 
-// Se o cache do Supabase for mais velho que isso, ignora o 'since' e busca fresco
-const MAX_SINCE_AGO_MS = 5 * 24 * 60 * 60 * 1000 // 5 dias
-
 export const runtime = 'edge'
 
 export async function GET(req: Request) {
@@ -20,22 +17,15 @@ export async function GET(req: Request) {
   const symbol    = searchParams.get('symbol')    || 'EURUSD'
   const timeframe = searchParams.get('timeframe') || 'M5'
   const limit     = parseInt(searchParams.get('limit') || '100', 10)
-  const since     = searchParams.get('since')
 
   const tf = TF_MAP[timeframe] ?? TF_MAP['M5']
 
-  // Se 'since' for passado mas for mais velho que 5 dias, trata como sem since
-  // (MetaAPI não serve histórico muito antigo via REST — busca os últimos N candles)
-  const sinceMs      = since ? parseInt(since, 10) * 1000 : 0
-  const sinceRecente = sinceMs > 0 && (Date.now() - sinceMs) < MAX_SINCE_AGO_MS
-
-  const startTime  = sinceRecente
-    ? new Date(sinceMs).toISOString()
-    : new Date(Date.now() - limit * tf.minutes * 60 * 1000 * 3).toISOString()
-  const fetchLimit = sinceRecente ? 500 : limit
+  // janela 3× maior para garantir N candles mesmo com fins de semana/sessões fechadas
+  const windowMs  = limit * tf.minutes * 60 * 1000 * 3
+  const startTime = new Date(Date.now() - windowMs).toISOString()
 
   try {
-    const url = `${BASE}/users/current/accounts/${ACCOUNT}/historical-market-data/symbols/${symbol}/timeframes/${tf.rest}/candles?startTime=${encodeURIComponent(startTime)}&limit=${fetchLimit}`
+    const url = `${BASE}/users/current/accounts/${ACCOUNT}/historical-market-data/symbols/${symbol}/timeframes/${tf.rest}/candles?startTime=${encodeURIComponent(startTime)}&limit=${limit}`
 
     const res = await fetch(url, {
       headers: { 'auth-token': TOKEN },
@@ -61,7 +51,7 @@ export async function GET(req: Request) {
         volume: c.tickVolume ?? c.volume ?? 0,
       }))
       .sort((a: any, b: any) => a.time - b.time)
-      .slice(sinceRecente ? 0 : -limit)
+      .slice(-limit)
 
     if (candles.length === 0) {
       return NextResponse.json({ error: 'Nenhum candle retornado' }, { status: 404 })
