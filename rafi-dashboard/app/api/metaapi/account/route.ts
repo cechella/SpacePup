@@ -15,6 +15,7 @@ export async function GET() {
       {
         headers: { 'auth-token': TOKEN },
         signal:  AbortSignal.timeout(8_000),
+        cache:   'no-store',
       }
     )
 

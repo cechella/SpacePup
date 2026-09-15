@@ -1,45 +1,70 @@
 import { NextResponse } from 'next/server'
-import MetaApi from 'metaapi.cloud-sdk'
 
-const TOKEN = process.env.METAAPI_TOKEN!
+// REST API direta — sem SDK, sem timeout de 10s do Vercel hobby.
+// O SDK MetaAPI pode levar 30s+ para getHistoricalCandles, ultrapassando
+// o limite serverless e causando setMetaConnected(false) no cliente.
+const BASE    = 'https://mt-client-api-v1.london.agiliumtrade.ai'
+const TOKEN   = process.env.METAAPI_TOKEN!
 const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
 
-const TF_MAP: Record<string, { api: string; minutes: number }> = {
-  M5:  { api: '5m',  minutes: 5  },
-  M15: { api: '15m', minutes: 15 },
-  H1:  { api: '1h',  minutes: 60 },
+// Mapeia o timeframe do cliente para o formato do MetaAPI REST
+const TF_MAP: Record<string, { rest: string; minutes: number }> = {
+  M5:  { rest: '5m',  minutes: 5  },
+  M15: { rest: '15m', minutes: 15 },
+  H1:  { rest: '1h',  minutes: 60 },
 }
 
-export const runtime = 'nodejs'
-export const maxDuration = 60
+export const runtime = 'edge'
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const symbol    = searchParams.get('symbol')    || 'EURUSD'
-  const timeframe = searchParams.get('timeframe') || 'M15'
+  const timeframe = searchParams.get('timeframe') || 'M5'
   const limit     = parseInt(searchParams.get('limit') || '100', 10)
 
-  const tf = TF_MAP[timeframe] ?? TF_MAP['M15']
+  const tf = TF_MAP[timeframe] ?? TF_MAP['M5']
+
+  // startTime: janela 3x maior que o necessário para garantir N candles recentes
+  // (MetaAPI pode ter gaps em fins de semana e sessões fechadas)
+  const windowMs  = limit * tf.minutes * 60 * 1000 * 3
+  const startTime = new Date(Date.now() - windowMs).toISOString()
 
   try {
-    const api = new MetaApi(TOKEN)
-    const account = await api.metatraderAccountApi.getAccount(ACCOUNT)
+    const url = `${BASE}/users/current/accounts/${ACCOUNT}/historical-market-data/symbols/${symbol}/timeframes/${tf.rest}/candles?startTime=${encodeURIComponent(startTime)}&limit=${limit}`
 
-    // startTime=undefined → retorna os candles mais recentes (API carrega de trás pra frente)
-    const raw = await account.getHistoricalCandles(symbol, tf.api, undefined, limit)
+    const res = await fetch(url, {
+      headers: { 'auth-token': TOKEN },
+      signal:  AbortSignal.timeout(8_000),
+      cache:   'no-store',
+    })
 
-    const candles = (Array.isArray(raw) ? raw : []).map((c: any) => ({
-      time:   new Date(c.time).getTime() / 1000,
-      open:   c.open,
-      high:   c.high,
-      low:    c.low,
-      close:  c.close,
-      volume: c.tickVolume ?? c.volume ?? 0,
-    }))
+    if (!res.ok) {
+      const text = await res.text()
+      return NextResponse.json({ error: text }, { status: res.status })
+    }
+
+    const raw = await res.json()
+    const arr = Array.isArray(raw) ? raw : (raw.candles ?? [])
+
+    const candles = arr
+      .map((c: any) => ({
+        time:   new Date(c.time).getTime() / 1000,
+        open:   c.open,
+        high:   c.high,
+        low:    c.low,
+        close:  c.close,
+        volume: c.tickVolume ?? c.volume ?? 0,
+      }))
+      .sort((a: any, b: any) => a.time - b.time)
+      // Pega os últimos N candles após ordenar
+      .slice(-limit)
+
+    if (candles.length === 0) {
+      return NextResponse.json({ error: 'Nenhum candle retornado' }, { status: 404 })
+    }
 
     return NextResponse.json({ candles, symbol, timeframe })
   } catch (e: any) {
-    console.error('[MetaAPI candles] erro:', e.message)
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
 }
