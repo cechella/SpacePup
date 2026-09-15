@@ -107,7 +107,7 @@ function computeCopilot(
     {
       label: inOverlap
         ? `Overlap ativo${phaseLabel ? ` · ${phaseLabel}` : ''}`
-        : 'Overlap inativo · aguardar 13:30 UTC',
+        : 'Overlap inativo · aguardar 12:00 UTC',
       ok: inOverlap,
     },
     ...(rafiValue != null ? [{
