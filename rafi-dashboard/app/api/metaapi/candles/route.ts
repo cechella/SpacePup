@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
-const BASE    = 'https://mt-client-api-v1.london.agiliumtrade.ai'
+// SDK usa mt-market-data-client-api-v1 (não mt-client-api-v1) para candles históricos
+const BASE    = 'https://mt-market-data-client-api-v1.london.agiliumtrade.ai'
 const TOKEN   = process.env.METAAPI_TOKEN!
 const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
 

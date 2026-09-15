@@ -3,12 +3,12 @@ import { NextResponse } from 'next/server'
 const TOKEN   = process.env.METAAPI_TOKEN!
 const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
 
-// Testa múltiplas URLs — cloud-g2 pode usar endpoint diferente
+// SDK usa mt-market-data-client-api-v1 para candles históricos (não mt-client-api-v1)
 const CANDIDATES = [
+  'https://mt-market-data-client-api-v1.london.agiliumtrade.ai',
+  'https://mt-market-data-client-api-v1.new-york.agiliumtrade.ai',
+  'https://mt-market-data-client-api-v1.singapore.agiliumtrade.ai',
   'https://mt-client-api-v1.london.agiliumtrade.ai',
-  'https://mt-client-api-v1.agiliumtrade.ai',
-  'https://mt-client-api-v1.new-york.agiliumtrade.ai',
-  'https://mt-client-api-v1.singapore.agiliumtrade.ai',
 ]
 
 export const runtime = 'edge'
