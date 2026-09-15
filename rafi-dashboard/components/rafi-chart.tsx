@@ -208,11 +208,19 @@ export function RAFIChart({
           ? Math.round(Math.abs((cands[cands.length - 1].time as any) - (cands[cands.length - 2].time as any)))
           : 300
         const lastBarTime = last.time as unknown as number
-        // Detecta se o último candle da carga ainda está aberto (MetaAPI às vezes retorna
-        // a barra atual). Se o próximo período ainda não chegou → atualiza essa mesma barra.
-        // Caso contrário (barra fechada) → abre uma nova barra exatamente +1 período depois.
+        // Tempo da barra ao vivo alinhado ao grid do timeframe (igual MT5):
+        // floor(nowSec / tfSec) * tfSec = timestamp de abertura da barra atual.
+        // Funciona para ambos os casos:
+        //   (a) MetaAPI retornou a barra atual como último dado → liveBarTime === lastBarTime
+        //   (b) MetaAPI retornou a última barra fechada → liveBarTime === lastBarTime + tfSec
         const nowSec      = Math.floor(Date.now() / 1000)
-        const liveBarTime = (lastBarTime + tfSec) > nowSec ? lastBarTime : lastBarTime + tfSec
+        const liveBarTime = Math.floor(nowSec / tfSec) * tfSec
+
+        // Se a barra virou (nova barra abriu), reseta o acumulador da barra ao vivo.
+        // Sem este reset, o código atualizaria a barra fechada anterior indefinidamente.
+        if (currentBarRef.current && currentBarRef.current.time !== liveBarTime) {
+          currentBarRef.current = null
+        }
 
         const b = currentBarRef.current
         if (!b) {
