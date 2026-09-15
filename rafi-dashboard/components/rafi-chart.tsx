@@ -390,14 +390,13 @@ export function RAFIChart({
         candleSeries.setMarkers(markers)
       }
 
-      // Mostra sempre os últimos 80 candles + 5 barras de espaço para a barra ao vivo.
+      // Mostra sempre os últimos 80 candles + 15 barras de espaço para a barra ao vivo.
       // NÃO chamar scrollToRealTime() — esse método usa o relógio do sistema e empurra
       // a janela para o horário atual (~15h UTC), deixando os candles históricos e a
       // barra ao vivo completamente fora da tela quando os dados têm gap de horas.
-      mChart.timeScale().setVisibleLogicalRange({
-        from: Math.max(0, candles.length - 75),
-        to:   candles.length + 15,
-      })
+      const initialFrom = Math.max(0, candles.length - 75)
+      const initialTo   = candles.length + 15
+      mChart.timeScale().setVisibleLogicalRange({ from: initialFrom, to: initialTo })
 
       // ── Gráfico RAFI ─────────────────────────────────────────────────────
       rChart = createChart(rafiEl, {
@@ -446,16 +445,24 @@ export function RAFIChart({
       histSeries.createPriceLine({ price: -2.5, color: '#f59e0b50', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false, title: '' })
       histSeries.createPriceLine({ price:  0,   color: '#8b949e30', lineWidth: 1, lineStyle: LineStyle.Solid,  axisLabelVisible: false, title: '' })
 
-      rChart.timeScale().fitContent()
+      // Alinha o gráfico RAFI ao mesmo intervalo do gráfico principal — NÃO usar
+      // fitContent() aqui. O fitContent define um range diferente (todos os dados) e,
+      // quando o ResizeObserver dispara com as dimensões reais do container, o gráfico
+      // recalcula a partir do fitContent e propaga esse range via subscribeVisibleLogicalRangeChange
+      // para o gráfico principal, sobrescrevendo o setVisibleLogicalRange definido acima.
+      rChart.timeScale().setVisibleLogicalRange({ from: initialFrom, to: initialTo })
 
       // Sincroniza escalas de tempo
       let syncing = false
+      // Flag: impede que resize do gráfico RAFI (ResizeObserver) propague seu range
+      // recalculado para o gráfico principal e desfaça a posição inicial definida acima.
+      let rChartResizing = false
       mChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
         if (syncing || !range) return
         syncing = true; rChart.timeScale().setVisibleLogicalRange(range); syncing = false
       })
       rChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-        if (syncing || !range) return
+        if (syncing || !range || rChartResizing) return
         syncing = true; mChart.timeScale().setVisibleLogicalRange(range); syncing = false
       })
 
@@ -465,7 +472,12 @@ export function RAFIChart({
       })
       roRafi = new ResizeObserver(([e]) => {
         const { width, height } = e.contentRect
-        if (width > 0 && height > 0) rChart?.applyOptions({ width, height })
+        if (width > 0 && height > 0) {
+          // Bloqueia propagação: resize do painel RAFI não deve mover o viewport principal
+          rChartResizing = true
+          rChart?.applyOptions({ width, height })
+          rChartResizing = false
+        }
       })
       roMain.observe(mainEl)
       roRafi.observe(rafiEl)
