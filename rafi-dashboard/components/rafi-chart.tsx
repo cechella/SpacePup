@@ -454,11 +454,17 @@ export function RAFIChart({
 
       // Sincroniza escalas de tempo
       let syncing = false
-      // Flag: impede que resize do gráfico RAFI (ResizeObserver) propague seu range
-      // recalculado para o gráfico principal e desfaça a posição inicial definida acima.
+      // Flags: durante resize de cada painel, bloqueia propagação bidirecional.
+      // Sem esses guards, o ResizeObserver recalcula o range a partir do rightOffset e
+      // propaga para o outro gráfico, desfazendo o setVisibleLogicalRange inicial.
+      let mChartResizing = false
       let rChartResizing = false
+      // Após o primeiro resize do mChart (quando o DOM mede as dimensões reais),
+      // re-aplica o range inicial para garantir a posição correta.
+      let initialRangeApplied = false
+
       mChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-        if (syncing || !range) return
+        if (syncing || !range || mChartResizing) return
         syncing = true; rChart.timeScale().setVisibleLogicalRange(range); syncing = false
       })
       rChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
@@ -468,7 +474,18 @@ export function RAFIChart({
 
       roMain = new ResizeObserver(([e]) => {
         const { width, height } = e.contentRect
-        if (width > 0 && height > 0) mChart?.applyOptions({ width, height })
+        if (width > 0 && height > 0) {
+          mChartResizing = true
+          mChart?.applyOptions({ width, height })
+          mChartResizing = false
+          // Re-aplica o range uma única vez após o primeiro resize real do container
+          // (evita que rightOffset recalcule e reposicione o viewport)
+          if (!initialRangeApplied) {
+            initialRangeApplied = true
+            mChart?.timeScale().setVisibleLogicalRange({ from: initialFrom, to: initialTo })
+            rChart?.timeScale().setVisibleLogicalRange({ from: initialFrom, to: initialTo })
+          }
+        }
       })
       roRafi = new ResizeObserver(([e]) => {
         const { width, height } = e.contentRect
