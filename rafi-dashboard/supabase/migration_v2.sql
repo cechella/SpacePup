@@ -222,13 +222,16 @@ INSERT INTO rafi_lote_faixas (ordem, lote, capital_min, capital_max) VALUES
 ON CONFLICT (ordem) DO NOTHING;
 
 -- ── rafi_brokers: corretoras cadastradas ──────────────────────────────────────
--- Cria se não existir (com schema mínimo); depois adiciona colunas que podem faltar
+-- A tabela já existe — só adiciona colunas que o código espera e que podem faltar.
+-- NÃO tenta criar nem inserir linhas: a tabela já tem dados e um schema próprio
+-- (ex: coluna 'nome' NOT NULL em vez de 'name').
 CREATE TABLE IF NOT EXISTS rafi_brokers (
   id         TEXT PRIMARY KEY,
   enabled    BOOLEAN     DEFAULT TRUE,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Adiciona colunas usadas pelo dashboard (ignora se já existirem)
 ALTER TABLE rafi_brokers
   ADD COLUMN IF NOT EXISTS name         TEXT,
   ADD COLUMN IF NOT EXISTS login        BIGINT,
@@ -251,10 +254,7 @@ DO $$ BEGIN
       FOR ALL USING (auth.role() = 'service_role') WITH CHECK (auth.role() = 'service_role');
   END IF;
 END $$;
-
-INSERT INTO rafi_brokers (id, name, enabled, simbolo) VALUES
-  ('pepperstone', 'Pepperstone', true, 'EURUSD')
-ON CONFLICT (id) DO NOTHING;
+-- INSERT omitido: a tabela já tem a corretora cadastrada com schema próprio.
 
 -- ── rafi_historico: espelho de deals fechados do MetaAPI ──────────────────────
 CREATE TABLE IF NOT EXISTS rafi_historico (
