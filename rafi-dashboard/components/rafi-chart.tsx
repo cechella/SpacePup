@@ -161,7 +161,9 @@ export function RAFIChart({
           timeVisible:    true,
           secondsVisible: false,
           visible:        false,
-          rightOffset:    15,  // 15 barras vazias à direita — candles ficam mais à esquerda, barra ao vivo respira
+          // rightOffset removido: causava auto-scroll quando a barra ao vivo era adicionada,
+          // sobrescrevendo o setVisibleLogicalRange. A margem direita é controlada
+          // exclusivamente pelo setVisibleLogicalRange({ to: candles.length + 15 }).
         },
         width:  mainEl.clientWidth  || 600,
         height: mainEl.clientHeight || 300,
@@ -376,21 +378,6 @@ export function RAFIChart({
         })
       }
 
-      // Marcadores de trades: seta no candle correto (tempo real do trade)
-      if (trades.length > 0) {
-        const markers = trades
-          .filter(t => t.time > 0)
-          .map(t => ({
-            time:     t.time as any,
-            position: t.direction === 'buy' ? 'belowBar' as const : 'aboveBar' as const,
-            color:    t.direction === 'buy' ? '#3b82f6' : '#f59e0b',
-            shape:    t.direction === 'buy' ? 'arrowUp' as const : 'arrowDown' as const,
-            text:     '',
-            size:     2,
-          }))
-        candleSeries.setMarkers(markers)
-      }
-
       // Mostra sempre os últimos 80 candles + 15 barras de espaço para a barra ao vivo.
       // NÃO chamar scrollToRealTime() — esse método usa o relógio do sistema e empurra
       // a janela para o horário atual (~15h UTC), deixando os candles históricos e a
@@ -528,7 +515,30 @@ export function RAFIChart({
       mChart?.remove()
       rChart?.remove()
     }
-  }, [candles, rafiData, srLevels, trades, bbBands])
+  }, [candles, rafiData, srLevels, bbBands])
+
+  // Atualiza marcadores de trades sem reinicializar o gráfico.
+  // Separado do efeito principal para que carregamentos assíncronos (Supabase)
+  // não destruam e recriem o gráfico — o que reiniciaria o viewport.
+  useEffect(() => {
+    const series = candleSeriesRef.current
+    if (!series) return
+    if (trades.length === 0) {
+      series.setMarkers([])
+      return
+    }
+    const markers = trades
+      .filter(t => t.time > 0)
+      .map(t => ({
+        time:     t.time as any,
+        position: t.direction === 'buy' ? 'belowBar' as const : 'aboveBar' as const,
+        color:    t.direction === 'buy' ? '#3b82f6' : '#f59e0b',
+        shape:    t.direction === 'buy' ? 'arrowUp' as const : 'arrowDown' as const,
+        text:     '',
+        size:     2,
+      }))
+    try { series.setMarkers(markers) } catch {}
+  }, [trades, chartReady])
 
 
   return (
