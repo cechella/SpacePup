@@ -1,181 +1,146 @@
 //+------------------------------------------------------------------+
 //| RAFI_ColorCandle.mq5                                             |
-//| Velas coloridas pelo índice de força RAFI                        |
-//| Verde   = RAFI ≥ limiar + candle de alta  (força forte)         |
-//| Vermelho = RAFI ≥ limiar + candle de baixa (força forte)        |
-//| Amarelo = exaustão (mag anterior ≥ limiar e mag atual < 40%)    |
-//| Cinza   = consolidação (RAFI < limiar)                          |
+//| Pinta candles conforme o índice de força RAFI                    |
+//|                                                                  |
+//|  BRANCO  — neutro (RAFI entre -2.50 e +2.50)                    |
+//|  VERDE   — RAFI >= +2.50 e candle de alta (compra)              |
+//|  VERMELHO — RAFI <= -2.50 e candle de baixa (venda)             |
+//|  AMARELO — exaustão (candle anterior forte, atual fraco/reverteu)|
 //+------------------------------------------------------------------+
 #property copyright   "RAFI Bot"
-#property version     "1.07"
-#property description "Velas coloridas pelo índice de força RAFI"
-
+#property version     "2.01"
 #property indicator_chart_window
-#property indicator_buffers 7
+#property indicator_buffers 5
 #property indicator_plots   1
 
-#property indicator_label1  "RAFI Candle"
-#property indicator_type1   DRAW_COLOR_CANDLES
+// Um único plot DRAW_CANDLES com 4 cores indexadas
+#property indicator_label1  "Open;High;Low;Close"
+#property indicator_type1   DRAW_CANDLES
+#property indicator_color1  clrWhite, clrLime, clrRed, clrYellow
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  1
 
-// Índice de cor: 0=Cinza | 1=Verde | 2=Vermelho | 3=Amarelo
-#property indicator_color1  clrGray
-#property indicator_color2  clrLimeGreen
-#property indicator_color3  clrRed
-#property indicator_color4  clrYellow
+input int    InpPeriodoATR   = 14;
+input int    InpPeriodoVol   = 14;
+input int    InpPeriodoMom   = 3;
+input double InpLimiar       = 2.50;
+input double InpFatorEscala  = 1.10;
 
-input int    InpATRPeriod  = 14;
-input int    InpRAFIPeriod =  3;
-input double InpThreshold  = 1.0;
+// 4 buffers OHLC + 1 buffer de índice de cor
+double BufOpen[];
+double BufHigh[];
+double BufLow[];
+double BufClose[];
+double BufColor[];   // 0=branco, 1=verde, 2=vermelho, 3=amarelo
 
-double CandleOpen[];
-double CandleHigh[];
-double CandleLow[];
-double CandleClose[];
-double ColorIndex[];
-double ATRBuffer[];
-double RAFIBuffer[];
+int hATR;
 
-// Cores originais do gráfico
-color g_Bull, g_Bear, g_Up, g_Down;
-
+//+------------------------------------------------------------------+
 int OnInit()
 {
-   SetIndexBuffer(0, CandleOpen,  INDICATOR_DATA);
-   SetIndexBuffer(1, CandleHigh,  INDICATOR_DATA);
-   SetIndexBuffer(2, CandleLow,   INDICATOR_DATA);
-   SetIndexBuffer(3, CandleClose, INDICATOR_DATA);
-   SetIndexBuffer(4, ColorIndex,  INDICATOR_COLOR_INDEX);
-   SetIndexBuffer(5, ATRBuffer,   INDICATOR_CALCULATIONS);
-   SetIndexBuffer(6, RAFIBuffer,  INDICATOR_CALCULATIONS);
+   SetIndexBuffer(0, BufOpen,  INDICATOR_DATA);
+   SetIndexBuffer(1, BufHigh,  INDICATOR_DATA);
+   SetIndexBuffer(2, BufLow,   INDICATOR_DATA);
+   SetIndexBuffer(3, BufClose, INDICATOR_DATA);
+   SetIndexBuffer(4, BufColor, INDICATOR_COLOR_INDEX);
 
    PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, 0.0);
-   IndicatorSetString(INDICATOR_SHORTNAME, "RAFI Candle");
-   IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
 
-   // Salva cores originais e esconde candles do gráfico
-   g_Bull = (color)ChartGetInteger(0, CHART_COLOR_CANDLE_BULL);
-   g_Bear = (color)ChartGetInteger(0, CHART_COLOR_CANDLE_BEAR);
-   g_Up   = (color)ChartGetInteger(0, CHART_COLOR_CHART_UP);
-   g_Down = (color)ChartGetInteger(0, CHART_COLOR_CHART_DOWN);
+   hATR = iATR(_Symbol, _Period, InpPeriodoATR);
+   if (hATR == INVALID_HANDLE) { Print("Erro ATR"); return INIT_FAILED; }
 
-   color bg = (color)ChartGetInteger(0, CHART_COLOR_BACKGROUND);
-   ChartSetInteger(0, CHART_COLOR_CANDLE_BULL, bg);
-   ChartSetInteger(0, CHART_COLOR_CANDLE_BEAR, bg);
-   ChartSetInteger(0, CHART_COLOR_CHART_UP,    bg);
-   ChartSetInteger(0, CHART_COLOR_CHART_DOWN,  bg);
-   ChartRedraw(0);
-
-   Comment("RAFI v1.07 iniciando...");
+   IndicatorSetString(INDICATOR_SHORTNAME, "RAFI Candles");
    return INIT_SUCCEEDED;
+}
+
+//+------------------------------------------------------------------+
+double CalcRafi(const int i, const int total,
+                const double &atr_buf[],
+                const double &high[], const double &low[],
+                const double &close[], const long &tick_volume[])
+{
+   int limite = InpPeriodoVol + InpPeriodoMom + 5;
+   if (i + limite >= total) return 0.0;
+   double atr = atr_buf[i + 1];
+   if (atr < _Point) return 0.0;
+
+   double mom  = (close[i] - close[i + InpPeriodoMom]) / atr;
+
+   double amp = high[i] - low[i], amp_m = 0.0;
+   for (int k = i+1; k <= i+InpPeriodoVol; k++) amp_m += high[k]-low[k];
+   amp_m /= InpPeriodoVol;
+   double amp_r = (amp_m > _Point) ? (amp / amp_m) - 1.0 : 0.0;
+
+   double vol_m = 0.0;
+   for (int k = i+1; k <= i+InpPeriodoVol; k++) vol_m += (double)tick_volume[k];
+   vol_m /= InpPeriodoVol;
+   double vol_r = (vol_m > 0) ? ((double)tick_volume[i] / vol_m) - 1.0 : 0.0;
+
+   return ((mom * 1.0) + (amp_r * 0.5) + (vol_r * 0.3)) / InpFatorEscala;
+}
+
+//+------------------------------------------------------------------+
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double   &open[],
+                const double   &high[],
+                const double   &low[],
+                const double   &close[],
+                const long     &tick_volume[],
+                const long     &volume[],
+                const int      &spread[])
+{
+   int minimo = InpPeriodoATR + InpPeriodoVol + InpPeriodoMom + 10;
+   if (rates_total < minimo) return 0;
+
+   double atr_buf[];
+   ArraySetAsSeries(atr_buf, true);
+   if (CopyBuffer(hATR, 0, 0, rates_total, atr_buf) <= 0) return prev_calculated;
+
+   ArraySetAsSeries(open,        true);
+   ArraySetAsSeries(high,        true);
+   ArraySetAsSeries(low,         true);
+   ArraySetAsSeries(close,       true);
+   ArraySetAsSeries(tick_volume, true);
+   ArraySetAsSeries(BufOpen,     true);
+   ArraySetAsSeries(BufHigh,     true);
+   ArraySetAsSeries(BufLow,      true);
+   ArraySetAsSeries(BufClose,    true);
+   ArraySetAsSeries(BufColor,    true);
+
+   int inicio = (prev_calculated <= 0) ? rates_total - 1 : prev_calculated - 1;
+
+   for (int i = inicio; i >= 0; i--)
+   {
+      BufOpen[i]  = open[i];
+      BufHigh[i]  = high[i];
+      BufLow[i]   = low[i];
+      BufClose[i] = close[i];
+      BufColor[i] = 0; // padrão: branco
+
+      double rafi      = CalcRafi(i,   rates_total, atr_buf, high, low, close, tick_volume);
+      double rafi_prev = CalcRafi(i+1, rates_total, atr_buf, high, low, close, tick_volume);
+
+      // Exaustão: barra anterior forte (|rafi_prev| >= limiar) e atual caiu para
+      // menos de 40% do limiar — sinal de enfraquecimento do movimento
+      bool exaustao = (MathAbs(rafi_prev) >= InpLimiar) &&
+                      (MathAbs(rafi) < InpLimiar * 0.4);
+
+      if (exaustao)
+         BufColor[i] = 3; // amarelo — exaustão
+      else if (rafi >= InpLimiar && close[i] > open[i])
+         BufColor[i] = 1; // verde — rompimento de resistência
+      else if (rafi <= -InpLimiar && close[i] < open[i])
+         BufColor[i] = 2; // vermelho — rompimento de suporte
+      // else fica 0 = branco (neutro)
+   }
+
+   return rates_total;
 }
 
 void OnDeinit(const int reason)
 {
-   // Restaura cores originais ao remover o indicador
-   ChartSetInteger(0, CHART_COLOR_CANDLE_BULL, g_Bull);
-   ChartSetInteger(0, CHART_COLOR_CANDLE_BEAR, g_Bear);
-   ChartSetInteger(0, CHART_COLOR_CHART_UP,    g_Up);
-   ChartSetInteger(0, CHART_COLOR_CHART_DOWN,  g_Down);
-   ChartRedraw(0);
-   Comment("");
+   if (hATR != INVALID_HANDLE) IndicatorRelease(hATR);
 }
-
-int OnCalculate(const int rates_total,
-                const int prev_calculated,
-                const datetime &time[],
-                const double &open[],
-                const double &high[],
-                const double &low[],
-                const double &close[],
-                const long &tick_volume[],
-                const long &volume[],
-                const int &spread[])
-{
-   if(rates_total < InpATRPeriod + InpRAFIPeriod + 1)
-      return 0;
-
-   // ATR de Wilder (incremental)
-   int atrStart = (prev_calculated <= InpATRPeriod) ? 1 : prev_calculated - 1;
-
-   if(prev_calculated <= InpATRPeriod)
-   {
-      ATRBuffer[0] = 0;
-      double sumTR = 0;
-      for(int i = 1; i <= InpATRPeriod && i < rates_total; i++)
-      {
-         double tr = MathMax(high[i] - low[i],
-                    MathMax(MathAbs(high[i] - close[i-1]),
-                            MathAbs(low[i]  - close[i-1])));
-         sumTR += tr;
-      }
-      if(InpATRPeriod < rates_total)
-         ATRBuffer[InpATRPeriod] = sumTR / InpATRPeriod;
-      atrStart = InpATRPeriod + 1;
-   }
-
-   for(int i = atrStart; i < rates_total; i++)
-   {
-      double tr = MathMax(high[i] - low[i],
-                 MathMax(MathAbs(high[i] - close[i-1]),
-                         MathAbs(low[i]  - close[i-1])));
-      ATRBuffer[i] = (ATRBuffer[i-1] * (InpATRPeriod - 1) + tr) / InpATRPeriod;
-   }
-
-   // RAFI (magnitude absoluta, incremental)
-   int calcStart = MathMax(atrStart, MathMax(InpATRPeriod, InpRAFIPeriod));
-
-   for(int i = calcStart; i < rates_total; i++)
-   {
-      int prevIdx = i - InpRAFIPeriod;
-      if(prevIdx < 0 || close[prevIdx] == 0) { RAFIBuffer[i] = 0; continue; }
-
-      double mom  = MathAbs(close[i] - close[prevIdx]) / close[prevIdx] * 100.0;
-      double body = MathAbs(close[i] - open[i]);
-      double amp  = ATRBuffer[i] > 0 ? body / ATRBuffer[i] : 0;
-      RAFIBuffer[i] = MathMin(5.0, mom * 25.0 + amp * 3.0);
-   }
-
-   // Cores — loop não-incremental (garante que InpThreshold reflita em todo histórico)
-   int minStart = InpATRPeriod + InpRAFIPeriod + 1;
-
-   for(int i = minStart; i < rates_total; i++)
-   {
-      CandleOpen[i]  = open[i];
-      CandleHigh[i]  = high[i];
-      CandleLow[i]   = low[i];
-      CandleClose[i] = close[i];
-
-      double mag     = RAFIBuffer[i];
-      double magPrev = RAFIBuffer[i - 1];
-      bool   isBull  = (close[i] >= open[i]);
-
-      bool exhaustion = (magPrev >= InpThreshold) && (mag < InpThreshold * 0.4);
-
-      if(exhaustion)
-         ColorIndex[i] = 3;
-      else if(mag >= InpThreshold)
-         ColorIndex[i] = isBull ? 1.0 : 2.0;
-      else
-         ColorIndex[i] = 0;
-   }
-
-   // Diagnóstico: mostra valores do último candle e de 20 candles atrás
-   int last = rates_total - 1;
-   int prev = last - 20;
-   string diag = "RAFI v1.07";
-   diag += "\nULTIMO: mag=" + DoubleToString(RAFIBuffer[last], 4)
-         + " ATR=" + DoubleToString(ATRBuffer[last], 5)
-         + " cor=" + IntegerToString((int)ColorIndex[last])
-         + " alta=" + (close[last] >= open[last] ? "SIM" : "NAO");
-   if(prev >= minStart)
-      diag += "\n-20bars: mag=" + DoubleToString(RAFIBuffer[prev], 4)
-            + " ATR=" + DoubleToString(ATRBuffer[prev], 5)
-            + " cor=" + IntegerToString((int)ColorIndex[prev]);
-   diag += "\nlimiar=" + DoubleToString(InpThreshold, 2)
-         + "  barras=" + IntegerToString(rates_total);
-   Comment(diag);
-
-   return rates_total;
-}
+//+------------------------------------------------------------------+
