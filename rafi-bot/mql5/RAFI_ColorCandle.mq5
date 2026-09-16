@@ -5,15 +5,14 @@
 //|  BRANCO  — neutro (RAFI entre -2.50 e +2.50)                    |
 //|  VERDE   — RAFI >= +2.50 e candle de alta (compra)              |
 //|  VERMELHO — RAFI <= -2.50 e candle de baixa (venda)             |
-//|  AMARELO — exaustão (candle anterior forte, atual fraco/reverteu)|
+//|  AMARELO — exaustão (candle anterior forte, atual fraco)        |
 //+------------------------------------------------------------------+
 #property copyright   "RAFI Bot"
-#property version     "2.01"
+#property version     "2.02"
 #property indicator_chart_window
 #property indicator_buffers 5
 #property indicator_plots   1
 
-// Um único plot DRAW_CANDLES com 4 cores indexadas
 #property indicator_label1  "Open;High;Low;Close"
 #property indicator_type1   DRAW_CANDLES
 #property indicator_color1  clrWhite, clrLime, clrRed, clrYellow
@@ -26,7 +25,6 @@ input int    InpPeriodoMom   = 3;
 input double InpLimiar       = 2.50;
 input double InpFatorEscala  = 1.10;
 
-// 4 buffers OHLC + 1 buffer de índice de cor
 double BufOpen[];
 double BufHigh[];
 double BufLow[];
@@ -34,6 +32,9 @@ double BufClose[];
 double BufColor[];   // 0=branco, 1=verde, 2=vermelho, 3=amarelo
 
 int hATR;
+
+// Cores originais do gráfico — restauradas no OnDeinit
+color g_Bull, g_Bear, g_Up, g_Down;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -43,14 +44,39 @@ int OnInit()
    SetIndexBuffer(2, BufLow,   INDICATOR_DATA);
    SetIndexBuffer(3, BufClose, INDICATOR_DATA);
    SetIndexBuffer(4, BufColor, INDICATOR_COLOR_INDEX);
-
    PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, 0.0);
 
    hATR = iATR(_Symbol, _Period, InpPeriodoATR);
    if (hATR == INVALID_HANDLE) { Print("Erro ATR"); return INIT_FAILED; }
 
+   // Salva cores originais e esconde candles do gráfico para que
+   // as cores do indicador (branco, verde, vermelho, amarelo) fiquem visíveis
+   g_Bull = (color)ChartGetInteger(0, CHART_COLOR_CANDLE_BULL);
+   g_Bear = (color)ChartGetInteger(0, CHART_COLOR_CANDLE_BEAR);
+   g_Up   = (color)ChartGetInteger(0, CHART_COLOR_CHART_UP);
+   g_Down = (color)ChartGetInteger(0, CHART_COLOR_CHART_DOWN);
+   color bg = (color)ChartGetInteger(0, CHART_COLOR_BACKGROUND);
+   ChartSetInteger(0, CHART_COLOR_CANDLE_BULL, bg);
+   ChartSetInteger(0, CHART_COLOR_CANDLE_BEAR, bg);
+   ChartSetInteger(0, CHART_COLOR_CHART_UP,    bg);
+   ChartSetInteger(0, CHART_COLOR_CHART_DOWN,  bg);
+   ChartRedraw(0);
+
    IndicatorSetString(INDICATOR_SHORTNAME, "RAFI Candles");
    return INIT_SUCCEEDED;
+}
+
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+{
+   // Restaura cores originais ao remover o indicador
+   ChartSetInteger(0, CHART_COLOR_CANDLE_BULL, g_Bull);
+   ChartSetInteger(0, CHART_COLOR_CANDLE_BEAR, g_Bear);
+   ChartSetInteger(0, CHART_COLOR_CHART_UP,    g_Up);
+   ChartSetInteger(0, CHART_COLOR_CHART_DOWN,  g_Down);
+   if (hATR != INVALID_HANDLE) IndicatorRelease(hATR);
+   ChartRedraw(0);
+   Comment("");
 }
 
 //+------------------------------------------------------------------+
@@ -122,25 +148,31 @@ int OnCalculate(const int rates_total,
       double rafi      = CalcRafi(i,   rates_total, atr_buf, high, low, close, tick_volume);
       double rafi_prev = CalcRafi(i+1, rates_total, atr_buf, high, low, close, tick_volume);
 
-      // Exaustão: barra anterior forte (|rafi_prev| >= limiar) e atual caiu para
-      // menos de 40% do limiar — sinal de enfraquecimento do movimento
+      // Exaustão: barra anterior fortemente direcional e atual caiu para menos de 40% do limiar
       bool exaustao = (MathAbs(rafi_prev) >= InpLimiar) &&
                       (MathAbs(rafi) < InpLimiar * 0.4);
 
       if (exaustao)
-         BufColor[i] = 3; // amarelo — exaustão
+         BufColor[i] = 3; // amarelo
       else if (rafi >= InpLimiar && close[i] > open[i])
-         BufColor[i] = 1; // verde — rompimento de resistência
+         BufColor[i] = 1; // verde — força de alta
       else if (rafi <= -InpLimiar && close[i] < open[i])
-         BufColor[i] = 2; // vermelho — rompimento de suporte
+         BufColor[i] = 2; // vermelho — força de baixa
       // else fica 0 = branco (neutro)
    }
 
-   return rates_total;
-}
+   // Diagnóstico: mostra RAFI das últimas 2 barras para confirmar valores
+   double r0 = CalcRafi(0, rates_total, atr_buf, high, low, close, tick_volume);
+   double r1 = CalcRafi(1, rates_total, atr_buf, high, low, close, tick_volume);
+   string cor0 = ((int)BufColor[0] == 1) ? "VERDE" :
+                 ((int)BufColor[0] == 2) ? "VERM"  :
+                 ((int)BufColor[0] == 3) ? "AMAR"  : "BRNC";
+   Comment("RAFI v2.02 | atual=" + DoubleToString(r0,2) + " [" + cor0 + "]"
+         + "  prev=" + DoubleToString(r1,2)
+         + "\nlimiar=" + DoubleToString(InpLimiar,1)
+         + "  exaust. se |prev|>=" + DoubleToString(InpLimiar,1)
+         + " e |atual|<" + DoubleToString(InpLimiar*0.4,1));
 
-void OnDeinit(const int reason)
-{
-   if (hATR != INVALID_HANDLE) IndicatorRelease(hATR);
+   return rates_total;
 }
 //+------------------------------------------------------------------+
