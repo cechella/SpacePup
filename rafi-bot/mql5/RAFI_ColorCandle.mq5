@@ -7,7 +7,7 @@
 //| Cinza   = consolidação (RAFI < limiar)                          |
 //+------------------------------------------------------------------+
 #property copyright   "RAFI Bot"
-#property version     "1.06"
+#property version     "1.07"
 #property description "Velas coloridas pelo índice de força RAFI"
 
 #property indicator_chart_window
@@ -55,7 +55,6 @@ int OnInit()
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
 
    // Salva cores originais e esconde candles do gráfico
-   // (z-order: originais ficam na frente do DRAW_COLOR_CANDLES)
    g_Bull = (color)ChartGetInteger(0, CHART_COLOR_CANDLE_BULL);
    g_Bear = (color)ChartGetInteger(0, CHART_COLOR_CANDLE_BEAR);
    g_Up   = (color)ChartGetInteger(0, CHART_COLOR_CHART_UP);
@@ -68,7 +67,7 @@ int OnInit()
    ChartSetInteger(0, CHART_COLOR_CHART_DOWN,  bg);
    ChartRedraw(0);
 
-   Comment("RAFI v1.06 ativo");
+   Comment("RAFI v1.07 iniciando...");
    return INIT_SUCCEEDED;
 }
 
@@ -161,6 +160,22 @@ int OnCalculate(const int rates_total,
       else
          ColorIndex[i] = 0;
    }
+
+   // Diagnóstico: mostra valores do último candle e de 20 candles atrás
+   int last = rates_total - 1;
+   int prev = last - 20;
+   string diag = "RAFI v1.07";
+   diag += "\nULTIMO: mag=" + DoubleToString(RAFIBuffer[last], 4)
+         + " ATR=" + DoubleToString(ATRBuffer[last], 5)
+         + " cor=" + IntegerToString((int)ColorIndex[last])
+         + " alta=" + (close[last] >= open[last] ? "SIM" : "NAO");
+   if(prev >= minStart)
+      diag += "\n-20bars: mag=" + DoubleToString(RAFIBuffer[prev], 4)
+            + " ATR=" + DoubleToString(ATRBuffer[prev], 5)
+            + " cor=" + IntegerToString((int)ColorIndex[prev]);
+   diag += "\nlimiar=" + DoubleToString(InpThreshold, 2)
+         + "  barras=" + IntegerToString(rates_total);
+   Comment(diag);
 
    return rates_total;
 }
