@@ -16,11 +16,11 @@ const WILL_DELETE = [
 
 // O que NÃO será apagado por padrão
 const WILL_KEEP = [
-  'Candles históricos EURUSD (use a opção abaixo para apagar)',
   'Configurações de risco (capital, % risco, max trades)',
   'Faixas de lote',
   'Corretoras cadastradas',
   'Config do bot (par, timeframe, limiares)',
+  'Saldo e equity (vem direto da Pepperstone via MetaAPI)',
 ]
 
 export default function ResetPage() {
@@ -44,6 +44,11 @@ export default function ResetPage() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Erro desconhecido')
+      // Limpa também o localStorage do browser (trades locais, CSV history, IA state)
+      try {
+        const LOCAL_KEYS = ['rafi-trade-log', 'rafi-csv-history', 'rafi-meta-auto', 'rafi-ai-state']
+        LOCAL_KEYS.forEach(k => localStorage.removeItem(k))
+      } catch {}
       setResults(data.tables)
       setStep('done')
     } catch (e: unknown) {
