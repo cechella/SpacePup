@@ -495,7 +495,18 @@ export function RAFIChart({
         priceLineVisible: false,
         lastValueVisible: false,
       })
-      histSeries.setData(rafiData as any)
+      // calcRAFI pula os primeiros Math.max(period, 14) candles (precisa de ATR).
+      // Sem padding, o histSeries tem menos barras que o candleSeries: o mesmo
+      // logical range aponta para timestamps diferentes nos dois gráficos, e o
+      // histograma aparece deslocado 14 candles para trás do último candle.
+      // Solução: preencher o início com barras transparentes para alinhar índices.
+      const rafiPadCount = candles.length - rafiData.length
+      const rafiPadding = candles.slice(0, rafiPadCount).map(c => ({
+        time:  c.time as any,
+        value: 0,
+        color: 'rgba(0,0,0,0)',
+      }))
+      histSeries.setData([...rafiPadding, ...rafiData] as any)
       histSeriesRef.current = histSeries
 
       // Pré-computa base para cálculo RAFI ao vivo (mesma fórmula de calcRAFI)
