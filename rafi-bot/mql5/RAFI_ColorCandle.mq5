@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
-//| RAFI_ColorCandle.mq5  — v1.04 DIAGNÓSTICO                       |
-//| PINTA TODAS AS BARRAS DE VERMELHO para verificar pipeline        |
+//| RAFI_ColorCandle.mq5  — v1.05 DIAGNÓSTICO SIMPLES               |
+//| SEM mudar modo do gráfico. TODAS as barras VERMELHAS.            |
 //+------------------------------------------------------------------+
 #property copyright   "RAFI Bot"
-#property version     "1.04"
-#property description "DIAGNÓSTICO — todas as barras vermelhas"
+#property version     "1.05"
+#property description "DIAGNOSTICO SIMPLES"
 
 #property indicator_chart_window
 #property indicator_buffers 5
@@ -26,9 +26,6 @@ double CandleLow[];
 double CandleClose[];
 double ColorIndex[];
 
-ENUM_CHART_MODE g_chartMode;
-color g_colorChartLine;
-
 int OnInit()
 {
    SetIndexBuffer(0, CandleOpen,  INDICATOR_DATA);
@@ -36,27 +33,13 @@ int OnInit()
    SetIndexBuffer(2, CandleLow,   INDICATOR_DATA);
    SetIndexBuffer(3, CandleClose, INDICATOR_DATA);
    SetIndexBuffer(4, ColorIndex,  INDICATOR_COLOR_INDEX);
-
    PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, 0.0);
-   IndicatorSetString(INDICATOR_SHORTNAME, "RAFI Candle TEST");
-
-   // Salva estado e muda para modo linha (remove candles originais)
-   g_chartMode      = (ENUM_CHART_MODE)ChartGetInteger(0, CHART_MODE);
-   g_colorChartLine = (color)ChartGetInteger(0, CHART_COLOR_CHART_LINE);
-   color bg = (color)ChartGetInteger(0, CHART_COLOR_BACKGROUND);
-   ChartSetInteger(0, CHART_MODE, CHART_LINE);
-   ChartSetInteger(0, CHART_COLOR_CHART_LINE, bg);
-   ChartRedraw(0);
-
+   IndicatorSetString(INDICATOR_SHORTNAME, "RAFI v1.05 TEST");
+   Comment("RAFI v1.05 RODANDO");
    return INIT_SUCCEEDED;
 }
 
-void OnDeinit(const int reason)
-{
-   ChartSetInteger(0, CHART_MODE, g_chartMode);
-   ChartSetInteger(0, CHART_COLOR_CHART_LINE, g_colorChartLine);
-   ChartRedraw(0);
-}
+void OnDeinit(const int reason) { Comment(""); }
 
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
@@ -69,7 +52,6 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
 {
-   // TESTE: pinta TODAS as barras de VERMELHO (índice de cor 2)
    for(int i = 1; i < rates_total; i++)
    {
       CandleOpen[i]  = open[i];
@@ -78,6 +60,6 @@ int OnCalculate(const int rates_total,
       CandleClose[i] = close[i];
       ColorIndex[i]  = 2; // 2 = clrRed
    }
-
+   Comment("RAFI v1.05 — barras: " + IntegerToString(rates_total));
    return rates_total;
 }
