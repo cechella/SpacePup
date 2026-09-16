@@ -63,6 +63,8 @@ export function RAFIChart({
   const innerPriceRef      = useRef<number | null>(null)
   // Série do histograma RAFI — atualizada tick a tick junto com o candle ao vivo
   const histSeriesRef      = useRef<any>(null)
+  // Preserva o range visível entre reinicializações do gráfico (evita shift a cada recarga)
+  const savedRangeRef      = useRef<{ from: number; to: number } | null>(null)
   const [chartReady, setChartReady] = useState(false)
 
   useEffect(() => { onPriceClickRef.current = onPriceClick }, [onPriceClick])
@@ -401,8 +403,10 @@ export function RAFIChart({
       // NÃO chamar scrollToRealTime() — esse método usa o relógio do sistema e empurra
       // a janela para o horário atual (~15h UTC), deixando os candles históricos e a
       // barra ao vivo completamente fora da tela quando os dados têm gap de horas.
-      const initialFrom = Math.max(0, candles.length - 75)
-      const initialTo   = candles.length + 15
+      // Se o gráfico já foi exibido antes, restaura o range salvo para não deslocar
+      // a visão quando uma nova barra abre e os candles são recarregados.
+      const initialFrom = savedRangeRef.current?.from ?? Math.max(0, candles.length - 75)
+      const initialTo   = savedRangeRef.current?.to   ?? candles.length + 15
       mChart.timeScale().setVisibleLogicalRange({ from: initialFrom, to: initialTo })
 
       // Expõe função de shift para o botão na toolbar (igual ao MT5):
@@ -410,8 +414,11 @@ export function RAFIChart({
       if (shiftRangeRef) {
         shiftRangeRef.current = () => {
           try {
-            mChart.timeScale().setVisibleLogicalRange({ from: initialFrom, to: initialTo })
-            rChart.timeScale().setVisibleLogicalRange({ from: initialFrom, to: initialTo })
+            const defaultFrom = Math.max(0, candles.length - 75)
+            const defaultTo   = candles.length + 15
+            savedRangeRef.current = { from: defaultFrom, to: defaultTo }
+            mChart.timeScale().setVisibleLogicalRange({ from: defaultFrom, to: defaultTo })
+            rChart.timeScale().setVisibleLogicalRange({ from: defaultFrom, to: defaultTo })
           } catch {}
         }
       }
@@ -422,6 +429,7 @@ export function RAFIChart({
           try {
             const from = Math.max(0, candles.length - 90)
             const to   = candles.length
+            savedRangeRef.current = { from, to }
             mChart.timeScale().setVisibleLogicalRange({ from, to })
             rChart.timeScale().setVisibleLogicalRange({ from, to })
           } catch {}
@@ -442,8 +450,10 @@ export function RAFIChart({
           borderColor:    '#30363d',
           timeVisible:    true,
           secondsVisible: false,
-          fixLeftEdge:    true,
-          fixRightEdge:   true,
+          // fixRightEdge/fixLeftEdge removidos: com eles ativos, ao adicionar a barra ao vivo
+          // via histSeries.update() o lightweight-charts auto-scrollava o rChart, disparando
+          // subscribeVisibleLogicalRangeChange e propagando o range errado para o mChart,
+          // deslocando toda a visão para a direita a cada nova barra.
         },
         width:  rafiEl.clientWidth  || 600,
         height: rafiEl.clientHeight || 120,
@@ -494,6 +504,8 @@ export function RAFIChart({
       let initialRangeApplied = false
 
       mChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+        // Salva o range atual para restaurar na próxima reinicialização do gráfico
+        if (range) savedRangeRef.current = { from: range.from, to: range.to }
         if (syncing || !range || mChartResizing) return
         syncing = true; rChart.timeScale().setVisibleLogicalRange(range); syncing = false
       })
