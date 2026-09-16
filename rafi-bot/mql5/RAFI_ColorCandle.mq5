@@ -1,39 +1,42 @@
 //+------------------------------------------------------------------+
 //| RAFI_ColorCandle.mq5                                             |
-//| Pinta candles conforme o índice de força RAFI                    |
-//| Fórmula IDÊNTICA ao RAFI_Histograma (mom*25 + amp*3)            |
+//| Fórmula e cores IDÊNTICAS ao site space-pup.vercel.app           |
+//| Código fonte: rafi-dashboard/lib/indicators.ts → applyRAFICandleColors |
 //|                                                                  |
-//|  BRANCO  — neutro  (mag < limiar)                               |
-//|  VERDE   — mag >= limiar + candle de alta                       |
-//|  VERMELHO — mag >= limiar + candle de baixa                     |
-//|  AMARELO — exaustão (barra anterior forte, atual < 40% limiar)  |
+//|  #d1d5db  cinza   — consolidação (RAFI < 2.5)                   |
+//|  #22c55e  verde   — RAFI ≥ 2.5 + alta                          |
+//|  #ef4444  vermelho — RAFI ≥ 2.5 + baixa                        |
+//|  #f59e0b  âmbar   — exaustão (mag anterior ≥ 2.5, atual < 1.0) |
 //+------------------------------------------------------------------+
 #property copyright   "RAFI Bot"
-#property version     "2.03"
+#property version     "3.00"
 #property indicator_chart_window
 #property indicator_buffers 5
 #property indicator_plots   1
 
 #property indicator_label1  "Open;High;Low;Close"
 #property indicator_type1   DRAW_CANDLES
-#property indicator_color1  clrWhite, clrLime, clrRed, clrYellow
+// Cores idênticas ao site (C'R,G,B'):
+//   0 = #D1D5DB cinza-consolidação
+//   1 = #22C55E verde-alta
+//   2 = #EF4444 vermelho-baixa
+//   3 = #F59E0B âmbar-exaustão
+#property indicator_color1  C'209,213,219', C'34,197,94', C'239,68,68', C'245,158,11'
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  1
 
 input int    InpPeriodoATR  = 14;   // Período ATR (Wilder)
-input int    InpPeriodoMom  = 3;    // Janela de momentum (candles atrás)
-input double InpLimiar      = 2.50; // Mesmo limiar do histograma
+input int    InpPeriodoMom  = 3;    // Janela de momentum (barras atrás)
+input double InpLimiar      = 2.50; // Limiar de força forte (igual ao histograma)
 
 double BufOpen[];
 double BufHigh[];
 double BufLow[];
 double BufClose[];
-double BufColor[];   // 0=branco, 1=verde, 2=vermelho, 3=amarelo
+double BufColor[];   // 0=cinza  1=verde  2=vermelho  3=âmbar
 
-int hATR;
-
-// Cores originais do gráfico — restauradas no OnDeinit
-color g_Bull, g_Bear, g_Up, g_Down;
+int    hATR;
+color  g_Bull, g_Bear, g_Up, g_Down;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -46,10 +49,9 @@ int OnInit()
    PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, 0.0);
 
    hATR = iATR(_Symbol, _Period, InpPeriodoATR);
-   if (hATR == INVALID_HANDLE) { Print("Erro iATR"); return INIT_FAILED; }
+   if (hATR == INVALID_HANDLE) { Print("iATR falhou"); return INIT_FAILED; }
 
-   // Esconde candles originais do gráfico para que as cores do indicador
-   // (branco, verde, vermelho, amarelo) fiquem visíveis sem serem cobertas
+   // Esconde candles originais — sem isso, eles cobrem cinza e âmbar
    g_Bull = (color)ChartGetInteger(0, CHART_COLOR_CANDLE_BULL);
    g_Bear = (color)ChartGetInteger(0, CHART_COLOR_CANDLE_BEAR);
    g_Up   = (color)ChartGetInteger(0, CHART_COLOR_CHART_UP);
@@ -78,24 +80,24 @@ void OnDeinit(const int reason)
 }
 
 //+------------------------------------------------------------------+
-// Calcula magnitude RAFI — fórmula idêntica ao RAFI_Histograma:
-//   mom  = |close[i] - close[i+period]| / close[i+period] * 100
-//   amp  = |close[i] - open[i]| / ATR[i]
-//   mag  = min(5, mom * 25 + amp * 3)
-// Usa ArraySetAsSeries=true → índice 0 = barra atual, índice+N = N barras atrás
-double CalcMag(const int i, const int total,
-               const double &atr_buf[],
-               const double &open[],
-               const double &close[],
-               const int period)
+// Replica calcRAFI() de lib/indicators.ts (magnitude, sempre ≥ 0).
+// Fórmula:
+//   mom = |close[i] - close[i+period]| / close[i+period] * 100
+//   amp = |close[i] - open[i]| / ATR[i]
+//   mag = min(5, mom * 25 + amp * 3)
+// Indexação AS_SERIES: i=0 = barra atual; i+N = N barras atrás.
+double Magnitude(const int i, const int total,
+                 const double &atr[],
+                 const double &op[], const double &cl[],
+                 const int period)
 {
    int prev = i + period;
-   if (prev >= total)          return 0.0;
-   if (close[prev]  == 0.0)   return 0.0;
-   if (atr_buf[i]   < _Point) return 0.0;
+   if (prev >= total)      return 0.0;
+   if (cl[prev]  == 0.0)  return 0.0;
+   if (atr[i] < _Point)   return 0.0;
 
-   double mom = MathAbs(close[i] - close[prev]) / close[prev] * 100.0;
-   double amp = MathAbs(close[i] - open[i]) / atr_buf[i];
+   double mom = MathAbs(cl[i] - cl[prev]) / cl[prev] * 100.0;
+   double amp = MathAbs(cl[i] - op[i]) / atr[i];
    return MathMin(5.0, mom * 25.0 + amp * 3.0);
 }
 
@@ -111,17 +113,16 @@ int OnCalculate(const int rates_total,
                 const long     &volume[],
                 const int      &spread[])
 {
-   int minimo = InpPeriodoATR + InpPeriodoMom + 5;
-   if (rates_total < minimo) return 0;
+   if (rates_total < InpPeriodoATR + InpPeriodoMom + 5) return 0;
 
-   double atr_buf[];
-   ArraySetAsSeries(atr_buf, true);
-   if (CopyBuffer(hATR, 0, 0, rates_total, atr_buf) <= 0) return prev_calculated;
+   double atr[];
+   ArraySetAsSeries(atr, true);
+   if (CopyBuffer(hATR, 0, 0, rates_total, atr) <= 0) return prev_calculated;
 
-   ArraySetAsSeries(open,    true);
-   ArraySetAsSeries(high,    true);
-   ArraySetAsSeries(low,     true);
-   ArraySetAsSeries(close,   true);
+   ArraySetAsSeries(open,     true);
+   ArraySetAsSeries(high,     true);
+   ArraySetAsSeries(low,      true);
+   ArraySetAsSeries(close,    true);
    ArraySetAsSeries(BufOpen,  true);
    ArraySetAsSeries(BufHigh,  true);
    ArraySetAsSeries(BufLow,   true);
@@ -137,32 +138,28 @@ int OnCalculate(const int rates_total,
       BufLow[i]   = low[i];
       BufClose[i] = close[i];
 
-      double mag  = CalcMag(i,   rates_total, atr_buf, open, close, InpPeriodoMom);
-      double magP = CalcMag(i+1, rates_total, atr_buf, open, close, InpPeriodoMom);
+      double mag  = Magnitude(i,   rates_total, atr, open, close, InpPeriodoMom);
+      double magP = Magnitude(i+1, rates_total, atr, open, close, InpPeriodoMom);
       bool   bull = (close[i] > open[i]);
 
-      // Exaustão: barra anterior forte, atual caiu para menos de 40% do limiar
-      bool exaustao = (magP >= InpLimiar) && (mag < InpLimiar * 0.4);
+      // Replica applyRAFICandleColors() de lib/indicators.ts
+      bool exaustao = (magP >= InpLimiar) && (mag < 1.0);
 
       if (exaustao)
-         BufColor[i] = 3;              // amarelo
+         BufColor[i] = 3;            // âmbar — exaustão
       else if (mag >= InpLimiar && bull)
-         BufColor[i] = 1;              // verde — alta forte
+         BufColor[i] = 1;            // verde — alta forte
       else if (mag >= InpLimiar && !bull)
-         BufColor[i] = 2;              // vermelho — baixa forte
+         BufColor[i] = 2;            // vermelho — baixa forte
       else
-         BufColor[i] = 0;              // branco — neutro
+         BufColor[i] = 0;            // cinza — consolidação
    }
 
-   // Diagnóstico: confirma alinhamento com o histograma
-   double m0 = CalcMag(0, rates_total, atr_buf, open, close, InpPeriodoMom);
-   double m1 = CalcMag(1, rates_total, atr_buf, open, close, InpPeriodoMom);
-   string c0 = ((int)BufColor[0]==1) ? "VERDE" :
-               ((int)BufColor[0]==2) ? "VERM"  :
-               ((int)BufColor[0]==3) ? "AMAR"  : "BRNC";
-   Comment("RAFI v2.03 | mag=" + DoubleToString(m0,2) + " [" + c0 + "]"
-         + "  prev=" + DoubleToString(m1,2)
-         + "  limiar=" + DoubleToString(InpLimiar,1));
+   // Diagnóstico mínimo no canto do gráfico
+   double m0 = Magnitude(0, rates_total, atr, open, close, InpPeriodoMom);
+   double m1 = Magnitude(1, rates_total, atr, open, close, InpPeriodoMom);
+   string c0 = ((int)BufColor[0]==1)?"VERDE":((int)BufColor[0]==2)?"VERM":((int)BufColor[0]==3)?"AMBAR":"CINZA";
+   Comment("RAFI v3.00 | mag=" + DoubleToString(m0,2) + " [" + c0 + "]  prev=" + DoubleToString(m1,2));
 
    return rates_total;
 }
