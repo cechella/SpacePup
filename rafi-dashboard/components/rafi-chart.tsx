@@ -431,8 +431,14 @@ export function RAFIChart({
       // barra ao vivo completamente fora da tela quando os dados têm gap de horas.
       // Se o gráfico já foi exibido antes, restaura o range salvo para não deslocar
       // a visão quando uma nova barra abre e os candles são recarregados.
-      const initialFrom = savedRangeRef.current?.from ?? Math.max(0, candles.length - 75)
-      const initialTo   = savedRangeRef.current?.to   ?? candles.length + 15
+      // Valida o range: se os índices salvos estiverem fora dos limites do novo dataset
+      // (ex.: Supabase→MetaAPI muda de 1440 para 100 candles), ignora e usa o padrão.
+      const _saved = savedRangeRef.current
+      const validSaved = _saved !== null
+        && _saved.to   <= candles.length + 20   // índice de fim dentro dos dados (+margem live)
+        && _saved.from >= -candles.length        // índice de início razoável
+      const initialFrom = validSaved ? _saved!.from : Math.max(0, candles.length - 75)
+      const initialTo   = validSaved ? _saved!.to   : candles.length + 15
       mChart.timeScale().setVisibleLogicalRange({ from: initialFrom, to: initialTo })
 
       // Expõe função de shift para o botão na toolbar (igual ao MT5):
