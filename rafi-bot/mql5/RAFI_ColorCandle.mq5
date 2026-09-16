@@ -25,8 +25,9 @@
 #property indicator_color3  clrRed          // 2 — baixa forte
 #property indicator_color4  clrYellow       // 3 — exaustão
 
-input int InpATRPeriod  = 14; // Período ATR (suavização Wilder)
-input int InpRAFIPeriod =  3; // Janela de momentum (candles atrás)
+input int    InpATRPeriod  = 14;  // Período ATR (suavização Wilder)
+input int    InpRAFIPeriod =  3;  // Janela de momentum (candles atrás)
+input double InpThreshold  = 2.5; // Limiar RAFI para colorir (teste com 1.0 para ver mais)
 
 // Buffers OHLC — DRAW_COLOR_CANDLES exige esta ordem exata
 double CandleOpen[];
@@ -140,14 +141,14 @@ int OnCalculate(const int rates_total,
       bool   isBull  = (close[i] >= open[i]);
 
       // Exaustão: força forte no anterior, colapso brusco agora
-      bool exhaustion = (magPrev >= 2.5) && (mag < 1.0);
+      bool exhaustion = (magPrev >= InpThreshold) && (mag < InpThreshold * 0.4);
 
       if(exhaustion)
-         ColorIndex[i] = 3;              // amarelo — exaustão
-      else if(mag >= 2.5)
-         ColorIndex[i] = isBull ? 1 : 2; // verde (alta) ou vermelho (baixa)
+         ColorIndex[i] = 3;                       // amarelo — exaustão
+      else if(mag >= InpThreshold)
+         ColorIndex[i] = isBull ? 1.0 : 2.0;      // verde (alta) ou vermelho (baixa)
       else
-         ColorIndex[i] = 0;              // cinza — consolidação
+         ColorIndex[i] = 0;                        // cinza — consolidação
    }
 
    return rates_total;
