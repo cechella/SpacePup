@@ -1,13 +1,13 @@
 //+------------------------------------------------------------------+
 //| RAFI_ColorCandle.mq5                                             |
 //| Velas coloridas pelo índice de força RAFI                        |
-//| Verde   = RAFI ≥ +2.5 + candle de alta  (força forte)           |
-//| Vermelho = RAFI ≥ +2.5 + candle de baixa (força forte)          |
-//| Amarelo = exaustão (|RAFI prev| ≥ 2.5 e |RAFI atual| < 1.0)     |
-//| Cinza   = consolidação (|RAFI| < 2.5)                            |
+//| Verde   = RAFI ≥ limiar + candle de alta  (força forte)         |
+//| Vermelho = RAFI ≥ limiar + candle de baixa (força forte)        |
+//| Amarelo = exaustão (mag anterior ≥ limiar e mag atual < 40%)    |
+//| Cinza   = consolidação (RAFI < limiar)                          |
 //+------------------------------------------------------------------+
 #property copyright   "RAFI Bot"
-#property version     "1.00"
+#property version     "1.02"
 #property description "Velas coloridas pelo índice de força RAFI"
 
 #property indicator_chart_window
@@ -27,7 +27,7 @@
 
 input int    InpATRPeriod  = 14;  // Período ATR (suavização Wilder)
 input int    InpRAFIPeriod =  3;  // Janela de momentum (candles atrás)
-input double InpThreshold  = 2.5; // Limiar RAFI para colorir (teste com 1.0 para ver mais)
+input double InpThreshold  = 1.0; // Limiar RAFI (1.0 = moderado; 2.5 = forte)
 
 // Buffers OHLC — DRAW_COLOR_CANDLES exige esta ordem exata
 double CandleOpen[];
@@ -41,6 +41,12 @@ double ColorIndex[];
 // Buffers de cálculo interno — não aparecem no gráfico
 double ATRBuffer[];
 double RAFIBuffer[];
+
+// Cores originais do gráfico (salvas no OnInit para restaurar no OnDeinit)
+color g_colorCandleBull;
+color g_colorCandleBear;
+color g_colorChartUp;
+color g_colorChartDown;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -62,7 +68,32 @@ int OnInit()
    IndicatorSetString(INDICATOR_SHORTNAME, "RAFI Candle");
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
 
+   // ── Esconde candles originais do gráfico ─────────────────────────
+   // O MT5 desenha os candles originais POR CIMA do DRAW_COLOR_CANDLES,
+   // ocultando as cores do indicador. Solução: pintar os candles
+   // originais com a cor de fundo (invisíveis) durante o indicador ativo.
+   g_colorCandleBull = (color)ChartGetInteger(0, CHART_COLOR_CANDLE_BULL);
+   g_colorCandleBear = (color)ChartGetInteger(0, CHART_COLOR_CANDLE_BEAR);
+   g_colorChartUp    = (color)ChartGetInteger(0, CHART_COLOR_CHART_UP);
+   g_colorChartDown  = (color)ChartGetInteger(0, CHART_COLOR_CHART_DOWN);
+
+   color bg = (color)ChartGetInteger(0, CHART_COLOR_BACKGROUND);
+   ChartSetInteger(0, CHART_COLOR_CANDLE_BULL, bg);
+   ChartSetInteger(0, CHART_COLOR_CANDLE_BEAR, bg);
+   ChartSetInteger(0, CHART_COLOR_CHART_UP,    bg);
+   ChartSetInteger(0, CHART_COLOR_CHART_DOWN,  bg);
+
    return INIT_SUCCEEDED;
+}
+
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+{
+   // Restaura as cores originais ao remover o indicador
+   ChartSetInteger(0, CHART_COLOR_CANDLE_BULL, g_colorCandleBull);
+   ChartSetInteger(0, CHART_COLOR_CANDLE_BEAR, g_colorCandleBear);
+   ChartSetInteger(0, CHART_COLOR_CHART_UP,    g_colorChartUp);
+   ChartSetInteger(0, CHART_COLOR_CHART_DOWN,  g_colorChartDown);
 }
 
 //+------------------------------------------------------------------+
@@ -81,7 +112,6 @@ int OnCalculate(const int rates_total,
       return 0;
 
    // ── ATR de Wilder ────────────────────────────────────────────────
-   // Idêntico ao calcATR() em lib/indicators.ts
    int atrStart = (prev_calculated <= InpATRPeriod) ? 1 : prev_calculated - 1;
 
    if(prev_calculated <= InpATRPeriod)
@@ -109,8 +139,6 @@ int OnCalculate(const int rates_total,
    }
 
    // ── RAFI (magnitude absoluta) ────────────────────────────────────
-   // Guarda apenas a magnitude (0–5); a direção vem de close vs open
-   // Idêntico ao calcRAFI() em lib/indicators.ts
    int calcStart = MathMax(atrStart, MathMax(InpATRPeriod, InpRAFIPeriod));
 
    for(int i = calcStart; i < rates_total; i++)
@@ -121,15 +149,15 @@ int OnCalculate(const int rates_total,
       double mom  = MathAbs(close[i] - close[prevIdx]) / close[prevIdx] * 100.0;
       double body = MathAbs(close[i] - open[i]);
       double amp  = ATRBuffer[i] > 0 ? body / ATRBuffer[i] : 0;
-      RAFIBuffer[i] = MathMin(5.0, mom * 25.0 + amp * 3.0); // sempre positivo
+      RAFIBuffer[i] = MathMin(5.0, mom * 25.0 + amp * 3.0);
    }
 
-   // ── Copia OHLC e aplica cor ──────────────────────────────────────
-   // Idêntico ao applyRAFICandleColors() em lib/indicators.ts
-   // Direção: close >= open = alta (bull); close < open = baixa (bear)
-   int colorStart = MathMax(calcStart, 1); // precisa de i-1 para exaustão
+   // ── Copia OHLC e aplica cor — roda em TODAS as barras ────────────
+   // Loop não-incremental: garante que mudanças em InpThreshold
+   // reflitam imediatamente em todo o histórico visível.
+   int minStart = InpATRPeriod + InpRAFIPeriod + 1;
 
-   for(int i = colorStart; i < rates_total; i++)
+   for(int i = minStart; i < rates_total; i++)
    {
       CandleOpen[i]  = open[i];
       CandleHigh[i]  = high[i];
@@ -144,11 +172,11 @@ int OnCalculate(const int rates_total,
       bool exhaustion = (magPrev >= InpThreshold) && (mag < InpThreshold * 0.4);
 
       if(exhaustion)
-         ColorIndex[i] = 3;                       // amarelo — exaustão
+         ColorIndex[i] = 3;                    // amarelo — exaustão
       else if(mag >= InpThreshold)
-         ColorIndex[i] = isBull ? 1.0 : 2.0;      // verde (alta) ou vermelho (baixa)
+         ColorIndex[i] = isBull ? 1.0 : 2.0;   // verde (alta) ou vermelho (baixa)
       else
-         ColorIndex[i] = 0;                        // cinza — consolidação
+         ColorIndex[i] = 0;                    // cinza — consolidação
    }
 
    return rates_total;
