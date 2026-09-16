@@ -276,16 +276,32 @@ export function RAFIChart({
           const rafiValue  = dir === 'bull' ? magnitude : -magnitude
           try {
             const rangeAntes = mChart.timeScale().getVisibleLogicalRange()
+            // Bloqueia propagação rChart→mChart antes do update: o tracking mode
+            // do rChart pode disparar de forma assíncrona (próximo frame de animação),
+            // e sem este guard o range errado sobrescreveria a restauração síncrona.
+            suppressRChartSync = true
             histSeriesRef.current.update({ time: nb.time as any, value: rafiValue, color: '#f59e0b' })
-            // Restaura o range: histSeries.update() pode ativar tracking mode no rChart,
-            // propagando via subscribeVisibleLogicalRangeChange e deslocando o mChart.
+            // Restauração síncrona (cobre o caso em que o auto-scroll já disparou)
             if (rangeAntes && !syncing) {
               syncing = true
               mChart.timeScale().setVisibleLogicalRange(rangeAntes)
-              rChart.timeScale().setVisibleLogicalRange(rangeAntes)
-              savedRangeRef.current = { from: rangeAntes.from, to: rangeAntes.to }
               syncing = false
             }
+            // Restauração assíncrona após 2 frames (cobre o tracking mode assíncrono do rChart)
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                try {
+                  if (rangeAntes) {
+                    syncing = true
+                    mChart.timeScale().setVisibleLogicalRange(rangeAntes)
+                    rChart.timeScale().setVisibleLogicalRange(rangeAntes)
+                    savedRangeRef.current = { from: rangeAntes.from, to: rangeAntes.to }
+                    syncing = false
+                  }
+                } catch {}
+                suppressRChartSync = false
+              })
+            })
           } catch {}
         }
 
@@ -504,6 +520,9 @@ export function RAFIChart({
 
       // Sincroniza escalas de tempo
       let syncing = false
+      // Suprime a propagação rChart→mChart por 2 frames após histSeries.update(),
+      // pois o tracking mode do lightweight-charts pode disparar assincronamente.
+      let suppressRChartSync = false
       // Flags: durante resize de cada painel, bloqueia propagação bidirecional.
       // Sem esses guards, o ResizeObserver recalcula o range a partir do rightOffset e
       // propaga para o outro gráfico, desfazendo o setVisibleLogicalRange inicial.
@@ -520,7 +539,7 @@ export function RAFIChart({
         syncing = true; rChart.timeScale().setVisibleLogicalRange(range); syncing = false
       })
       rChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-        if (syncing || !range || rChartResizing) return
+        if (syncing || !range || rChartResizing || suppressRChartSync) return
         syncing = true; mChart.timeScale().setVisibleLogicalRange(range); syncing = false
       })
 
