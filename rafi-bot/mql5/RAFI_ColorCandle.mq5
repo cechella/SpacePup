@@ -20,10 +20,10 @@
 #property indicator_width1  1
 
 // Índice de cor: 0=Cinza | 1=Verde | 2=Vermelho | 3=Amarelo
-#property indicator_color1  clrDarkGray     // 0 — consolidação
+#property indicator_color1  clrGray         // 0 — consolidação
 #property indicator_color2  clrLimeGreen    // 1 — alta forte
-#property indicator_color3  clrTomato       // 2 — baixa forte
-#property indicator_color4  clrGoldenrod    // 3 — exaustão
+#property indicator_color3  clrRed          // 2 — baixa forte
+#property indicator_color4  clrYellow       // 3 — exaustão
 
 input int InpATRPeriod  = 14; // Período ATR (suavização Wilder)
 input int InpRAFIPeriod =  3; // Janela de momentum (candles atrás)
@@ -107,9 +107,9 @@ int OnCalculate(const int rates_total,
       ATRBuffer[i] = (ATRBuffer[i-1] * (InpATRPeriod - 1) + tr) / InpATRPeriod;
    }
 
-   // ── RAFI (magnitude com sinal) ───────────────────────────────────
+   // ── RAFI (magnitude absoluta) ────────────────────────────────────
+   // Guarda apenas a magnitude (0–5); a direção vem de close vs open
    // Idêntico ao calcRAFI() em lib/indicators.ts
-   // valor positivo = alta | negativo = baixa
    int calcStart = MathMax(atrStart, MathMax(InpATRPeriod, InpRAFIPeriod));
 
    for(int i = calcStart; i < rates_total; i++)
@@ -120,14 +120,12 @@ int OnCalculate(const int rates_total,
       double mom  = MathAbs(close[i] - close[prevIdx]) / close[prevIdx] * 100.0;
       double body = MathAbs(close[i] - open[i]);
       double amp  = ATRBuffer[i] > 0 ? body / ATRBuffer[i] : 0;
-      double mag  = MathMin(5.0, mom * 25.0 + amp * 3.0);
-
-      bool bull = close[i] >= open[i];
-      RAFIBuffer[i] = bull ? mag : -mag;
+      RAFIBuffer[i] = MathMin(5.0, mom * 25.0 + amp * 3.0); // sempre positivo
    }
 
    // ── Copia OHLC e aplica cor ──────────────────────────────────────
    // Idêntico ao applyRAFICandleColors() em lib/indicators.ts
+   // Direção: close >= open = alta (bull); close < open = baixa (bear)
    int colorStart = MathMax(calcStart, 1); // precisa de i-1 para exaustão
 
    for(int i = colorStart; i < rates_total; i++)
@@ -137,18 +135,19 @@ int OnCalculate(const int rates_total,
       CandleLow[i]   = low[i];
       CandleClose[i] = close[i];
 
-      double rafiCurr = RAFIBuffer[i];
-      double rafiPrev = RAFIBuffer[i - 1];
+      double mag     = RAFIBuffer[i];
+      double magPrev = RAFIBuffer[i - 1];
+      bool   isBull  = (close[i] >= open[i]);
 
       // Exaustão: força forte no anterior, colapso brusco agora
-      bool exhaustion = (MathAbs(rafiPrev) >= 2.5) && (MathAbs(rafiCurr) < 1.0);
+      bool exhaustion = (magPrev >= 2.5) && (mag < 1.0);
 
       if(exhaustion)
-         ColorIndex[i] = 3;                           // amarelo — exaustão
-      else if(MathAbs(rafiCurr) >= 2.5)
-         ColorIndex[i] = (rafiCurr > 0) ? 1 : 2;     // verde ou vermelho
+         ColorIndex[i] = 3;              // amarelo — exaustão
+      else if(mag >= 2.5)
+         ColorIndex[i] = isBull ? 1 : 2; // verde (alta) ou vermelho (baixa)
       else
-         ColorIndex[i] = 0;                           // cinza — consolidação
+         ColorIndex[i] = 0;              // cinza — consolidação
    }
 
    return rates_total;
