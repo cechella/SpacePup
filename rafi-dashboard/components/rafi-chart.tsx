@@ -213,8 +213,10 @@ export function RAFIChart({
         // Funciona para ambos os casos:
         //   (a) MetaAPI retornou a barra atual como último dado → liveBarTime === lastBarTime
         //   (b) MetaAPI retornou a última barra fechada → liveBarTime === lastBarTime + tfSec
+        // +10800 = UTC+3 (Pepperstone broker time), igual ao offset dos candles da API
+        const BROKER_OFFSET = 3 * 3600
         const nowSec      = Math.floor(Date.now() / 1000)
-        const liveBarTime = Math.floor(nowSec / tfSec) * tfSec
+        const liveBarTime = Math.floor(nowSec / tfSec) * tfSec + BROKER_OFFSET
 
         // Se a barra virou (nova barra abriu), reseta o acumulador da barra ao vivo.
         // Sem este reset, o código atualizaria a barra fechada anterior indefinidamente.

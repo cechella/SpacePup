@@ -40,9 +40,11 @@ export async function GET(req: Request) {
     const raw = await res.json()
     const arr = Array.isArray(raw) ? raw : (raw.candles ?? [])
 
+    // Pepperstone usa UTC+3 — converte timestamps para horário broker (igual ao MT5)
+    const BROKER_OFFSET = 3 * 3600
     const candles = arr
       .map((c: any) => ({
-        time:   new Date(c.time).getTime() / 1000,
+        time:   new Date(c.time).getTime() / 1000 + BROKER_OFFSET,
         open:   c.open,
         high:   c.high,
         low:    c.low,
