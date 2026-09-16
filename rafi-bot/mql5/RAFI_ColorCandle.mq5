@@ -7,7 +7,7 @@
 //| Cinza   = consolidação (RAFI < limiar)                          |
 //+------------------------------------------------------------------+
 #property copyright   "RAFI Bot"
-#property version     "1.02"
+#property version     "1.03"
 #property description "Velas coloridas pelo índice de força RAFI"
 
 #property indicator_chart_window
@@ -25,8 +25,8 @@
 #property indicator_color3  clrRed          // 2 — baixa forte
 #property indicator_color4  clrYellow       // 3 — exaustão
 
-input int    InpATRPeriod  = 14;  // Período ATR (suavização Wilder)
-input int    InpRAFIPeriod =  3;  // Janela de momentum (candles atrás)
+input int    InpATRPeriod  = 14;
+input int    InpRAFIPeriod =  3;
 input double InpThreshold  = 1.0; // Limiar RAFI (1.0 = moderado; 2.5 = forte)
 
 // Buffers OHLC — DRAW_COLOR_CANDLES exige esta ordem exata
@@ -35,32 +35,26 @@ double CandleHigh[];
 double CandleLow[];
 double CandleClose[];
 
-// Buffer de índice de cor (INDICATOR_COLOR_INDEX)
+// Buffer de índice de cor
 double ColorIndex[];
 
-// Buffers de cálculo interno — não aparecem no gráfico
+// Buffers de cálculo interno
 double ATRBuffer[];
 double RAFIBuffer[];
 
-// Cores originais do gráfico (salvas no OnInit para restaurar no OnDeinit)
-color g_colorCandleBull;
-color g_colorCandleBear;
-color g_colorChartUp;
-color g_colorChartDown;
+// Estado original do gráfico salvo no OnInit
+ENUM_CHART_MODE g_chartMode;
+color g_colorChartLine;
 
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   // ── Buffers de dados do candle ───────────────────────────────────
+   // ── Registra buffers ─────────────────────────────────────────────
    SetIndexBuffer(0, CandleOpen,  INDICATOR_DATA);
    SetIndexBuffer(1, CandleHigh,  INDICATOR_DATA);
    SetIndexBuffer(2, CandleLow,   INDICATOR_DATA);
    SetIndexBuffer(3, CandleClose, INDICATOR_DATA);
-
-   // ── Buffer de cor ────────────────────────────────────────────────
    SetIndexBuffer(4, ColorIndex,  INDICATOR_COLOR_INDEX);
-
-   // ── Buffers de cálculo (invisíveis) ─────────────────────────────
    SetIndexBuffer(5, ATRBuffer,   INDICATOR_CALCULATIONS);
    SetIndexBuffer(6, RAFIBuffer,  INDICATOR_CALCULATIONS);
 
@@ -68,20 +62,17 @@ int OnInit()
    IndicatorSetString(INDICATOR_SHORTNAME, "RAFI Candle");
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
 
-   // ── Esconde candles originais do gráfico ─────────────────────────
-   // O MT5 desenha os candles originais POR CIMA do DRAW_COLOR_CANDLES,
-   // ocultando as cores do indicador. Solução: pintar os candles
-   // originais com a cor de fundo (invisíveis) durante o indicador ativo.
-   g_colorCandleBull = (color)ChartGetInteger(0, CHART_COLOR_CANDLE_BULL);
-   g_colorCandleBear = (color)ChartGetInteger(0, CHART_COLOR_CANDLE_BEAR);
-   g_colorChartUp    = (color)ChartGetInteger(0, CHART_COLOR_CHART_UP);
-   g_colorChartDown  = (color)ChartGetInteger(0, CHART_COLOR_CHART_DOWN);
+   // ── Muda gráfico para modo LINHA e esconde a linha ───────────────
+   // Motivo: no MT5, os candles originais ficam ACIMA do DRAW_COLOR_CANDLES
+   // e ocultam as cores. Mudar para modo LINHA remove os candles/barras
+   // originais; os candles coloridos do indicador ficam visíveis.
+   g_chartMode     = (ENUM_CHART_MODE)ChartGetInteger(0, CHART_MODE);
+   g_colorChartLine = (color)ChartGetInteger(0, CHART_COLOR_CHART_LINE);
 
    color bg = (color)ChartGetInteger(0, CHART_COLOR_BACKGROUND);
-   ChartSetInteger(0, CHART_COLOR_CANDLE_BULL, bg);
-   ChartSetInteger(0, CHART_COLOR_CANDLE_BEAR, bg);
-   ChartSetInteger(0, CHART_COLOR_CHART_UP,    bg);
-   ChartSetInteger(0, CHART_COLOR_CHART_DOWN,  bg);
+   ChartSetInteger(0, CHART_MODE, CHART_LINE);
+   ChartSetInteger(0, CHART_COLOR_CHART_LINE, bg); // esconde a linha de fechamento
+   ChartRedraw(0);
 
    return INIT_SUCCEEDED;
 }
@@ -89,11 +80,10 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
-   // Restaura as cores originais ao remover o indicador
-   ChartSetInteger(0, CHART_COLOR_CANDLE_BULL, g_colorCandleBull);
-   ChartSetInteger(0, CHART_COLOR_CANDLE_BEAR, g_colorCandleBear);
-   ChartSetInteger(0, CHART_COLOR_CHART_UP,    g_colorChartUp);
-   ChartSetInteger(0, CHART_COLOR_CHART_DOWN,  g_colorChartDown);
+   // Restaura gráfico ao modo e cor originais
+   ChartSetInteger(0, CHART_MODE, g_chartMode);
+   ChartSetInteger(0, CHART_COLOR_CHART_LINE, g_colorChartLine);
+   ChartRedraw(0);
 }
 
 //+------------------------------------------------------------------+
@@ -111,7 +101,7 @@ int OnCalculate(const int rates_total,
    if(rates_total < InpATRPeriod + InpRAFIPeriod + 1)
       return 0;
 
-   // ── ATR de Wilder ────────────────────────────────────────────────
+   // ── ATR de Wilder (incremental) ──────────────────────────────────
    int atrStart = (prev_calculated <= InpATRPeriod) ? 1 : prev_calculated - 1;
 
    if(prev_calculated <= InpATRPeriod)
@@ -138,7 +128,7 @@ int OnCalculate(const int rates_total,
       ATRBuffer[i] = (ATRBuffer[i-1] * (InpATRPeriod - 1) + tr) / InpATRPeriod;
    }
 
-   // ── RAFI (magnitude absoluta) ────────────────────────────────────
+   // ── RAFI (magnitude absoluta, incremental) ───────────────────────
    int calcStart = MathMax(atrStart, MathMax(InpATRPeriod, InpRAFIPeriod));
 
    for(int i = calcStart; i < rates_total; i++)
@@ -152,9 +142,8 @@ int OnCalculate(const int rates_total,
       RAFIBuffer[i] = MathMin(5.0, mom * 25.0 + amp * 3.0);
    }
 
-   // ── Copia OHLC e aplica cor — roda em TODAS as barras ────────────
-   // Loop não-incremental: garante que mudanças em InpThreshold
-   // reflitam imediatamente em todo o histórico visível.
+   // ── Cores — roda em TODAS as barras (não incremental) ────────────
+   // Garante que mudanças em InpThreshold reflitam em todo o histórico
    int minStart = InpATRPeriod + InpRAFIPeriod + 1;
 
    for(int i = minStart; i < rates_total; i++)
