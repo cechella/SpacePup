@@ -275,7 +275,17 @@ export function RAFIChart({
           const magnitude  = Math.min(5, mom * 25 + amp * 3)
           const rafiValue  = dir === 'bull' ? magnitude : -magnitude
           try {
+            const rangeAntes = mChart.timeScale().getVisibleLogicalRange()
             histSeriesRef.current.update({ time: nb.time as any, value: rafiValue, color: '#f59e0b' })
+            // Restaura o range: histSeries.update() pode ativar tracking mode no rChart,
+            // propagando via subscribeVisibleLogicalRangeChange e deslocando o mChart.
+            if (rangeAntes && !syncing) {
+              syncing = true
+              mChart.timeScale().setVisibleLogicalRange(rangeAntes)
+              rChart.timeScale().setVisibleLogicalRange(rangeAntes)
+              savedRangeRef.current = { from: rangeAntes.from, to: rangeAntes.to }
+              syncing = false
+            }
           } catch {}
         }
 
