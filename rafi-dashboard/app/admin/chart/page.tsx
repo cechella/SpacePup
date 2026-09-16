@@ -642,24 +642,18 @@ export default function ChartPage() {
     return () => clearInterval(id)
   }, [metaConnected, tf, loadCandlesFromMetaAPI])
 
-  // Countdown regressivo ancorado no timestamp real do último candle
-  // Usa csvData (declarado antes dos effects) para evitar referência fora de ordem
+  // Countdown regressivo até o fechamento do candle atual: tfSec - (now % tfSec)
+  // Ancorado no relógio UTC, não no timestamp do último candle recebido (que já está fechado)
   useEffect(() => {
     const tfSec = tf === 'M5' ? 300 : tf === 'M15' ? 900 : 3600
     const tick = () => {
       const nowSec = Math.floor(Date.now() / 1000)
-      const rows = csvData?.candles
-      const lt = rows && rows.length > 0 ? rows[rows.length - 1].time : 0
-      if (lt > 0) {
-        setCandleCountdown(Math.max(0, lt + tfSec - nowSec))
-      } else {
-        setCandleCountdown(tfSec - (nowSec % tfSec))
-      }
+      setCandleCountdown(tfSec - (nowSec % tfSec))
     }
     tick()
     const id = setInterval(tick, 1_000)
     return () => clearInterval(id)
-  }, [tf, csvData])
+  }, [tf])
 
   // Fecha o painel de histórico ao clicar fora
   useEffect(() => {

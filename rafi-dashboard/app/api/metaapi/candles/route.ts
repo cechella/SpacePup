@@ -21,12 +21,10 @@ export async function GET(req: Request) {
 
   const tf = TF_MAP[timeframe] ?? TF_MAP['M5']
 
-  // janela 3× maior para garantir N candles mesmo com fins de semana/sessões fechadas
-  const windowMs  = limit * tf.minutes * 60 * 1000 * 3
-  const startTime = new Date(Date.now() - windowMs).toISOString()
-
+  // Sem startTime → MetaAPI retorna os N candles mais recentes (igual ao SDK)
+  // Com startTime fixo em 25h atrás + limit=100, a API retornava os 100 MAIS ANTIGOS da janela
   try {
-    const url = `${BASE}/users/current/accounts/${ACCOUNT}/historical-market-data/symbols/${symbol}/timeframes/${tf.rest}/candles?startTime=${encodeURIComponent(startTime)}&limit=${limit}`
+    const url = `${BASE}/users/current/accounts/${ACCOUNT}/historical-market-data/symbols/${symbol}/timeframes/${tf.rest}/candles?limit=${limit}`
 
     const res = await fetch(url, {
       headers: { 'auth-token': TOKEN },
