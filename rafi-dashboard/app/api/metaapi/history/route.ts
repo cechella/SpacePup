@@ -51,6 +51,10 @@ export async function GET(req: Request) {
         id:      d.id,
         symbol:  d.symbol,
         type:    d.type,
+        // DEAL_ENTRY_OUT: o tipo da deal de saída é OPOSTO à posição original.
+        // DEAL_TYPE_SELL ao fechar = posição original era BUY (vendeu para fechar a compra).
+        // DEAL_TYPE_BUY  ao fechar = posição original era SELL (comprou para fechar a venda).
+        direction: d.type === 'DEAL_TYPE_SELL' ? 'buy' : 'sell',
         volume:  d.volume,
         price:   d.price,
         profit:  d.profit ?? 0,

@@ -137,7 +137,7 @@ export default function ChartPage() {
   const [botAlerts,  setBotAlerts]  = useState<Array<{ id: string; kind: 'open' | 'close'; text: string }>>([])
   // Histórico de trades fechados da Pepperstone
   const [metaHistory, setMetaHistory] = useState<Array<{
-    id: string; symbol: string; type: string
+    id: string; symbol: string; type: string; direction: 'buy' | 'sell'
     volume: number; price: number; profit: number; time: string; comment: string
   }>>([])
   const [historyPeriod,  setHistoryPeriod]  = useState<'today' | '7d' | '30d' | '3m'>('7d')
@@ -1919,7 +1919,7 @@ export default function ChartPage() {
                   </thead>
                   <tbody className="divide-y divide-[#21262d]/50">
                     {metaHistory.map(deal => {
-                      const isBuy  = deal.type === 'DEAL_TYPE_BUY'
+                      const isBuy  = deal.direction === 'buy'
                       const isWin  = deal.profit > 0
                       const isLoss = deal.profit < 0
                       const color  = isWin ? '#22c55e' : isLoss ? '#ef4444' : '#8b949e'
@@ -2238,7 +2238,7 @@ export default function ChartPage() {
             {/* Lista de trades */}
             <div className="divide-y divide-[#21262d]">
               {metaHistory.map(deal => {
-                const isBuy  = deal.type === 'DEAL_TYPE_BUY'
+                const isBuy  = deal.direction === 'buy'
                 const isWin  = deal.profit > 0
                 const isLoss = deal.profit < 0
                 const color  = isWin ? '#22c55e' : isLoss ? '#ef4444' : '#8b949e'
