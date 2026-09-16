@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //| RAFI_ColorCandle.mq5                                             |
-//| Fórmula e cores IDÊNTICAS ao site space-pup.vercel.app           |
-//| Código fonte: rafi-dashboard/lib/indicators.ts → applyRAFICandleColors |
+//| v4.00 — fix de z-order: muda gráfico para LINHA (invisível) e   |
+//|         deixa apenas os candles do indicador visíveis.           |
 //|                                                                  |
 //|  #d1d5db  cinza   — consolidação (RAFI < 2.5)                   |
 //|  #22c55e  verde   — RAFI ≥ 2.5 + alta                          |
@@ -9,25 +9,22 @@
 //|  #f59e0b  âmbar   — exaustão (mag anterior ≥ 2.5, atual < 1.0) |
 //+------------------------------------------------------------------+
 #property copyright   "RAFI Bot"
-#property version     "3.00"
+#property version     "4.00"
 #property indicator_chart_window
 #property indicator_buffers 5
 #property indicator_plots   1
 
 #property indicator_label1  "Open;High;Low;Close"
 #property indicator_type1   DRAW_CANDLES
-// Cores idênticas ao site (C'R,G,B'):
-//   0 = #D1D5DB cinza-consolidação
-//   1 = #22C55E verde-alta
-//   2 = #EF4444 vermelho-baixa
-//   3 = #F59E0B âmbar-exaustão
+//   0 = #D1D5DB cinza    1 = #22C55E verde
+//   2 = #EF4444 vermelho  3 = #F59E0B âmbar
 #property indicator_color1  C'209,213,219', C'34,197,94', C'239,68,68', C'245,158,11'
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  1
 
 input int    InpPeriodoATR  = 14;   // Período ATR (Wilder)
 input int    InpPeriodoMom  = 3;    // Janela de momentum (barras atrás)
-input double InpLimiar      = 2.50; // Limiar de força forte (igual ao histograma)
+input double InpLimiar      = 2.50; // Limiar de força forte
 
 double BufOpen[];
 double BufHigh[];
@@ -36,6 +33,9 @@ double BufClose[];
 double BufColor[];   // 0=cinza  1=verde  2=vermelho  3=âmbar
 
 int    hATR;
+// Estado original do gráfico — restaurado no OnDeinit
+long   g_ChartMode;
+color  g_LineColor;
 color  g_Bull, g_Bear, g_Up, g_Down;
 
 //+------------------------------------------------------------------+
@@ -51,25 +51,39 @@ int OnInit()
    hATR = iATR(_Symbol, _Period, InpPeriodoATR);
    if (hATR == INVALID_HANDLE) { Print("iATR falhou"); return INIT_FAILED; }
 
-   // Esconde candles originais — sem isso, eles cobrem cinza e âmbar
-   g_Bull = (color)ChartGetInteger(0, CHART_COLOR_CANDLE_BULL);
-   g_Bear = (color)ChartGetInteger(0, CHART_COLOR_CANDLE_BEAR);
-   g_Up   = (color)ChartGetInteger(0, CHART_COLOR_CHART_UP);
-   g_Down = (color)ChartGetInteger(0, CHART_COLOR_CHART_DOWN);
+   // ── Salva estado original ────────────────────────────────────────
+   g_ChartMode = ChartGetInteger(0, CHART_MODE);
+   g_LineColor = (color)ChartGetInteger(0, CHART_COLOR_CHART_LINE);
+   g_Bull      = (color)ChartGetInteger(0, CHART_COLOR_CANDLE_BULL);
+   g_Bear      = (color)ChartGetInteger(0, CHART_COLOR_CANDLE_BEAR);
+   g_Up        = (color)ChartGetInteger(0, CHART_COLOR_CHART_UP);
+   g_Down      = (color)ChartGetInteger(0, CHART_COLOR_CHART_DOWN);
+
    color bg = (color)ChartGetInteger(0, CHART_COLOR_BACKGROUND);
+
+   // ── FIX Z-ORDER ─────────────────────────────────────────────────
+   // O MT5 renderiza os candles originais SOBRE o indicador (z-order).
+   // Solução: trocar para modo LINHA e tornar a linha invisível.
+   // Assim os candles do indicador são os únicos visíveis no gráfico.
+   ChartSetInteger(0, CHART_MODE, CHART_LINE);        // remove candles originais
+   ChartSetInteger(0, CHART_COLOR_CHART_LINE,  bg);   // esconde a linha de fechamento
+   // Redundância — caso o usuário troque o modo manualmente:
    ChartSetInteger(0, CHART_COLOR_CANDLE_BULL, bg);
    ChartSetInteger(0, CHART_COLOR_CANDLE_BEAR, bg);
    ChartSetInteger(0, CHART_COLOR_CHART_UP,    bg);
    ChartSetInteger(0, CHART_COLOR_CHART_DOWN,  bg);
    ChartRedraw(0);
 
-   IndicatorSetString(INDICATOR_SHORTNAME, "RAFI Candles");
+   IndicatorSetString(INDICATOR_SHORTNAME, "RAFI Candles v4");
    return INIT_SUCCEEDED;
 }
 
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
+   // Restaura modo e cores originais do gráfico
+   ChartSetInteger(0, CHART_MODE,              g_ChartMode);
+   ChartSetInteger(0, CHART_COLOR_CHART_LINE,  g_LineColor);
    ChartSetInteger(0, CHART_COLOR_CANDLE_BULL, g_Bull);
    ChartSetInteger(0, CHART_COLOR_CANDLE_BEAR, g_Bear);
    ChartSetInteger(0, CHART_COLOR_CHART_UP,    g_Up);
@@ -84,7 +98,7 @@ void OnDeinit(const int reason)
 // Fórmula:
 //   mom = |close[i] - close[i+period]| / close[i+period] * 100
 //   amp = |close[i] - open[i]| / ATR[i]
-//   mag = min(5, mom * 25 + amp * 3)
+//   mag = min(5, mom*25 + amp*3)
 // Indexação AS_SERIES: i=0 = barra atual; i+N = N barras atrás.
 double Magnitude(const int i, const int total,
                  const double &atr[],
@@ -155,11 +169,10 @@ int OnCalculate(const int rates_total,
          BufColor[i] = 0;            // cinza — consolidação
    }
 
-   // Diagnóstico mínimo no canto do gráfico
    double m0 = Magnitude(0, rates_total, atr, open, close, InpPeriodoMom);
    double m1 = Magnitude(1, rates_total, atr, open, close, InpPeriodoMom);
    string c0 = ((int)BufColor[0]==1)?"VERDE":((int)BufColor[0]==2)?"VERM":((int)BufColor[0]==3)?"AMBAR":"CINZA";
-   Comment("RAFI v3.00 | mag=" + DoubleToString(m0,2) + " [" + c0 + "]  prev=" + DoubleToString(m1,2));
+   Comment("RAFI v4.00 | mag=" + DoubleToString(m0,2) + " [" + c0 + "]  prev=" + DoubleToString(m1,2));
 
    return rates_total;
 }
