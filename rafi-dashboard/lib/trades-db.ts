@@ -18,6 +18,13 @@ export interface TradeRecord {
   rafiDir?: 'bull' | 'bear'
   bbWidth?: number
   snapshot?: string
+  pnlUsd?: number
+  capitalInicial?: number
+  // Contexto de sessão para aprendizado da IA
+  overlapPhase?:  'early' | 'mid' | 'late' | null
+  sessionMinute?: number | null
+  dayOfWeek?:     0 | 1 | 2 | 3 | null
+  entryType?:     'manual' | 'bot'
 }
 
 function fromRow(row: Record<string, unknown>): TradeRecord {
@@ -36,6 +43,12 @@ function fromRow(row: Record<string, unknown>): TradeRecord {
     rafiDir:    (row.rafi_dir as TradeRecord['rafiDir']) ?? undefined,
     bbWidth:    row.bb_width != null ? Number(row.bb_width) : undefined,
     snapshot:   (row.snapshot as string) ?? undefined,
+    pnlUsd:        row.pnl_usd != null ? Number(row.pnl_usd) : row.pnl != null ? Number(row.pnl) : undefined,
+    capitalInicial: row.capital_inicial != null ? Number(row.capital_inicial) : undefined,
+    overlapPhase:  (row.overlap_phase as TradeRecord['overlapPhase']) ?? undefined,
+    sessionMinute: row.session_minute != null ? Number(row.session_minute) : undefined,
+    dayOfWeek:     row.day_of_week != null ? Number(row.day_of_week) as 0|1|2|3 : undefined,
+    entryType:     (row.entry_type as TradeRecord['entryType']) ?? undefined,
   }
 }
 
@@ -55,7 +68,13 @@ function toRow(t: TradeRecord) {
     rafi_dir:    t.rafiDir ?? null,
     bb_width:    t.bbWidth ?? null,
     snapshot:    t.snapshot ?? null,
-    updated_at:  new Date().toISOString(),
+    pnl_usd:         t.pnlUsd ?? null,
+    capital_inicial: t.capitalInicial ?? null,
+    overlap_phase:   t.overlapPhase  ?? null,
+    session_minute:  t.sessionMinute ?? null,
+    day_of_week:     t.dayOfWeek     ?? null,
+    entry_type:      t.entryType     ?? 'manual',
+    updated_at:      new Date().toISOString(),
   }
 }
 
@@ -93,4 +112,59 @@ export async function updateTradeResult(id: string, result: 'win' | 'loss'): Pro
     .update({ result, updated_at: new Date().toISOString() })
     .eq('id', id)
   if (error) throw error
+}
+
+// ── Candles do Supabase (tabela rafi_candles) ─────────────────────────────────
+export interface CandleRow {
+  time:   number
+  open:   number
+  high:   number
+  low:    number
+  close:  number
+  volume?: number
+}
+
+export async function fetchCandles(): Promise<CandleRow[]> {
+  const db = createClient()
+  const { data, error } = await db
+    .from('rafi_candles')
+    .select('time,open,high,low,close,volume')
+    .order('time', { ascending: true })
+  if (error) throw error
+  return (data ?? []).map(r => ({
+    time:   Number(r.time),
+    open:   Number(r.open),
+    high:   Number(r.high),
+    low:    Number(r.low),
+    close:  Number(r.close),
+    volume: r.volume != null ? Number(r.volume) : undefined,
+  }))
+}
+
+export async function countCandles(): Promise<number> {
+  const db = createClient()
+  const { count, error } = await db
+    .from('rafi_candles')
+    .select('*', { count: 'exact', head: true })
+  if (error) return 0
+  return count ?? 0
+}
+
+// Salva candles no Supabase em lotes de 500 (upsert por time)
+export async function saveCandles(candles: CandleRow[]): Promise<void> {
+  if (!candles.length) return
+  const db = createClient()
+  const BATCH = 500
+  for (let i = 0; i < candles.length; i += BATCH) {
+    const batch = candles.slice(i, i + BATCH).map(c => ({
+      time:   c.time,
+      open:   c.open,
+      high:   c.high,
+      low:    c.low,
+      close:  c.close,
+      volume: c.volume ?? 0,
+    }))
+    const { error } = await db.from('rafi_candles').upsert(batch, { onConflict: 'time' })
+    if (error) throw error
+  }
 }

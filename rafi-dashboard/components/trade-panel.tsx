@@ -18,11 +18,17 @@ export interface ManualTrade {
   lot:        number
   leverage:   number
   result?:    'win' | 'loss' | 'pending'
-  // Features para ML
-  rafi?:      number
-  rafiDir?:   'bull' | 'bear'
-  bbWidth?:   number
-  snapshot?:  string  // miniatura JPEG base64 do gráfico no momento do trade
+  // Features para ML (indicadores técnicos)
+  rafi?:         number
+  rafiDir?:      'bull' | 'bear'
+  bbWidth?:      number
+  snapshot?:     string  // miniatura JPEG base64 do gráfico no momento do trade
+  pnlUsd?:       number  // P&L real do backtest (pip a pip); quando presente, sobrepõe o recálculo do dashboard
+  // Contexto de sessão — aprendizado da IA
+  overlapPhase?: 'early' | 'mid' | 'late' | null  // fase do overlap London+NY
+  sessionMinute?: number | null  // minutos desde 13:30 UTC (0-180)
+  dayOfWeek?:    0 | 1 | 2 | 3 | null  // Seg=0 Ter=1 Qua=2 Qui=3
+  entryType?:    'manual' | 'bot'
 }
 
 interface Props {
@@ -33,6 +39,8 @@ interface Props {
   lastPrice?:      number
   lastCandleTime?: number
   externalEntry?:  number | null
+  freeMargin?:     number | null  // margem livre da conta (MetaAPI, atualizado a cada 5s)
+  livePrice?:      number | null  // preço ao vivo via SSE para cálculo de margem em tempo real
 }
 
 const LOT_PRESETS = [0.01, 0.10, 0.50, 1.00]
@@ -77,6 +85,7 @@ function exportCSV(trades: ManualTrade[]) {
 
 export function TradePanel({
   trades, onAdd, onRemove, onUpdate, lastPrice = 0, lastCandleTime, externalEntry,
+  freeMargin, livePrice,
 }: Props) {
   const [direction, setDirection] = useState<'buy' | 'sell'>('buy')
   const [entry,     setEntry]     = useState('')
@@ -130,6 +139,15 @@ export function TradePanel({
   const usdProfit = reward * pv
   const margin    = hasValues && eNum > 0 ? (lNum * 100000 * eNum) / levNum : 0
   const riskPct   = capNum > 0 ? (usdRisk / capNum) * 100 : 0
+
+  // Calculadora de margem ao vivo — usa preço SSE; cai para lastPrice se SSE não iniciou
+  const mktPrice     = (livePrice ?? lastPrice) || 0
+  const maxLot       = freeMargin != null && freeMargin > 0 && mktPrice > 0
+    ? Math.floor((freeMargin * levNum) / (100000 * mktPrice) * 100) / 100
+    : 0
+  const marginNeeded = mktPrice > 0 ? (lNum * 100000 * mktPrice) / levNum : 0
+  const marginPct    = freeMargin != null && freeMargin > 0 ? Math.min((marginNeeded / freeMargin) * 100, 100) : 0
+  const marginOk     = freeMargin == null || marginNeeded <= freeMargin
 
   return (
     <div className="flex flex-col h-full bg-[#161b22] border-l border-[#30363d]">
@@ -233,6 +251,58 @@ export function TradePanel({
           />
         </div>
 
+        {/* Calculadora de Margem ao vivo */}
+        {freeMargin != null && freeMargin > 0 && mktPrice > 0 && (
+          <div className="rounded-lg border border-[#30363d] bg-[#0d1117] p-3 space-y-2">
+            <div className="text-[10px] text-[#484f58] uppercase tracking-wide font-semibold">Margem · Pepperstone</div>
+
+            <div className="flex justify-between items-center text-[10px]">
+              <span className="text-[#484f58]">Margem livre</span>
+              <span className="mono font-semibold text-[#f0f6fc]">${freeMargin.toFixed(2)}</span>
+            </div>
+
+            <div className="flex justify-between items-center text-[10px]">
+              <span className="text-[#484f58]">Lote máximo</span>
+              <div className="flex items-center gap-1.5">
+                <span className="mono font-semibold text-amber-400">{maxLot.toFixed(2)}L</span>
+                <button
+                  type="button"
+                  onClick={() => setLot(maxLot.toFixed(2))}
+                  className="text-[9px] px-1.5 py-0.5 rounded border border-[#3b82f6]/40 text-[#3b82f6] hover:bg-[#3b82f6]/10 transition-all"
+                >→ usar</button>
+              </div>
+            </div>
+
+            <div className={cn(
+              'flex justify-between items-center text-[10px] border-t border-[#30363d] pt-2',
+              marginOk ? '' : 'text-red-400',
+            )}>
+              <span className="text-[#484f58]">Margem necessária</span>
+              <span className={cn('mono font-semibold', marginOk ? 'text-emerald-400' : 'text-red-400')}>
+                ${marginNeeded.toFixed(2)}
+                {!marginOk && <span className="text-[8px] ml-1">⚠</span>}
+              </span>
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex justify-between text-[9px]">
+                <span className="text-[#484f58]">Uso da margem</span>
+                <span className={cn('mono font-semibold',
+                  marginPct <= 70 ? 'text-emerald-400' : marginPct <= 90 ? 'text-amber-400' : 'text-red-400'
+                )}>{marginPct.toFixed(0)}%</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-[#21262d] overflow-hidden">
+                <div
+                  className={cn('h-full rounded-full transition-all duration-300',
+                    marginPct <= 70 ? 'bg-emerald-500' : marginPct <= 90 ? 'bg-amber-500' : 'bg-red-500'
+                  )}
+                  style={{ width: `${marginPct}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Alavancagem */}
         <div className="space-y-1.5">
           <label className="text-[10px] text-[#484f58] uppercase tracking-wide">Alavancagem</label>
@@ -320,9 +390,14 @@ export function TradePanel({
           </div>
         )}
 
+        {!marginOk && freeMargin != null && (
+          <div className="text-[10px] text-red-400 text-center py-1">
+            ⚠ Margem insuficiente para este lote
+          </div>
+        )}
         <button
           onClick={handleAdd}
-          disabled={!hasValues || risk <= 0}
+          disabled={!hasValues || risk <= 0 || !marginOk}
           className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold bg-[#3b82f6] hover:bg-[#2563eb] text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Plus size={12} /> Adicionar Ordem OCO

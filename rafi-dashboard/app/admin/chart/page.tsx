@@ -6,11 +6,14 @@ import { generateDemoData, type Timeframe } from '@/lib/demo-data'
 import { calcRAFI, calcSRLevels, calcBollingerBands, autoScanBreakouts } from '@/lib/indicators'
 import { parseCSV, detectTimeframe, fmtDate, type LoadResult } from '@/lib/csv-loader'
 import { TradePanel, type ManualTrade } from '@/components/trade-panel'
+import { SessionSidebar } from '@/components/session-sidebar'
+import { CheckinModal, type CheckinResult } from '@/components/checkin-modal'
 import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
 import { getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
-import { upsertTrade } from '@/lib/trades-db'
-import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine } from 'lucide-react'
+import { upsertTrade, fetchTrades, fetchCandles, countCandles } from '@/lib/trades-db'
+import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine, History, ChevronDown, Trash2, Database, Menu } from 'lucide-react'
+import type { CandleData } from '@/lib/types'
 import { generateTradeSnapshot } from '@/lib/trade-snapshot'
 
 const RAFIChart = dynamic(
@@ -34,11 +37,13 @@ const OCO_LEVERAGE = 1000
 const BASE_CAPITAL = 100  // capital inicial em USD
 
 // OCO com lote calculado pela tabela de escalonamento
+// Padrão: 10 pips SL · 30 pips TP → R:R 1:3 fixo
+const SL_PIPS = 3   // $30 stop por lote
+const TP_PIPS = 10  // $100 alvo por lote → R:R 1:3.3
 function makeOCO(price: number, lot: number, time?: number): OCOState {
-  const p    = (v: number) => Math.round(v * 100000) / 100000
-  const pv   = lot * 10          // pip value em USD
-  const slOff = (5  / pv) * 0.0001  // ~2.5 pips fixos
-  const tpOff = (15 / pv) * 0.0001  // ~7.5 pips fixos
+  const p     = (v: number) => Math.round(v * 100000) / 100000
+  const slOff = SL_PIPS * 0.0001   // 3 pips = 0.0003
+  const tpOff = TP_PIPS * 0.0001   // 10 pips = 0.0010
   return {
     lot,
     leverage:  OCO_LEVERAGE,
@@ -50,7 +55,46 @@ function makeOCO(price: number, lot: number, time?: number): OCOState {
   }
 }
 
-const STORAGE_KEY = 'rafi-trade-log'
+// Calcula contexto de sessão para aprendizado da IA
+function getOverlapContext(unixSec: number): {
+  overlapPhase:  'early' | 'mid' | 'late' | null
+  sessionMinute: number | null
+  dayOfWeek:     0 | 1 | 2 | 3 | null
+} {
+  const d      = new Date(unixSec * 1000)
+  const utcMin = d.getUTCHours() * 60 + d.getUTCMinutes()
+  const START  = 13 * 60 + 30   // 13:30 UTC — início do overlap
+  const END    = 16 * 60 + 30   // 16:30 UTC — fim do overlap
+  const sesMin = utcMin - START
+
+  let overlapPhase: 'early' | 'mid' | 'late' | null = null
+  if (utcMin >= START && utcMin < END) {
+    overlapPhase = sesMin < 30 ? 'early' : sesMin < 90 ? 'mid' : 'late'
+  }
+
+  // getUTCDay: 0=Dom 1=Seg … 5=Sex → Seg-Qui = 0-3
+  const jsDay = d.getUTCDay()
+  const dayOfWeek = (jsDay >= 1 && jsDay <= 4) ? (jsDay - 1) as 0|1|2|3 : null
+
+  return { overlapPhase, sessionMinute: overlapPhase !== null ? sesMin : null, dayOfWeek }
+}
+
+const STORAGE_KEY     = 'rafi-trade-log'
+const CSV_HISTORY_KEY = 'rafi-csv-history'
+const META_AUTO_KEY   = 'rafi-meta-auto'
+const MAX_CSV_HISTORY = 5
+
+interface CsvHistoryEntry {
+  id:          string
+  filename:    string
+  dateFrom:    string
+  dateTo:      string
+  timeframe:   string
+  count:       number
+  loadedAt:    number
+  candles:     CandleData[]
+  scanResult?: { trades: number; wins: number; pnl: number }
+}
 
 export default function ChartPage() {
   const [trades,       setTrades]       = useState<ManualTrade[]>([])
@@ -62,8 +106,172 @@ export default function ChartPage() {
   const [csvData,      setCsvData]      = useState<LoadResult | null>(null)
   const [csvError,     setCsvError]     = useState<string | null>(null)
   const [panMode,      setPanMode]      = useState(false)   // true = navegar; false = colocar OCO
+  const [csvHistory,   setCsvHistory]   = useState<CsvHistoryEntry[]>([])
+  const [historyOpen,  setHistoryOpen]  = useState(false)
+  const [activeCsvId,  setActiveCsvId]  = useState<string | null>(null)
+  const [sbLoading,     setSbLoading]     = useState(false)
+  const [sbCandleCount, setSbCandleCount] = useState<number | null>(null)
+  const [metaLoading,   setMetaLoading]   = useState(false)
+  const [metaConnected, setMetaConnected] = useState(false)
+  const [metaError,     setMetaError]     = useState<string | null>(null)
+  const [metaStep,      setMetaStep]      = useState<string>('')
+  const [metaElapsed,   setMetaElapsed]   = useState(0)
+  const metaTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Feature 1: saldo e equity da conta Pepperstone
+  const [metaAccount,   setMetaAccount]   = useState<{
+    balance: number; equity: number; freeMargin: number; currency: string; updatedAt: string
+  } | null>(null)
+  // Feature 2: posições abertas em tempo real
+  const [metaPositions, setMetaPositions] = useState<Array<{
+    id: string; symbol: string; type: string; volume: number
+    openPrice: number; currentPrice: number; profit: number
+    stopLoss: number; takeProfit: number
+  }>>([])
+  // Feature 3: toast de feedback ao enviar ordem
+  const [orderToast, setOrderToast] = useState<{ ok: boolean; msg: string } | null>(null)
+  // Feature 4: countdown para próximo auto-refresh dos candles
+  const [refreshIn,  setRefreshIn]  = useState(0)
+  // Countdown regressivo até o fechamento da barra atual
+  const [candleCountdown, setCandleCountdown] = useState(0)
+  // Feature 5: alertas do bot (abertura/fechamento de posições)
+  const [botAlerts,  setBotAlerts]  = useState<Array<{ id: string; kind: 'open' | 'close'; text: string }>>([])
+  // Histórico de trades fechados da Pepperstone
+  const [metaHistory, setMetaHistory] = useState<Array<{
+    id: string; symbol: string; type: string
+    volume: number; price: number; profit: number; time: string; comment: string
+  }>>([])
+  const [historyPeriod,  setHistoryPeriod]  = useState<'today' | '7d' | '30d' | '3m'>('7d')
+  const [historyLoading, setHistoryLoading] = useState(false)
+  // Preço ao vivo: atualiza o último candle tick a tick
+  const [livePrice, setLivePrice] = useState<number | null>(null)
+  // Ref direto para RAF no gráfico — sem passar pelo scheduler do React
+  const livePriceRef = useRef<number | null>(null)
+  // Edição inline de SL/TP: { positionId, sl: string, tp: string }
+  const [editingPos, setEditingPos] = useState<{ id: string; sl: string; tp: string } | null>(null)
+  // Mobile: gaveta lateral e aba ativa
+  const [sidebarOpen,  setSidebarOpen]  = useState(false)
+  const [mobileTab,    setMobileTab]    = useState<'chart' | 'positions' | 'trade' | 'history'>('chart')
+  // Resize vertical do gráfico — desktop only
+  const [chartH,    setChartH]    = useState(460)
+  const [isDesktop, setIsDesktop] = useState(false)
+  const chartHRef = useRef(460)
+  useEffect(() => { chartHRef.current = chartH }, [chartH])
+  const prevPositionsRef = useRef<typeof metaPositions>([])
+  // Check-in de estado mental do dia
+  const [checkin,     setCheckin]     = useState<CheckinResult | null>(null)
+  const [showCheckin, setShowCheckin] = useState(false)
   const fileInputRef        = useRef<HTMLInputElement>(null)
+  const historyPanelRef     = useRef<HTMLDivElement>(null)
   const snapshotCaptureRef  = useRef<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>(null)
+  // Callback imperativo: SSE chama direto, sem passar pelo scheduler do React
+  const chartUpdateCandleRef = useRef<((price: number) => void) | null>(null)
+  // Botão Shift (MT5): reposiciona o gráfico com espaço à direita
+  const shiftRangeRef = useRef<(() => void) | null>(null)
+  // Alinhar à direita: última barra na borda direita
+  const alignRightRef = useRef<(() => void) | null>(null)
+
+  // Mostra check-in na primeira abertura do dia (seg–qui), qualquer horário.
+  // O check-in define se o trader está apto antes de ver qualquer dado de mercado.
+  useEffect(() => {
+    const CHECKIN_KEY = 'rafi-checkin-date'
+    const today = new Date().toISOString().slice(0, 10)
+    const done  = typeof window !== 'undefined' && localStorage.getItem(CHECKIN_KEY) === today
+    if (done) return
+
+    const jsDay = new Date().getUTCDay()
+    if (jsDay >= 1 && jsDay <= 4) setShowCheckin(true)  // seg=1 … qui=4
+  }, [])
+
+  function handleCheckinComplete(result: CheckinResult) {
+    setCheckin(result)
+    setShowCheckin(false)
+    try {
+      const today = new Date().toISOString().slice(0, 10)
+      localStorage.setItem('rafi-checkin-date', today)
+    } catch { /* */ }
+  }
+
+  // Estado de disciplina derivado do histórico de operações já carregado
+  const disciplineState = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10)  // 'YYYY-MM-DD'
+
+    // Stops hoje: trades fechados com lucro negativo no dia atual
+    const stopsToday = metaHistory.filter(t => {
+      const tradeDate = t.time?.slice(0, 10) ?? ''
+      return tradeDate === today && t.profit < 0
+    }).length
+
+    // Perdas consecutivas: contar da trade mais recente para trás
+    let consecutiveLosses = 0
+    for (const t of [...metaHistory].reverse()) {
+      if (t.profit < 0) consecutiveLosses++
+      else break
+    }
+
+    // Drawdown semanal: soma de todas as perdas dos últimos 7 dias / saldo atual
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1_000
+    const weeklyPnl = metaHistory
+      .filter(t => new Date(t.time).getTime() >= weekAgo)
+      .reduce((sum, t) => sum + (t.profit ?? 0), 0)
+    const bal = metaAccount?.balance ?? 100
+    const weeklyDrawdownPct = bal > 0 ? (weeklyPnl / bal) * 100 : 0
+
+    return { stopsToday, consecutiveLosses, weeklyDrawdownPct }
+  }, [metaHistory, metaAccount])
+
+  // Inicializa altura do gráfico e detecta desktop
+  useEffect(() => {
+    setIsDesktop(window.innerWidth >= 768)
+    try {
+      const saved = parseInt(localStorage.getItem('mesa_chart_h') || '', 10)
+      if (saved >= 200 && saved <= 1400) { setChartH(saved); chartHRef.current = saved }
+    } catch {}
+  }, [])
+
+  // Arrasto da borda inferior do gráfico para redimensionar (desktop)
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const startY = e.clientY
+    const startH = chartHRef.current
+    document.body.style.cursor    = 'row-resize'
+    document.body.style.userSelect = 'none'
+    const onMove = (ev: MouseEvent) => {
+      const newH = Math.max(200, Math.min(window.innerHeight - 200, startH + ev.clientY - startY))
+      setChartH(newH)
+    }
+    const onUp = () => {
+      document.body.style.cursor    = ''
+      document.body.style.userSelect = ''
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup',   onUp)
+      try { localStorage.setItem('mesa_chart_h', String(chartHRef.current)) } catch {}
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup',   onUp)
+  }, [])
+
+  // Salva um LoadResult no histórico de CSVs (localStorage, máx MAX_CSV_HISTORY)
+  const saveToHistory = useCallback((result: LoadResult) => {
+    const entry: CsvHistoryEntry = {
+      id:        `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      filename:  result.filename,
+      dateFrom:  result.dateFrom,
+      dateTo:    result.dateTo,
+      timeframe: result.timeframe,
+      count:     result.count,
+      loadedAt:  Date.now(),
+      candles:   result.candles,
+    }
+    setCsvHistory(prev => {
+      // Evita duplicatas pelo mesmo filename+período
+      const filtered = prev.filter(h => !(h.filename === entry.filename && h.dateFrom === entry.dateFrom && h.dateTo === entry.dateTo))
+      const next = [entry, ...filtered].slice(0, MAX_CSV_HISTORY)
+      try { localStorage.setItem(CSV_HISTORY_KEY, JSON.stringify(next)) } catch {}
+      return next
+    })
+    setActiveCsvId(entry.id)
+    return entry.id
+  }, [])
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
@@ -80,29 +288,28 @@ export default function ChartPage() {
       }))
     ).then(results => {
       try {
+        let result: LoadResult
         if (results.length === 1) {
-          // Arquivo único — comportamento original
-          const result = parseCSV(results[0].text, results[0].name)
-          setCsvData(result)
+          result = parseCSV(results[0].text, results[0].name)
         } else {
           // Múltiplos arquivos — mescla e ordena por tempo
-          // Arquivos vazios (ex: sábado) são ignorados silenciosamente
           const allCandles = results.flatMap(r => {
             try { return parseCSV(r.text, r.name).candles } catch { return [] }
           })
           allCandles.sort((a, b) => a.time - b.time)
-          // Remove duplicatas exatas de timestamp
           const deduped = allCandles.filter((c, i) => i === 0 || c.time !== allCandles[i - 1].time)
           if (deduped.length === 0) throw new Error('Nenhum candle válido nos arquivos selecionados')
-          setCsvData({
+          result = {
             candles:   deduped,
-            filename:  `${results.length} arquivos`,
+            filename:  results.map(r => r.name).join(', '),
             dateFrom:  fmtDate(deduped[0].time),
             dateTo:    fmtDate(deduped[deduped.length - 1].time),
             timeframe: detectTimeframe(deduped),
             count:     deduped.length,
-          })
+          }
         }
+        setCsvData(result)
+        saveToHistory(result)
         setTrades([])
       } catch (err: any) {
         setCsvError(err?.message ?? 'Erro desconhecido')
@@ -112,13 +319,39 @@ export default function ChartPage() {
       setCsvError(err?.message ?? 'Erro ao ler arquivos')
     })
     e.target.value = ''
-  }, [])
+  }, [saveToHistory])
 
   const clearCSV = useCallback(() => {
-    setCsvData(null); setCsvError(null); setTrades([])
+    setCsvData(null); setCsvError(null); setTrades([]); setActiveCsvId(null)
   }, [])
 
-  // Carrega trades salvos do localStorage na inicialização
+  // Restaura um CSV do histórico sem precisar recarregar o arquivo
+  const loadFromHistory = useCallback((entry: CsvHistoryEntry) => {
+    setCsvData({
+      candles:   entry.candles,
+      filename:  entry.filename,
+      dateFrom:  entry.dateFrom,
+      dateTo:    entry.dateTo,
+      timeframe: entry.timeframe,
+      count:     entry.count,
+    })
+    setCsvError(null)
+    setTrades([])
+    setActiveCsvId(entry.id)
+    setHistoryOpen(false)
+  }, [])
+
+  // Remove uma entrada do histórico
+  const deleteFromHistory = useCallback((id: string) => {
+    setCsvHistory(prev => {
+      const next = prev.filter(h => h.id !== id)
+      try { localStorage.setItem(CSV_HISTORY_KEY, JSON.stringify(next)) } catch {}
+      return next
+    })
+    if (activeCsvId === id) { setCsvData(null); setCsvError(null); setTrades([]); setActiveCsvId(null) }
+  }, [activeCsvId])
+
+  // Carrega trades: localStorage primeiro (imediato) depois Supabase sobrescreve
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY)
@@ -127,12 +360,312 @@ export default function ChartPage() {
         if (Array.isArray(parsed) && parsed.length > 0) setTrades(parsed)
       }
     } catch {}
+    // Supabase é fonte de verdade
+    fetchTrades()
+      .then(data => {
+        if (data.length > 0) {
+          setTrades(data as any)
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)) } catch {}
+        }
+      })
+      .catch(() => {})
+    // Verifica quantos candles existem no Supabase
+    countCandles().then(n => setSbCandleCount(n)).catch(() => {})
   }, [])
 
   // Salva trades no localStorage sempre que mudam
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(trades)) } catch {}
   }, [trades])
+
+  // Carrega 100 candles ao vivo via MetaAPI — simples e direto
+  const loadCandlesFromMetaAPI = useCallback(async () => {
+    setMetaLoading(true)
+    setMetaError(null)
+    setMetaElapsed(0)
+
+    const steps = [
+      'Conectando ao MetaAPI...',
+      'Autenticando token...',
+      'Abrindo canal WebSocket com Pepperstone...',
+      'Aguardando MT5 responder (pode levar até 30s)...',
+      'Baixando candles EURUSD...',
+      'Processando dados...',
+    ]
+    let stepIdx = 0
+    setMetaStep(steps[0])
+
+    let elapsed = 0
+    metaTimerRef.current = setInterval(() => {
+      elapsed += 1
+      setMetaElapsed(elapsed)
+      const next = Math.min(Math.floor(elapsed / 3), steps.length - 1)
+      if (next !== stepIdx) { stepIdx = next; setMetaStep(steps[next]) }
+    }, 1000)
+
+    try {
+      const res  = await fetch(`/api/metaapi/candles?symbol=EURUSD&timeframe=${tf}&limit=100`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? `MetaAPI: ${res.status}`)
+      const rows: CandleData[] = data.candles ?? data
+      if (!Array.isArray(rows) || rows.length === 0) throw new Error('Nenhum candle retornado')
+      rows.sort((a, b) => a.time - b.time)
+      const result: LoadResult = {
+        candles:   rows,
+        filename:  'MetaAPI · ao vivo',
+        dateFrom:  fmtDate(rows[0].time),
+        dateTo:    fmtDate(rows[rows.length - 1].time),
+        timeframe: detectTimeframe(rows),
+        count:     rows.length,
+      }
+      setCsvData(result)
+      setCsvError(null)
+      setMetaConnected(true)
+      saveToHistory(result)
+    } catch (err: any) {
+      setMetaError(err?.message ?? 'Erro MetaAPI')
+      setMetaConnected(false)
+    } finally {
+      if (metaTimerRef.current) clearInterval(metaTimerRef.current)
+      setMetaLoading(false)
+      setMetaStep('')
+    }
+  }, [tf, saveToHistory])
+
+  // Features 1, 2, 5: busca saldo + posições abertas, detecta atividade do bot
+  const fetchLiveData = useCallback(async () => {
+    try {
+      const [accRes, posRes] = await Promise.allSettled([
+        fetch('/api/metaapi/account'),
+        fetch('/api/metaapi/positions'),
+      ])
+      if (accRes.status === 'fulfilled' && accRes.value.ok) {
+        const acc = await accRes.value.json()
+        if (!acc.error) setMetaAccount(acc)
+      }
+      if (posRes.status === 'fulfilled' && posRes.value.ok) {
+        const data = await posRes.value.json()
+        const newPos = data.positions ?? []
+        setMetaPositions(prev => {
+          const opened = newPos.filter((p: any) => !prev.find(pp => pp.id === p.id))
+          const closed  = prev.filter(p => !newPos.find((pp: any) => pp.id === p.id))
+          if (opened.length || closed.length) {
+            setBotAlerts(a => [
+              ...opened.map((p: any) => ({
+                id:   `open-${p.id}-${Date.now()}`,
+                kind: 'open' as const,
+                text: `${p.type === 'POSITION_TYPE_BUY' ? '▲' : '▼'} ${p.symbol} ${p.volume}L @ ${p.openPrice}`,
+              })),
+              ...closed.map(p => ({
+                id:   `close-${p.id}-${Date.now()}`,
+                kind: 'close' as const,
+                text: `Fechada · ${p.symbol} · ${p.profit >= 0 ? '+' : ''}$${p.profit.toFixed(2)}`,
+              })),
+              ...a,
+            ].slice(0, 4))
+            // Atualiza histórico quando uma posição fecha (mantém período atual)
+            if (closed.length > 0) setTimeout(() => fetchHistory(historyPeriod), 3000)
+          }
+          prevPositionsRef.current = newPos
+          return newPos
+        })
+      }
+    } catch {}
+  }, [])
+
+  // Histórico: busca trades fechados da Pepperstone pelo período selecionado
+  const fetchHistory = useCallback(async (period = '7d') => {
+    setHistoryLoading(true)
+    try {
+      const res = await fetch(`/api/metaapi/history?period=${period}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (!data.error) setMetaHistory(data.history ?? [])
+      }
+    } catch {}
+    setHistoryLoading(false)
+  }, [])
+
+  // Feature 2: fecha posição individual via MetaAPI
+  const handleClosePosition = useCallback(async (positionId: string) => {
+    try {
+      const res = await fetch('/api/metaapi/positions', {
+        method:  'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ positionId }),
+      })
+      if (res.ok) {
+        setMetaPositions(prev => prev.filter(p => p.id !== positionId))
+      }
+    } catch {}
+  }, [])
+
+  // Modifica SL/TP de uma posição aberta via MetaAPI
+  const handleModifyPosition = useCallback(async (positionId: string, sl: string, tp: string) => {
+    const stopLoss   = parseFloat(sl)
+    const takeProfit = parseFloat(tp)
+    if (isNaN(stopLoss) || isNaN(takeProfit)) return
+    try {
+      const res = await fetch('/api/metaapi/positions/modify', {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ positionId, stopLoss, takeProfit }),
+      })
+      const data = await res.json()
+      if (res.ok && data.ok) {
+        // Atualiza localmente para refletir de imediato antes do próximo poll
+        setMetaPositions(prev => prev.map(p =>
+          p.id === positionId ? { ...p, stopLoss, takeProfit } : p,
+        ))
+        setOrderToast({ ok: true, msg: `SL/TP atualizados com sucesso` })
+      } else {
+        setOrderToast({ ok: false, msg: data.error ?? 'Erro ao modificar posição' })
+      }
+    } catch {
+      setOrderToast({ ok: false, msg: 'Erro de conexão ao modificar posição' })
+    }
+    setEditingPos(null)
+    setTimeout(() => setOrderToast(null), 4000)
+  }, [])
+
+  // Carrega candles do Supabase (tabela rafi_candles) — substitui CSV local
+  const loadCandlesFromSupabase = useCallback(async () => {
+    setSbLoading(true)
+    try {
+      const rows = await fetchCandles()
+      if (rows.length === 0) { setSbLoading(false); return }
+      const candles = rows as CandleData[]
+      candles.sort((a, b) => a.time - b.time)
+      const result: LoadResult = {
+        candles,
+        filename:  'Supabase · rafi_candles',
+        dateFrom:  fmtDate(candles[0].time),
+        dateTo:    fmtDate(candles[candles.length - 1].time),
+        timeframe: detectTimeframe(candles),
+        count:     candles.length,
+      }
+      setCsvData(result)
+      setCsvError(null)
+      saveToHistory(result)
+    } catch (err: any) {
+      setCsvError(err?.message ?? 'Erro ao carregar candles do Supabase')
+    }
+    setSbLoading(false)
+  }, [saveToHistory])
+
+  // Carrega histórico de CSVs do localStorage na inicialização
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(CSV_HISTORY_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (Array.isArray(parsed)) setCsvHistory(parsed)
+      }
+    } catch {}
+  }, [])
+
+  // Auto-connect: reconecta MetaAPI se estava habilitado na sessão anterior
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(META_AUTO_KEY) === 'true') {
+        loadCandlesFromMetaAPI()
+      }
+    } catch {}
+    countCandles().then(n => setSbCandleCount(n)).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Histórico: carrega ao conectar ou ao mudar período; limpa ao desconectar
+  useEffect(() => {
+    if (!metaConnected) { setMetaHistory([]); return }
+    fetchHistory(historyPeriod)
+  }, [metaConnected, historyPeriod, fetchHistory])
+
+  // Features 1, 2, 5: poll saldo + posições a cada 5s quando MetaAPI ativo
+  useEffect(() => {
+    if (!metaConnected) { setMetaAccount(null); setMetaPositions([]); setBotAlerts([]); return }
+    fetchLiveData()
+    const id = setInterval(fetchLiveData, 5_000)
+    return () => clearInterval(id)
+  }, [metaConnected, fetchLiveData])
+
+
+
+  // Tick ao vivo via polling: cada request é curto (~300ms), evita timeout do Vercel Edge (25s)
+  useEffect(() => {
+    if (!metaConnected) { setLivePrice(null); return }
+
+    let active = true
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let lastBid = 0
+    let lastAsk = 0
+
+    const poll = async () => {
+      if (!active) return
+      try {
+        const res = await fetch('/api/metaapi/price?symbol=EURUSD')
+        if (active && res.ok) {
+          const data = await res.json()
+          if (data.bid && data.ask && (data.bid !== lastBid || data.ask !== lastAsk)) {
+            lastBid = data.bid
+            lastAsk = data.ask
+            const mid = (data.bid + data.ask) / 2
+            chartUpdateCandleRef.current?.(mid) // direto ao gráfico, sem React
+            livePriceRef.current = mid
+            setLivePrice(mid)                   // estado para P&L
+          }
+        }
+      } catch {}
+      if (active) timer = setTimeout(poll, 300)
+    }
+
+    poll()
+
+    return () => {
+      active = false
+      if (timer) clearTimeout(timer)
+      setLivePrice(null)
+    }
+  }, [metaConnected])
+
+  // Feature 4: countdown de auto-refresh dos candles baseado no timeframe
+  useEffect(() => {
+    if (!metaConnected) { setRefreshIn(0); return }
+    const mins = tf === 'M5' ? 5 : tf === 'M15' ? 15 : 60
+    let secs = mins * 60
+    setRefreshIn(secs)
+    const id = setInterval(() => {
+      secs -= 1
+      setRefreshIn(secs)
+      if (secs <= 0) { secs = mins * 60; setRefreshIn(secs); loadCandlesFromMetaAPI() }
+    }, 1_000)
+    return () => clearInterval(id)
+  }, [metaConnected, tf, loadCandlesFromMetaAPI])
+
+  // Countdown regressivo até o fechamento do candle atual: tfSec - (now % tfSec)
+  // Ancorado no relógio UTC, não no timestamp do último candle recebido (que já está fechado)
+  useEffect(() => {
+    const tfSec = tf === 'M5' ? 300 : tf === 'M15' ? 900 : 3600
+    const tick = () => {
+      const nowSec = Math.floor(Date.now() / 1000)
+      setCandleCountdown(tfSec - (nowSec % tfSec))
+    }
+    tick()
+    const id = setInterval(tick, 1_000)
+    return () => clearInterval(id)
+  }, [tf])
+
+  // Fecha o painel de histórico ao clicar fora
+  useEffect(() => {
+    if (!historyOpen) return
+    const handler = (e: MouseEvent) => {
+      if (historyPanelRef.current && !historyPanelRef.current.contains(e.target as Node)) {
+        setHistoryOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [historyOpen])
 
   const candles  = useMemo(
     () => csvData?.candles ?? generateDemoData(tf),
@@ -145,10 +678,42 @@ export default function ChartPage() {
   const lastCandle = candles[candles.length - 1]
   const lastPrice  = lastCandle?.close ?? 0
   const lastTime   = lastCandle?.time  ?? 0
+  const totalPnl   = useMemo(() => metaPositions.reduce((s, p) => s + (p.profit ?? 0), 0), [metaPositions])
+
+  // Equity ao vivo: saldo fixo + P&L calculado tick a tick via preço SSE
+  // Evita o atraso do poll de 5s — exibe o capital total em tempo real
+  const liveEquity = useMemo(() => {
+    if (!metaAccount) return null
+    if (metaPositions.length === 0 || livePrice === null) return metaAccount.balance
+    const floating = metaPositions.reduce((sum, pos) => {
+      if (/eurusd/i.test(pos.symbol)) {
+        const dir = /buy/i.test(pos.type) ? 1 : -1
+        return sum + (livePrice - pos.openPrice) * dir * pos.volume * 100000
+      }
+      return sum + (pos.profit ?? 0)  // posições não-EURUSD: usa último valor conhecido
+    }, 0)
+    return metaAccount.balance + floating
+  }, [metaAccount, metaPositions, livePrice])
+
+  // Valor atual do RAFI (último candle) — passado para o CO-PILOTO IA
+  const currentRafiValue = useMemo(() => {
+    const last = rafiData[rafiData.length - 1]
+    return last?.value ?? null
+  }, [rafiData])
+
+  // BB expandindo? Compara os 2 últimos widths
+  const currentBbExpanding = useMemo(() => {
+    const upper = bbBands?.upper
+    const lower = bbBands?.lower
+    if (!upper || !lower || upper.length < 2 || lower.length < 2) return null
+    const w1 = (upper[upper.length - 2]?.value ?? 0) - (lower[lower.length - 2]?.value ?? 0)
+    const w2 = (upper[upper.length - 1]?.value ?? 0) - (lower[lower.length - 1]?.value ?? 0)
+    return w2 > w1
+  }, [bbBands])
 
   // RAFI sempre positivo: separa por dir do candle
-  const strongBullBars = rafiData.filter(p => p.value >= 2.5 && p.dir === 'bull').length
-  const strongBearBars = rafiData.filter(p => p.value >= 2.5 && p.dir === 'bear').length
+  const strongBullBars = rafiData.filter(p => p.value >= 2.5).length
+  const strongBearBars = rafiData.filter(p => p.value <= -2.5).length
 
   // Capital atual = base + P&L dos trades rotulados → determina lote pela tabela
   const currentCapital = useMemo(() => calcCapital(trades, BASE_CAPITAL), [trades])
@@ -162,6 +727,28 @@ export default function ChartPage() {
       setOcoVisible(true)
     }
   }, [lastPrice, currentLot])
+
+  // Auto-muda para Navegar quando há posição aberta — overlay OCO atrapalha a visão
+  // O usuário pode voltar para OCO manualmente a qualquer momento
+  useEffect(() => {
+    if (metaPositions.length > 0) setPanMode(true)
+  }, [metaPositions.length])
+
+  // Ao conectar MetaAPI, reseta OCO com preço ao vivo real (evita SL/TP da demo serem enviados)
+  // Aguarda 1s para o SSE inicializar e livePriceRef ter o preço atual
+  useEffect(() => {
+    if (!metaConnected) return
+    const timer = setTimeout(() => {
+      const price = livePriceRef.current ?? lastPrice
+      if (price > 0) {
+        setOcoState(makeOCO(price, currentLot))
+        setClickedEntry(null)
+        setClickedTime(undefined)
+      }
+    }, 1000)
+    return () => clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metaConnected])
 
   const handleAdd = useCallback((t: ManualTrade) => {
     setTrades(p => [...p, t])
@@ -189,23 +776,60 @@ export default function ChartPage() {
     const bbWidth   = lastUpper !== undefined && lastLower !== undefined
       ? lastUpper - lastLower : undefined
 
+    const entryTs  = ocoState.entryTime ?? lastTime
+    const sesCtx   = getOverlapContext(entryTs)
+
     handleAdd({
-      id:         `${Date.now()}-oco-${Math.random().toString(36).slice(2, 5)}`,
+      id:           `${Date.now()}-oco-${Math.random().toString(36).slice(2, 5)}`,
       direction,
-      entry:      p(entry),
-      stopLoss:   p(sl),
-      takeProfit: p(tp),
-      label:      `OCO ${direction === 'buy' ? '▲ COMPRA' : '▼ VENDA'} @ ${formatPrice(entry)} | ${ocoState.lot.toFixed(2)}L`,
-      time:       ocoState.entryTime ?? lastTime,
-      lot:        ocoState.lot,
-      leverage:   ocoState.leverage,
-      result:     'pending',
-      rafi:       lastRafi?.value,
-      rafiDir:    lastRafi?.dir,
+      entry:        p(entry),
+      stopLoss:     p(sl),
+      takeProfit:   p(tp),
+      label:        `OCO ${direction === 'buy' ? '▲ COMPRA' : '▼ VENDA'} @ ${formatPrice(entry)} | ${ocoState.lot.toFixed(2)}L`,
+      time:         entryTs,
+      lot:          ocoState.lot,
+      leverage:     ocoState.leverage,
+      result:       'pending',
+      rafi:         lastRafi?.value,
+      rafiDir:      lastRafi?.dir,
       bbWidth,
-      snapshot:   snapshotCaptureRef.current?.(ocoState.entryTime ?? lastTime, { entry: p(entry), sl: p(sl), tp: p(tp), direction }) ?? undefined,
+      snapshot:     snapshotCaptureRef.current?.(entryTs, { entry: p(entry), sl: p(sl), tp: p(tp), direction }) ?? undefined,
+      // Contexto de sessão para aprendizado da IA
+      overlapPhase:  sesCtx.overlapPhase,
+      sessionMinute: sesCtx.sessionMinute,
+      dayOfWeek:     sesCtx.dayOfWeek,
+      entryType:    'manual',
     })
     setOcoState(prev => prev ? { ...prev, direction, tp: p(tp), sl: p(sl) } : null)
+    // Muda para Navegar imediatamente após disparar — limpa o gráfico para acompanhar a posição
+    setPanMode(true)
+
+    // Feature 3: envia para MetaAPI e mostra toast de feedback
+    fetch('/api/metaapi/order', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        symbol:     'EURUSD',
+        actionType: direction === 'buy' ? 'ORDER_TYPE_BUY' : 'ORDER_TYPE_SELL',
+        volume:     ocoState.lot,
+        stopLoss:   p(sl),
+        takeProfit: p(tp),
+      }),
+    })
+      .then(async res => {
+        if (res.ok) {
+          setOrderToast({ ok: true, msg: `Ordem ${direction === 'buy' ? 'COMPRA' : 'VENDA'} enviada para Pepperstone ✓` })
+          setTimeout(() => fetchLiveData(), 3000)
+        } else {
+          const err = await res.json().catch(() => ({}))
+          setOrderToast({ ok: false, msg: `Pepperstone rejeitou: ${err?.error ?? res.status}` })
+        }
+        setTimeout(() => setOrderToast(null), 6000)
+      })
+      .catch(err => {
+        setOrderToast({ ok: false, msg: err.message ?? 'Falha de rede ao enviar ordem' })
+        setTimeout(() => setOrderToast(null), 6000)
+      })
   }, [ocoState, lastTime, rafiData, bbBands, handleAdd])
 
   const handleOCOClose = useCallback(() => setOcoVisible(false), [])
@@ -280,18 +904,239 @@ export default function ChartPage() {
         }) ?? undefined,
       })
     })
-  }, [csvData, tf, handleAdd])
+
+    // Salva resultado do scan no histórico do CSV ativo
+    if (activeCsvId) {
+      const wins  = found.filter(s => {
+        const idx = scanCandles.findIndex(c => c.time === s.time)
+        for (let j = idx + 1; j < scanCandles.length; j++) {
+          const c = scanCandles[j]
+          if (s.direction === 'buy') {
+            if (c.low  <= s.stopLoss)   return false
+            if (c.high >= s.takeProfit) return true
+          } else {
+            if (c.high >= s.stopLoss)   return false
+            if (c.low  <= s.takeProfit) return true
+          }
+        }
+        return false
+      }).length
+      const finalPnl = capital - BASE_CAPITAL
+      setCsvHistory(prev => {
+        const next = prev.map(h => h.id === activeCsvId
+          ? { ...h, scanResult: { trades: found.length, wins, pnl: finalPnl } }
+          : h
+        )
+        try { localStorage.setItem(CSV_HISTORY_KEY, JSON.stringify(next)) } catch {}
+        return next
+      })
+    }
+  }, [csvData, tf, handleAdd, activeCsvId])
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full overflow-hidden relative">
+
+      {/* ── Check-in de estado mental ── */}
+      {showCheckin && <CheckinModal onComplete={handleCheckinComplete} />}
+
+      {/* ── Mobile: backdrop da gaveta ── */}
+      <div
+        className={cn(
+          'fixed inset-0 bg-black/50 z-30 md:hidden transition-opacity duration-300',
+          sidebarOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
+        )}
+        onClick={() => setSidebarOpen(false)}
+      />
+
+      {/* ── Mobile: gaveta lateral deslizante ── */}
+      <div className={cn(
+        'fixed left-0 top-0 h-full w-[280px] bg-[#161b22] border-r border-[#30363d] z-40 flex flex-col overflow-y-auto md:hidden transition-transform duration-300',
+        sidebarOpen ? 'translate-x-0' : '-translate-x-full',
+      )}>
+        {/* Cabeçalho da gaveta */}
+        <div className="px-4 pt-10 pb-4 border-b border-[#30363d] flex items-center justify-between">
+          <div>
+            <div className="font-bold text-base text-[#26c6da]">RAFI Dashboard</div>
+            <div className="text-[10px] text-[#484f58] mt-0.5">Mesa de Operações</div>
+          </div>
+          <button onClick={() => setSidebarOpen(false)} className="text-[#484f58] hover:text-[#f0f6fc] p-1">
+            <XIcon size={18} />
+          </button>
+        </div>
+
+        {/* Conta Pepperstone */}
+        {metaConnected && metaAccount && (
+          <div className="px-4 py-3 border-b border-[#30363d]">
+            <div className="text-[9px] font-semibold text-[#26c6da] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#26c6da] animate-pulse inline-block" />
+              Pepperstone · MT5
+            </div>
+            <div className="space-y-2">
+              {([
+                { label: 'Saldo',       val: `${metaAccount.currency} ${metaAccount.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, color: '#f0f6fc' },
+                { label: 'Equity',      val: (liveEquity ?? metaAccount.equity).toLocaleString('pt-BR', { minimumFractionDigits: 2 }), color: '#22c55e' },
+                { label: 'Margem livre',val: metaAccount.freeMargin.toLocaleString('pt-BR', { minimumFractionDigits: 2 }), color: '#f0f6fc' },
+              ] as const).map(r => (
+                <div key={r.label} className="flex justify-between items-center text-[12px]">
+                  <span className="text-[#484f58]">{r.label}</span>
+                  <span className="font-mono font-bold" style={{ color: r.color }}>{r.val}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Timeframe */}
+        <div className="px-4 py-3 border-b border-[#30363d]">
+          <div className="text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider mb-2">Timeframe</div>
+          <div className="flex gap-2">
+            {TIMEFRAMES.map(t => (
+              <button
+                key={t}
+                onClick={() => {
+                  setTf(t); setTrades([])
+                  if (metaConnected) { setCsvData(null); setMetaConnected(false) }
+                  setSidebarOpen(false)
+                }}
+                className={cn(
+                  'flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all',
+                  t === tf ? 'bg-[#3b82f6] border-[#3b82f6] text-white' : 'border-[#30363d] text-[#484f58] hover:text-[#8b949e]',
+                )}
+              >{t}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Fonte de dados */}
+        <div className="px-4 py-3 border-b border-[#30363d]">
+          <div className="text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider mb-2">Fonte de Dados</div>
+          <div className="space-y-2">
+            <button
+              onClick={() => {
+                if (metaConnected) {
+                  try { localStorage.setItem(META_AUTO_KEY, 'false') } catch {}
+                  setMetaConnected(false); setCsvData(null)
+                } else {
+                  try { localStorage.setItem(META_AUTO_KEY, 'true') } catch {}
+                  loadCandlesFromMetaAPI()
+                }
+                setSidebarOpen(false)
+              }}
+              disabled={metaLoading}
+              className={cn(
+                'w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold border transition-all disabled:opacity-50',
+                metaConnected
+                  ? 'border-[#22c55e]/50 bg-[#22c55e]/8 text-[#22c55e] hover:bg-[#ef4444]/10 hover:border-[#ef4444]/40 hover:text-[#ef4444]'
+                  : 'border-[#26c6da]/40 text-[#26c6da] hover:bg-[#26c6da]/10',
+              )}
+            >
+              <span className={cn('w-2 h-2 rounded-full', metaConnected ? 'bg-[#22c55e] animate-pulse' : 'bg-[#26c6da]')} />
+              {metaLoading ? 'Conectando…' : metaConnected ? 'MetaAPI · AO VIVO (toque para desligar)' : 'MetaAPI Ao Vivo'}
+            </button>
+            {metaLoading && (
+              <div className="text-[10px] text-[#26c6da] px-1">{metaStep} ({metaElapsed}s)</div>
+            )}
+            {metaError && <div className="text-[10px] text-[#ef4444] px-1">⚠ {metaError}</div>}
+            <button
+              onClick={() => { fileInputRef.current?.click(); setSidebarOpen(false) }}
+              className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold border border-[#30363d] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d] transition-all"
+            >
+              <FolderOpen size={14} /> Carregar CSV
+            </button>
+          </div>
+        </div>
+
+        {/* Ferramentas */}
+        <div className="px-4 py-3">
+          <div className="text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider mb-2">Ferramentas</div>
+          <div className="space-y-2">
+            <button
+              onClick={() => { handleAutoScan(); setSidebarOpen(false) }}
+              className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold border border-[#22c55e]/40 bg-[#22c55e]/8 text-[#22c55e] hover:bg-[#22c55e]/15 transition-all"
+            >
+              <ScanLine size={14} /> Auto Scan
+            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setPanMode(false); setSidebarOpen(false) }}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold border transition-all',
+                  !panMode ? 'border-[#f59e0b]/40 bg-[#f59e0b]/10 text-[#f59e0b]' : 'border-[#30363d] text-[#484f58]',
+                )}
+              ><Crosshair size={13} /> OCO</button>
+              <button
+                onClick={() => { setPanMode(true); setSidebarOpen(false) }}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold border transition-all',
+                  panMode ? 'border-[#3b82f6] bg-[#3b82f6]/10 text-[#3b82f6]' : 'border-[#30363d] text-[#484f58]',
+                )}
+              ><Hand size={13} /> Navegar</button>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* ── Área do gráfico ─────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0 p-4 gap-3">
+      <div className="flex-1 flex flex-col min-w-0 p-2 md:p-4 gap-2 md:gap-3 overflow-hidden md:overflow-y-auto pb-16 md:pb-0">
 
-        {/* Header */}
-        <div className="flex items-center justify-between shrink-0">
+        {/* Header mobile — apenas em telas pequenas */}
+        <div className="flex md:hidden flex-col gap-1.5 shrink-0 pt-1">
+          {/* Linha 1: hamburger + título + badge */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="p-2 rounded-lg border border-[#30363d] text-[#484f58] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-all"
+            >
+              <Menu size={17} />
+            </button>
+            <span className="font-bold text-[13px] text-[#f0f6fc] flex-1 truncate">Mesa de Operação</span>
+            {metaConnected ? (
+              <span className="flex items-center gap-1 text-[10px] font-bold text-[#22c55e] bg-[#22c55e]/10 border border-[#22c55e]/30 px-2 py-1 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse inline-block" />
+                AO VIVO
+              </span>
+            ) : (
+              <button
+                onClick={() => { try { localStorage.setItem(META_AUTO_KEY, 'true') } catch {}; loadCandlesFromMetaAPI() }}
+                disabled={metaLoading}
+                className="text-[10px] font-bold text-[#26c6da] border border-[#26c6da]/40 px-2 py-1 rounded-full hover:bg-[#26c6da]/10 transition-all disabled:opacity-50"
+              >
+                {metaLoading ? 'Conectando…' : 'MetaAPI'}
+              </button>
+            )}
+          </div>
+          {/* Linha 2: botões M5 / M15 / H1 + countdown */}
+          <div className="flex items-center gap-2">
+            {TIMEFRAMES.map(t => (
+              <button
+                key={t}
+                onClick={() => {
+                  setTf(t); setTrades([])
+                  if (metaConnected) { setCsvData(null); setMetaConnected(false) }
+                }}
+                className={cn(
+                  'flex-1 py-1.5 rounded-lg text-[11px] font-bold border transition-all',
+                  t === tf
+                    ? 'bg-[#3b82f6] border-[#3b82f6] text-white'
+                    : 'border-[#30363d] text-[#484f58] hover:text-[#8b949e]',
+                )}
+              >
+                {t}
+              </button>
+            ))}
+            <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#0d1117] border border-[#30363d] shrink-0">
+              <span className="text-[#484f58] text-[10px]">⏱</span>
+              <span className="text-[#8b949e] text-[11px] font-mono tabular-nums">
+                {String(Math.floor(candleCountdown / 60)).padStart(2, '0')}:{String(candleCountdown % 60).padStart(2, '0')}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Header desktop — oculto em mobile */}
+        <div className="hidden md:flex items-center justify-between shrink-0">
           <div>
-            <h1 className="text-base font-bold text-[#f0f6fc]">Análise RAFI</h1>
+            <h1 className="text-base font-bold text-[#f0f6fc]">Mesa de Operação</h1>
             <p className="text-xs text-[#8b949e] mt-0.5">
               {csvData
                 ? <><span className="text-[#22c55e]">{csvData.timeframe}</span> · {csvData.dateFrom} → {csvData.dateTo} · <span className="text-[#22c55e]">{csvData.count.toLocaleString('pt-BR')} candles</span></>
@@ -321,11 +1166,43 @@ export default function ChartPage() {
           </div>
         </div>
 
-        {/* Gráfico duplo (candles + RAFI) */}
-        <div className="flex-1 min-h-0 rounded-xl border border-[#30363d] overflow-hidden flex flex-col">
+        {/* Feature 1: barra de saldo Pepperstone — só visível quando MetaAPI conectado (oculta em mobile, exibida na gaveta) */}
+        {metaConnected && metaAccount && (
+          <div className="hidden md:flex items-center gap-4 px-3 py-1.5 bg-[#0b1219] rounded-lg border border-[#30363d]/60 text-[10px] shrink-0 flex-wrap">
+            <div className="flex items-center gap-1.5 font-semibold text-[#26c6da]">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#26c6da] inline-block animate-pulse" />
+              Pepperstone · MT5
+            </div>
+            <div className="w-px h-4 bg-[#30363d]" />
+            <span className="text-[#484f58]">Saldo</span>
+            <span className="font-mono font-bold text-[#f0f6fc]">{metaAccount.currency} {metaAccount.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+            <span className="text-[#484f58]">Equity</span>
+            <span className="font-mono font-bold text-[#f0f6fc]">{(liveEquity ?? metaAccount.equity).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+            <span className="text-[#484f58]">Margem livre</span>
+            <span className="font-mono font-bold text-[#f0f6fc]">{metaAccount.freeMargin.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+            {metaPositions.length > 0 && (
+              <>
+                <div className="w-px h-4 bg-[#30363d]" />
+                <span className="text-[#484f58]">Abertas</span>
+                <span className="font-mono font-bold text-[#22c55e]">{metaPositions.length}</span>
+                <span className="text-[#484f58]">P&amp;L</span>
+                <span className={cn('font-mono font-bold', totalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
+                  {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} USD
+                </span>
+              </>
+            )}
+            <span className="ml-auto text-[#484f58]">Atualizado {metaAccount.updatedAt}</span>
+          </div>
+        )}
 
-          {/* Toolbar do gráfico */}
-          <div className="px-4 py-2 border-b border-[#30363d] bg-[#161b22] flex items-center justify-between shrink-0">
+        {/* Gráfico duplo (candles + RAFI) */}
+        <div
+          className="flex-1 min-h-0 rounded-xl border border-[#30363d] overflow-hidden flex flex-col md:flex-none"
+          style={isDesktop ? { height: chartH } : undefined}
+        >
+
+          {/* Toolbar do gráfico — oculta em mobile (controles ficam na gaveta) */}
+          <div className="px-4 py-2 border-b border-[#30363d] bg-[#161b22] hidden md:flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3 text-[10px]">
 
               {/* Seletor de Timeframe */}
@@ -339,15 +1216,21 @@ export default function ChartPage() {
                 onChange={handleFileChange}
               />
 
-              {/* Timeframe — desabilitado quando CSV carregado */}
-              <div className={cn(
-                'flex items-center gap-0.5 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]',
-                csvData && 'opacity-40 pointer-events-none',
-              )}>
+              {/* Timeframe — sempre habilitado; troca TF e refetch MetaAPI */}
+              <div className="flex items-center gap-0.5 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]">
                 {TIMEFRAMES.map(t => (
                   <button
                     key={t}
-                    onClick={() => { setTf(t); setTrades([]) }}
+                    disabled={metaLoading}
+                    onClick={() => {
+                      if (t === tf) return
+                      setTf(t)
+                      setTrades([])
+                      setCsvData(null)
+                      setMetaConnected(false)
+                      // loadCandlesFromMetaAPI usa o tf atual do state — após setTf ele rodará com o novo TF
+                      setTimeout(() => loadCandlesFromMetaAPI(), 0)
+                    }}
                     className={cn(
                       'px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all',
                       t === tf
@@ -360,25 +1243,200 @@ export default function ChartPage() {
                 ))}
               </div>
 
-              {/* Botão Carregar CSV */}
-              {csvData ? (
-                <span className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#22c55e]/10 border border-[#22c55e]/30 text-[#22c55e] text-[10px] font-semibold">
-                  <FolderOpen size={10} />
-                  {csvData.timeframe} · {csvData.count.toLocaleString('pt-BR')} candles
-                  <button onClick={clearCSV} className="hover:text-red-400 transition-colors ml-0.5" title="Remover dados">
-                    <XIcon size={10} />
-                  </button>
+              {/* Countdown da barra atual */}
+              <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#0d1117] border border-[#30363d]">
+                <span className="text-[#484f58] text-[10px]">⏱</span>
+                <span className="text-[#8b949e] text-[11px] font-mono tabular-nums">
+                  {String(Math.floor(candleCountdown / 60)).padStart(2, '0')}:{String(candleCountdown % 60).padStart(2, '0')}
                 </span>
-              ) : (
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border border-[#30363d] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d] transition-all"
-                  title="Carregar dados históricos reais (CSV Dukascopy ou MT5)"
-                >
-                  <FolderOpen size={10} />
-                  Carregar CSV
-                </button>
-              )}
+              </div>
+
+              {/* Botão Carregar CSV + Histórico */}
+              <div className="relative flex items-center gap-1" ref={historyPanelRef}>
+                {csvData ? (
+                  <span className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#22c55e]/10 border border-[#22c55e]/30 text-[#22c55e] text-[10px] font-semibold">
+                    <FolderOpen size={10} />
+                    {csvData.filename.length > 28 ? csvData.filename.slice(0, 26) + '…' : csvData.filename}
+                    · {csvData.count.toLocaleString('pt-BR')} candles
+                    <button onClick={clearCSV} className="hover:text-red-400 transition-colors ml-0.5" title="Remover dados">
+                      <XIcon size={10} />
+                    </button>
+                  </span>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border border-[#30363d] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d] transition-all"
+                      title="Carregar dados históricos reais (CSV Dukascopy ou MT5)"
+                    >
+                      <FolderOpen size={10} />
+                      Carregar CSV
+                    </button>
+                    {sbCandleCount != null && sbCandleCount > 0 && (
+                      <button
+                        onClick={loadCandlesFromSupabase}
+                        disabled={sbLoading}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border border-[#3b82f6]/50 text-[#3b82f6] hover:bg-[#3b82f6]/10 disabled:opacity-40 transition-all"
+                        title={`Carregar ${sbCandleCount.toLocaleString('pt-BR')} candles do Supabase`}
+                      >
+                        <Database size={10} />
+                        {sbLoading ? 'Carregando…' : `Supabase (${sbCandleCount.toLocaleString('pt-BR')})`}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        if (metaConnected) {
+                          // Desabilitar: salva preferência e limpa estado
+                          try { localStorage.setItem(META_AUTO_KEY, 'false') } catch {}
+                          setMetaConnected(false)
+                          setCsvData(null)
+                        } else {
+                          // Habilitar: salva preferência e conecta
+                          try { localStorage.setItem(META_AUTO_KEY, 'true') } catch {}
+                          loadCandlesFromMetaAPI()
+                        }
+                      }}
+                      disabled={metaLoading}
+                      className={cn(
+                        'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-all disabled:opacity-50',
+                        metaConnected
+                          ? 'border-[#22c55e]/50 bg-[#22c55e]/8 text-[#22c55e] hover:bg-[#ef4444]/10 hover:border-[#ef4444]/40 hover:text-[#ef4444]'
+                          : 'border-[#26c6da]/40 bg-[#26c6da]/8 text-[#26c6da] hover:bg-[#26c6da]/15',
+                      )}
+                      title={metaConnected ? 'Clique para desabilitar MetaAPI' : 'Carregar candles ao vivo via MetaAPI · Pepperstone'}
+                    >
+                      <span className={cn(
+                        'w-1.5 h-1.5 rounded-full inline-block',
+                        metaConnected ? 'bg-[#22c55e] animate-pulse' : 'bg-[#26c6da]',
+                      )} />
+                      {metaLoading ? 'Conectando…' : metaConnected ? 'MetaAPI · LIVE' : 'MetaAPI Ao Vivo'}
+                    </button>
+                    {/* Feature 4: countdown para auto-refresh dos candles */}
+                    {metaConnected && refreshIn > 0 && (
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] border border-[#26c6da]/25 bg-[#26c6da]/6 text-[#26c6da] font-mono">
+                        <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10">
+                          <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeDasharray="20 6" />
+                        </svg>
+                        {Math.floor(refreshIn / 60)}:{String(refreshIn % 60).padStart(2, '0')}
+                      </div>
+                    )}
+                    {metaLoading && (
+                      <div className="flex flex-col gap-0.5 min-w-[220px]">
+                        <div className="flex items-center justify-between text-[9px]">
+                          <span className="text-[#26c6da] truncate max-w-[190px]">{metaStep}</span>
+                          <span className="text-[#484f58] font-mono shrink-0 ml-1">{metaElapsed}s</span>
+                        </div>
+                        <div className="h-1 bg-[#21262d] rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-[#26c6da] rounded-full transition-all duration-1000"
+                            style={{ width: `${Math.min((metaElapsed / 30) * 100, 95)}%` }}
+                          />
+                        </div>
+                        <span className="text-[8px] text-[#484f58]">
+                          MetaAPI conecta via WebSocket ao Pepperstone MT5 — pode levar até 30s
+                        </span>
+                      </div>
+                    )}
+                    {!metaLoading && metaError && (
+                      <span className="text-[#ef4444] text-[9px] max-w-[200px] truncate" title={metaError}>
+                        ⚠ {metaError}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Botão de histórico — aparece quando há entradas */}
+                {csvHistory.length > 0 && (
+                  <button
+                    onClick={() => setHistoryOpen(o => !o)}
+                    className={cn(
+                      'flex items-center gap-0.5 px-1.5 py-1 rounded-md text-[11px] font-semibold border transition-all',
+                      historyOpen
+                        ? 'border-[#3b82f6]/50 bg-[#3b82f6]/10 text-[#3b82f6]'
+                        : 'border-[#30363d] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
+                    )}
+                    title={`${csvHistory.length} CSV${csvHistory.length > 1 ? 's' : ''} no histórico`}
+                  >
+                    <History size={10} />
+                    <span className="text-[9px]">{csvHistory.length}</span>
+                    <ChevronDown size={9} className={cn('transition-transform', historyOpen && 'rotate-180')} />
+                  </button>
+                )}
+
+                {/* Painel do histórico */}
+                {historyOpen && (
+                  <div className="absolute top-full left-0 mt-1 z-50 w-[340px] bg-[#161b22] border border-[#30363d] rounded-lg shadow-2xl overflow-hidden">
+                    <div className="px-3 py-2 border-b border-[#30363d] flex items-center justify-between">
+                      <span className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider flex items-center gap-1.5">
+                        <History size={9} /> Histórico de CSVs
+                      </span>
+                      <span className="text-[9px] text-[#484f58]">máx. {MAX_CSV_HISTORY} · clique para restaurar</span>
+                    </div>
+                    <div className="divide-y divide-[#21262d]">
+                      {csvHistory.map(entry => {
+                        const isActive = entry.id === activeCsvId
+                        const hasScan  = !!entry.scanResult
+                        const sr       = entry.scanResult
+                        const wr       = sr ? ((sr.wins / sr.trades) * 100).toFixed(1) : null
+                        const pnlPos   = sr ? sr.pnl >= 0 : null
+                        return (
+                          <div
+                            key={entry.id}
+                            className={cn(
+                              'flex items-start gap-2 px-3 py-2 cursor-pointer hover:bg-[#21262d] transition-colors group',
+                              isActive && 'bg-[#22c55e]/5 border-l-2 border-[#22c55e]',
+                            )}
+                            onClick={() => loadFromHistory(entry)}
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className={cn(
+                                  'text-[9px] font-bold px-1 py-0.5 rounded',
+                                  isActive ? 'bg-[#22c55e]/20 text-[#22c55e]' : 'bg-[#30363d] text-[#8b949e]',
+                                )}>
+                                  {entry.timeframe}
+                                </span>
+                                <span className="text-[10px] font-medium text-[#f0f6fc] truncate max-w-[140px]" title={entry.filename}>
+                                  {entry.filename.length > 24 ? entry.filename.slice(0, 22) + '…' : entry.filename}
+                                </span>
+                                <span className="text-[9px] text-[#484f58] font-mono">{entry.count.toLocaleString('pt-BR')} ·</span>
+                              </div>
+                              <div className="text-[9px] text-[#484f58] mt-0.5">
+                                {entry.dateFrom} → {entry.dateTo}
+                                {isActive && <span className="ml-1.5 text-[#22c55e] font-semibold">● ativo</span>}
+                              </div>
+                              {hasScan && sr && wr && (
+                                <div className={cn(
+                                  'text-[9px] mt-0.5 font-mono font-semibold',
+                                  pnlPos ? 'text-[#22c55e]' : 'text-[#ef4444]',
+                                )}>
+                                  AutoScan: {sr.trades}t · {wr}% WR · {pnlPos ? '+' : ''}{sr.pnl.toFixed(2)} USD
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              onClick={ev => { ev.stopPropagation(); deleteFromHistory(entry.id) }}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity text-[#484f58] hover:text-[#ef4444] mt-0.5 shrink-0"
+                              title="Remover do histórico"
+                            >
+                              <Trash2 size={10} />
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    <div className="px-3 py-2 border-t border-[#30363d]">
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[10px] font-semibold border border-[#30363d] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d] transition-all"
+                      >
+                        <FolderOpen size={10} />
+                        Carregar novo CSV…
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
               {csvError && (
                 <span className="text-[#ef4444] text-[9px] max-w-[180px] truncate" title={csvError}>
                   ⚠ {csvError}
@@ -399,6 +1457,40 @@ export default function ChartPage() {
                 <span className="text-[#ef4444]">Baixa ≥2.5</span>
                 <span className="text-[#484f58]">({strongBearBars}×)</span>
               </span>
+
+              <span className="text-[#30363d]">|</span>
+
+              {/* Alinhamento do gráfico — 2 botões estilo MT5 */}
+              <div className="flex items-center gap-0 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]">
+                {/* Alinhar à esquerda: candles + espaço à direita (Shift MT5) */}
+                <button
+                  onClick={() => shiftRangeRef.current?.()}
+                  className="flex items-center justify-center w-7 h-6 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-all"
+                  title="Alinhar à esquerda — candles com espaço à direita (Shift MT5)"
+                >
+                  <svg width="16" height="11" viewBox="0 0 16 11" fill="none">
+                    <rect x="0.5" y="0.5" width="15" height="10" rx="1.5" stroke="currentColor" strokeOpacity="0.4"/>
+                    <rect x="2" y="3" width="2" height="5" rx="0.5" fill="currentColor"/>
+                    <rect x="5" y="2" width="2" height="7" rx="0.5" fill="currentColor"/>
+                    <rect x="8" y="4" width="2" height="4" rx="0.5" fill="currentColor"/>
+                    <rect x="13" y="1" width="1" height="9" rx="0.5" fill="currentColor" opacity="0.5"/>
+                  </svg>
+                </button>
+                {/* Alinhar à direita: última barra na borda direita */}
+                <button
+                  onClick={() => alignRightRef.current?.()}
+                  className="flex items-center justify-center w-7 h-6 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-all"
+                  title="Alinhar à direita — última barra na borda direita"
+                >
+                  <svg width="16" height="11" viewBox="0 0 16 11" fill="none">
+                    <rect x="0.5" y="0.5" width="15" height="10" rx="1.5" stroke="currentColor" strokeOpacity="0.4"/>
+                    <rect x="4" y="3" width="2" height="5" rx="0.5" fill="currentColor"/>
+                    <rect x="7" y="2" width="2" height="7" rx="0.5" fill="currentColor"/>
+                    <rect x="10" y="4" width="2" height="4" rx="0.5" fill="currentColor"/>
+                    <rect x="13" y="3" width="2" height="5" rx="0.5" fill="currentColor"/>
+                  </svg>
+                </button>
+              </div>
 
               <span className="text-[#30363d]">|</span>
 
@@ -495,14 +1587,410 @@ export default function ChartPage() {
               onOCOChange={setOcoState}
               onOCOExecute={handleOCOExecute}
               onOCOClose={handleOCOClose}
+              livePrice={livePrice}
+              livePriceRef={livePriceRef}
+              chartUpdateCandleRef={chartUpdateCandleRef}
+              positions={metaPositions as any}
+              onModifyPosition={(id, sl, tp) => handleModifyPosition(id, String(sl), String(tp))}
               snapshotCaptureRef={snapshotCaptureRef}
+              shiftRangeRef={shiftRangeRef}
+              alignRightRef={alignRightRef}
+              freeMargin={metaAccount?.freeMargin ?? null}
             />
           </div>
         </div>
 
-        {/* Rodapé informativo */}
+        {/* Handle de resize vertical — desktop only */}
+        {isDesktop && (
+          <div
+            className="hidden md:flex items-center justify-center h-2 shrink-0 cursor-row-resize group select-none"
+            onMouseDown={handleResizeStart}
+            onDoubleClick={() => { setChartH(460); try { localStorage.removeItem('mesa_chart_h') } catch {} }}
+            title="Arraste para redimensionar · Duplo clique para restaurar"
+          >
+            <div className="flex items-center gap-0.5 opacity-30 group-hover:opacity-100 transition-opacity">
+              <span className="w-6 h-[2px] rounded-full bg-[#484f58] group-hover:bg-[#3b82f6] transition-colors" />
+              <span className="w-1.5 h-[2px] rounded-full bg-[#484f58] group-hover:bg-[#3b82f6] transition-colors" />
+              <span className="w-6 h-[2px] rounded-full bg-[#484f58] group-hover:bg-[#3b82f6] transition-colors" />
+            </div>
+          </div>
+        )}
+
+        {/* Feature 2: painel de posições abertas — só visível quando MetaAPI conectado e há posições (oculto em mobile, acessível pela aba Posições) */}
+        {metaConnected && metaPositions.length > 0 && (
+          <div className="hidden md:block shrink-0 rounded-xl border border-[#30363d] bg-[#0b1219] overflow-hidden">
+            <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between">
+              <span className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">
+                Posições Abertas · Pepperstone
+              </span>
+              <span className={cn('text-[10px] font-mono font-bold', totalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
+                P&amp;L total {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} USD
+              </span>
+            </div>
+            <div className="divide-y divide-[#21262d]">
+              {metaPositions.map(pos => {
+                const isBuy     = pos.type === 'POSITION_TYPE_BUY'
+                const pnlColor  = pos.profit >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'
+                const isEditing = editingPos?.id === pos.id
+                return (
+                  <div key={pos.id} className="px-4 py-2 text-[10px] hover:bg-[#161b22] transition-colors">
+                    {/* Linha principal */}
+                    <div className="flex items-center gap-3">
+                      <span className={cn('font-bold text-[11px]', isBuy ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
+                        {isBuy ? '▲' : '▼'}
+                      </span>
+                      <span className="font-semibold text-[#f0f6fc] w-14">{pos.symbol}</span>
+                      <span className="text-[#8b949e]">{pos.volume}L</span>
+                      <span className="text-[#484f58]">@ {pos.openPrice.toFixed(5)}</span>
+                      <span className="text-[#484f58]">→ {pos.currentPrice.toFixed(5)}</span>
+                      <span className={cn('font-mono font-bold ml-auto', pnlColor)}>
+                        {pos.profit >= 0 ? '+' : ''}{pos.profit.toFixed(2)} USD
+                      </span>
+                      {/* Botão editar SL/TP */}
+                      <button
+                        onClick={() => setEditingPos(isEditing ? null : {
+                          id: pos.id,
+                          sl: pos.stopLoss?.toFixed(5) ?? '',
+                          tp: pos.takeProfit?.toFixed(5) ?? '',
+                        })}
+                        className={cn(
+                          'flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-semibold border transition-colors',
+                          isEditing
+                            ? 'border-[#f59e0b]/50 bg-[#f59e0b]/10 text-[#f59e0b]'
+                            : 'border-[#30363d] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
+                        )}
+                        title="Editar SL e TP desta posição"
+                      >
+                        ✎ SL/TP
+                      </button>
+                      <button
+                        onClick={() => handleClosePosition(pos.id)}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-semibold border border-[#ef4444]/40 text-[#ef4444] hover:bg-[#ef4444]/10 transition-colors"
+                        title="Fechar posição via MetaAPI"
+                      >
+                        <XIcon size={9} /> Fechar
+                      </button>
+                    </div>
+
+                    {/* SL/TP atuais (sempre visível) */}
+                    {!isEditing && (
+                      <div className="flex items-center gap-4 mt-1 pl-5 text-[9px]">
+                        <span className="text-[#484f58]">
+                          SL <span className="font-mono text-[#ef4444]">{pos.stopLoss?.toFixed(5) ?? '—'}</span>
+                        </span>
+                        <span className="text-[#484f58]">
+                          TP <span className="font-mono text-[#22c55e]">{pos.takeProfit?.toFixed(5) ?? '—'}</span>
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Edição inline de SL/TP */}
+                    {isEditing && editingPos && (() => {
+                      // Preview P/L em USD: (nível - entrada) × volume × 100.000
+                      // Funciona para EURUSD e qualquer par cotado em USD
+                      const slVal = parseFloat(editingPos.sl)
+                      const tpVal = parseFloat(editingPos.tp)
+                      const contractSize = 100_000
+                      const slUsd = !isNaN(slVal)
+                        ? (isBuy ? slVal - pos.openPrice : pos.openPrice - slVal) * pos.volume * contractSize
+                        : null
+                      const tpUsd = !isNaN(tpVal)
+                        ? (isBuy ? tpVal - pos.openPrice : pos.openPrice - tpVal) * pos.volume * contractSize
+                        : null
+                      const fmtUsd = (v: number) =>
+                        (v >= 0 ? '+' : '') + v.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                      return (
+                        <div className="mt-2 pl-5 space-y-1.5">
+                          {/* SL */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[9px] text-[#ef4444] font-semibold w-4">SL</span>
+                            <input
+                              type="number"
+                              step="0.00001"
+                              value={editingPos.sl}
+                              onChange={e => setEditingPos(p => p ? { ...p, sl: e.target.value } : p)}
+                              className="w-24 px-2 py-1 rounded bg-[#0d1117] border border-[#ef4444]/40 text-[#ef4444] text-[10px] font-mono focus:outline-none focus:border-[#ef4444]"
+                            />
+                            {slUsd !== null && (
+                              <span className={cn(
+                                'text-[10px] font-mono font-bold tabular-nums',
+                                slUsd >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]',
+                              )}>
+                                {fmtUsd(slUsd)}
+                              </span>
+                            )}
+                          </div>
+                          {/* TP */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[9px] text-[#22c55e] font-semibold w-4">TP</span>
+                            <input
+                              type="number"
+                              step="0.00001"
+                              value={editingPos.tp}
+                              onChange={e => setEditingPos(p => p ? { ...p, tp: e.target.value } : p)}
+                              className="w-24 px-2 py-1 rounded bg-[#0d1117] border border-[#22c55e]/40 text-[#22c55e] text-[10px] font-mono focus:outline-none focus:border-[#22c55e]"
+                            />
+                            {tpUsd !== null && (
+                              <span className={cn(
+                                'text-[10px] font-mono font-bold tabular-nums',
+                                tpUsd >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]',
+                              )}>
+                                {fmtUsd(tpUsd)}
+                              </span>
+                            )}
+                          </div>
+                          {/* Botões */}
+                          <div className="flex items-center gap-2 pt-0.5">
+                            <button
+                              onClick={() => handleModifyPosition(pos.id, editingPos.sl, editingPos.tp)}
+                              className="px-2.5 py-1 rounded text-[9px] font-bold bg-[#22c55e]/15 border border-[#22c55e]/50 text-[#22c55e] hover:bg-[#22c55e]/25 transition-colors"
+                            >
+                              ✓ Confirmar
+                            </button>
+                            <button
+                              onClick={() => setEditingPos(null)}
+                              className="px-2.5 py-1 rounded text-[9px] font-semibold border border-[#30363d] text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d] transition-colors"
+                            >
+                              ✕ Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── Posições Abertas ao Vivo — sempre visível (mobile + desktop) ── */}
+        {metaConnected && metaPositions.length > 0 && (
+          <div className="shrink-0 rounded-xl border border-[#3b82f633] bg-[#0b1219] overflow-hidden">
+            <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between">
+              <span className="text-[10px] font-semibold text-[#3b82f6] uppercase tracking-wider flex items-center gap-1.5">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse" />
+                Posições Abertas
+              </span>
+              <span className={cn('text-[10px] font-mono font-bold', totalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
+                P&amp;L {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} USD
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-[10px] border-collapse">
+                <thead>
+                  <tr className="border-b border-[#21262d]">
+                    {['Par', 'Dir', 'Lote', 'Entrada', 'TP', 'SL', 'P&L ao vivo', ''].map(h => (
+                      <th key={h} className="px-3 py-1.5 text-left text-[8px] font-semibold text-[#484f58] uppercase tracking-widest whitespace-nowrap">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#21262d]/50">
+                  {metaPositions.map(pos => {
+                    const isBuy  = pos.type === 'POSITION_TYPE_BUY'
+                    const pnl    = livePrice
+                      ? (isBuy ? 1 : -1) * (livePrice - pos.openPrice) * pos.volume * 100000
+                      : (pos.profit ?? 0)
+                    const pnlClr = pnl >= 0 ? '#22c55e' : '#ef4444'
+                    return (
+                      <tr key={pos.id} className="hover:bg-[#161b22] transition-colors">
+                        <td className="px-3 py-2 font-mono font-bold text-[#f0f6fc]">{pos.symbol}</td>
+                        <td className="px-3 py-2">
+                          <span className={cn('font-bold', isBuy ? 'text-[#3b82f6]' : 'text-[#f59e0b]')}>
+                            {isBuy ? '▲ BUY' : '▼ SELL'}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 font-mono text-[#8b949e]">{Math.abs(pos.volume)}L</td>
+                        <td className="px-3 py-2 font-mono text-[#8b949e]">{pos.openPrice.toFixed(5)}</td>
+                        <td className="px-3 py-2 font-mono text-[#10b981]">{pos.takeProfit ? pos.takeProfit.toFixed(5) : '—'}</td>
+                        <td className="px-3 py-2 font-mono text-[#ef4444]">{pos.stopLoss  ? pos.stopLoss.toFixed(5)  : '—'}</td>
+                        <td className="px-3 py-2 font-mono font-bold tabular-nums" style={{ color: pnlClr }}>
+                          {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)} USD
+                        </td>
+                        <td className="px-3 py-2">
+                          <button
+                            onClick={() => handleClosePosition(pos.id)}
+                            className="px-2 py-0.5 rounded text-[9px] font-bold bg-[#ef4444]/15 border border-[#ef4444]/40 text-[#ef4444] hover:bg-[#ef4444]/25 transition-colors whitespace-nowrap"
+                          >
+                            × Fechar
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Histórico de trades fechados · Pepperstone (oculto em mobile, acessível pela aba Histórico) */}
+        {metaConnected && (
+          <div className="hidden md:block shrink-0 rounded-xl border border-[#30363d] bg-[#0b1219] overflow-hidden">
+
+            {/* Cabeçalho */}
+            <div className="px-4 py-2.5 border-b border-[#30363d] flex items-center justify-between flex-wrap gap-2">
+              <span className="text-[11px] font-bold text-[#f0f6fc] flex items-center gap-1.5">
+                <History size={11} className="text-[#26c6da]" />
+                Relatório de Operações
+                <span className="text-[9px] font-normal text-[#484f58] ml-1">· Pepperstone</span>
+              </span>
+              {/* Filtros de período */}
+              <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]">
+                {(['today', '7d', '30d', '3m'] as const).map(p => {
+                  const labels = { today: 'Hoje', '7d': '7 dias', '30d': '30 dias', '3m': '3 meses' }
+                  const active = historyPeriod === p
+                  return (
+                    <button
+                      key={p}
+                      onClick={() => setHistoryPeriod(p)}
+                      disabled={historyLoading}
+                      className={cn(
+                        'px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all disabled:opacity-50',
+                        active
+                          ? 'bg-[#26c6da] text-[#0d1117]'
+                          : 'text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
+                      )}
+                    >
+                      {labels[p]}
+                    </button>
+                  )
+                })}
+              </div>
+              {historyLoading && (
+                <div className="flex items-center gap-1.5 text-[9px] text-[#26c6da] animate-pulse">
+                  <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10">
+                    <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeDasharray="20 6" />
+                  </svg>
+                  Carregando…
+                </div>
+              )}
+            </div>
+
+            {/* Resumo estatístico — 5 KPIs */}
+            {metaHistory.length > 0 && (() => {
+              const wins       = metaHistory.filter(d => d.profit > 0).length
+              const losses     = metaHistory.filter(d => d.profit < 0).length
+              const totalPnl   = metaHistory.reduce((s, d) => s + d.profit, 0)
+              const winRate    = (wins / metaHistory.length * 100).toFixed(0)
+              const bestTrade  = Math.max(...metaHistory.map(d => d.profit))
+              const worstTrade = Math.min(...metaHistory.map(d => d.profit))
+              return (
+                <div className="grid grid-cols-5 border-b border-[#30363d]">
+                  {[
+                    { label: 'Operações', value: String(metaHistory.length), sub: `${wins}G · ${losses}P`, color: '#8b949e' },
+                    { label: 'Lucro Total', value: `${totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)}`, sub: 'USD', color: totalPnl >= 0 ? '#22c55e' : '#ef4444' },
+                    { label: 'Win Rate', value: `${winRate}%`, sub: `${wins} wins`, color: Number(winRate) >= 50 ? '#22c55e' : '#ef4444' },
+                    { label: 'Melhor', value: `+${bestTrade.toFixed(2)}`, sub: 'USD', color: '#22c55e' },
+                    { label: 'Pior', value: worstTrade.toFixed(2), sub: 'USD', color: '#ef4444' },
+                  ].map((s, i) => (
+                    <div key={s.label} className={cn('flex flex-col items-center py-3 px-2', i < 4 && 'border-r border-[#21262d]')}>
+                      <span className="text-[8px] text-[#484f58] uppercase tracking-widest mb-1">{s.label}</span>
+                      <span className="text-[13px] font-mono font-bold leading-none" style={{ color: s.color }}>{s.value}</span>
+                      <span className="text-[8px] text-[#484f58] mt-1">{s.sub}</span>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
+
+            {/* Estado vazio */}
+            {metaHistory.length === 0 && !historyLoading && (
+              <div className="px-4 py-6 text-center">
+                <span className="text-[10px] text-[#484f58]">Nenhuma operação fechada no período selecionado</span>
+              </div>
+            )}
+
+            {/* Tabela de operações */}
+            {metaHistory.length > 0 && (
+              <div className="overflow-x-auto max-h-[260px] overflow-y-auto">
+                <table className="w-full text-[10px] border-collapse">
+                  <thead className="sticky top-0 z-10 bg-[#0d1117]">
+                    <tr className="border-b border-[#30363d]">
+                      {['Resultado', 'Par', 'Direção', 'Lote', 'Preço Saída', 'Lucro (USD)', 'Data · Hora'].map(h => (
+                        <th key={h} className="px-3 py-2 text-left text-[8px] font-semibold text-[#484f58] uppercase tracking-widest whitespace-nowrap">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#21262d]/50">
+                    {metaHistory.map(deal => {
+                      const isBuy  = deal.type === 'DEAL_TYPE_BUY'
+                      const isWin  = deal.profit > 0
+                      const isLoss = deal.profit < 0
+                      const color  = isWin ? '#22c55e' : isLoss ? '#ef4444' : '#8b949e'
+                      const dt     = new Date(deal.time)
+                      const fmtDate = dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
+                      const fmtTime = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                      return (
+                        <tr
+                          key={deal.id}
+                          className="hover:bg-[#161b22] transition-colors group"
+                          style={{ borderLeft: `2px solid ${color}35` }}
+                        >
+                          {/* Resultado */}
+                          <td className="px-3 py-2">
+                            <span
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-bold"
+                              style={{ background: `${color}15`, color }}
+                            >
+                              {isWin ? '✓ TP' : isLoss ? '✕ SL' : '— FEC'}
+                            </span>
+                          </td>
+                          {/* Par */}
+                          <td className="px-3 py-2 font-semibold text-[#f0f6fc] whitespace-nowrap">{deal.symbol}</td>
+                          {/* Direção */}
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            <span className={cn('font-bold', isBuy ? 'text-[#3b82f6]' : 'text-[#f59e0b]')}>
+                              {isBuy ? '▲ BUY' : '▼ SELL'}
+                            </span>
+                          </td>
+                          {/* Lote */}
+                          <td className="px-3 py-2 text-[#8b949e] font-mono">{deal.volume}</td>
+                          {/* Preço saída */}
+                          <td className="px-3 py-2 font-mono text-[#8b949e] whitespace-nowrap">{deal.price?.toFixed(5) ?? '—'}</td>
+                          {/* Lucro */}
+                          <td className="px-3 py-2 font-mono font-bold whitespace-nowrap" style={{ color }}>
+                            {deal.profit > 0 ? '+' : ''}{deal.profit.toFixed(2)}
+                          </td>
+                          {/* Data/hora */}
+                          <td className="px-3 py-2 text-[#484f58] whitespace-nowrap font-mono">
+                            {fmtDate} <span className="text-[#30363d]">·</span> {fmtTime}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  {/* Rodapé com totais */}
+                  <tfoot className="sticky bottom-0 bg-[#0d1117] border-t border-[#30363d]">
+                    <tr>
+                      <td colSpan={5} className="px-3 py-2 text-[9px] text-[#484f58]">
+                        {metaHistory.length} operações
+                      </td>
+                      <td className="px-3 py-2 font-mono font-bold text-[10px]" style={{
+                        color: metaHistory.reduce((s, d) => s + d.profit, 0) >= 0 ? '#22c55e' : '#ef4444'
+                      }}>
+                        {(() => {
+                          const t = metaHistory.reduce((s, d) => s + d.profit, 0)
+                          return `${t >= 0 ? '+' : ''}${t.toFixed(2)}`
+                        })()}
+                      </td>
+                      <td className="px-3 py-2 text-[9px] text-[#484f58]">total</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Rodapé informativo — oculto em mobile */}
         <div className={cn(
-          'shrink-0 flex items-center gap-3 text-[10px] text-[#484f58] px-1',
+          'hidden md:flex shrink-0 items-center gap-3 text-[10px] text-[#484f58] px-1',
           trades.length > 0 && 'text-[#8b949e]',
         )}>
           <span>
@@ -519,8 +2007,54 @@ export default function ChartPage() {
         </div>
       </div>
 
-      {/* ── Painel lateral ──────────────────────────────────────────── */}
-      <div className="w-80 shrink-0">
+      {/* ── Sidebar inteligente — oculta em mobile, acessível pela aba Operação ── */}
+      <SessionSidebar
+        trades={trades}
+        onAdd={handleAdd}
+        onRemove={handleRemove}
+        onUpdate={handleUpdate}
+        lastPrice={lastPrice}
+        lastCandleTime={lastTime}
+        externalEntry={clickedEntry}
+        freeMargin={metaAccount?.freeMargin ?? null}
+        livePrice={livePrice}
+        balance={metaAccount?.balance ?? null}
+        discipline={disciplineState}
+        rafiValue={currentRafiValue}
+        bbExpanding={currentBbExpanding}
+        checkin={checkin}
+      />
+
+      {/* ── Barra de abas mobile ──────────────────────────────────────── */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 h-[60px] bg-[#161b22] border-t border-[#30363d] flex z-20">
+        {([
+          { id: 'chart',     Icon: BarChart2, label: 'Gráfico',   badge: 0 },
+          { id: 'positions', Icon: Layers,    label: 'Posições',  badge: metaConnected && metaPositions.length > 0 ? metaPositions.length : 0 },
+          { id: 'trade',     Icon: Crosshair, label: 'Operação',  badge: 0 },
+          { id: 'history',   Icon: History,   label: 'Histórico', badge: 0 },
+        ] as Array<{ id: 'chart'|'positions'|'trade'|'history'; Icon: any; label: string; badge: number }>).map(({ id, Icon, label, badge }) => (
+          <button
+            key={id}
+            onClick={() => setMobileTab(id as any)}
+            className="flex-1 flex flex-col items-center justify-center gap-0.5 relative pt-1"
+          >
+            <Icon size={20} className={cn(mobileTab === id ? 'text-[#26c6da]' : 'text-[#484f58]')} />
+            <span className={cn('text-[9px] font-medium', mobileTab === id ? 'text-[#26c6da]' : 'text-[#484f58]')}>{label}</span>
+            {badge ? (
+              <span className="absolute top-1.5 left-[calc(50%+6px)] bg-[#22c55e] text-[#0d1117] text-[8px] font-bold w-3.5 h-3.5 rounded-full flex items-center justify-center">
+                {badge}
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Bottom sheet: Operação ──────────────────────────────────── */}
+      <div className={cn(
+        'md:hidden fixed bottom-[60px] left-0 right-0 bg-[#161b22] border-t border-[#30363d] rounded-t-2xl z-20 transition-transform duration-300 max-h-[78vh] overflow-y-auto overscroll-contain',
+        mobileTab === 'trade' ? 'translate-y-0' : 'translate-y-full pointer-events-none',
+      )}>
+        <div className="w-10 h-1 bg-[#30363d] rounded-full mx-auto mt-3 mb-1 shrink-0" />
         <TradePanel
           trades={trades}
           onAdd={handleAdd}
@@ -529,8 +2063,250 @@ export default function ChartPage() {
           lastPrice={lastPrice}
           lastCandleTime={lastTime}
           externalEntry={clickedEntry}
+          freeMargin={metaAccount?.freeMargin ?? null}
+          livePrice={livePrice}
         />
       </div>
+
+      {/* ── Bottom sheet: Posições ──────────────────────────────────── */}
+      <div className={cn(
+        'md:hidden fixed bottom-[60px] left-0 right-0 bg-[#161b22] border-t border-[#30363d] rounded-t-2xl z-20 transition-transform duration-300 max-h-[78vh] overflow-y-auto overscroll-contain',
+        mobileTab === 'positions' ? 'translate-y-0' : 'translate-y-full pointer-events-none',
+      )}>
+        <div className="w-10 h-1 bg-[#30363d] rounded-full mx-auto mt-3 mb-2 shrink-0" />
+        <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between">
+          <span className="text-[11px] font-semibold text-[#8b949e] uppercase tracking-wider">Posições Abertas · Pepperstone</span>
+          {metaPositions.length > 0 && (
+            <span className={cn('text-[11px] font-mono font-bold', totalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
+              P&amp;L {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} USD
+            </span>
+          )}
+        </div>
+        {!metaConnected ? (
+          <div className="px-4 py-10 text-center text-[12px] text-[#484f58]">
+            Conecte o MetaAPI para ver posições ao vivo
+          </div>
+        ) : metaPositions.length === 0 ? (
+          <div className="px-4 py-10 text-center text-[12px] text-[#484f58]">
+            Nenhuma posição aberta no momento
+          </div>
+        ) : (
+          <div className="divide-y divide-[#21262d]">
+            {metaPositions.map(pos => {
+              const isBuy     = pos.type === 'POSITION_TYPE_BUY'
+              const pnlColor  = pos.profit >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'
+              const isEditing = editingPos?.id === pos.id
+              return (
+                <div key={pos.id} className="px-4 py-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={cn('font-bold text-sm', isBuy ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
+                      {isBuy ? '▲' : '▼'}
+                    </span>
+                    <span className="font-bold text-sm text-[#f0f6fc]">{pos.symbol}</span>
+                    <span className="text-[11px] text-[#8b949e]">{pos.volume}L · {pos.openPrice.toFixed(5)}</span>
+                    <span className={cn('font-mono font-bold text-sm ml-auto', pnlColor)}>
+                      {pos.profit >= 0 ? '+' : ''}{pos.profit.toFixed(2)} USD
+                    </span>
+                  </div>
+                  {!isEditing && (
+                    <div className="flex items-center gap-3 mb-2 text-[11px]">
+                      <span className="text-[#484f58]">SL <span className="font-mono text-[#ef4444]">{pos.stopLoss?.toFixed(5) ?? '—'}</span></span>
+                      <span className="text-[#484f58]">TP <span className="font-mono text-[#22c55e]">{pos.takeProfit?.toFixed(5) ?? '—'}</span></span>
+                    </div>
+                  )}
+                  {isEditing && editingPos && (() => {
+                    const slVal = parseFloat(editingPos.sl)
+                    const tpVal = parseFloat(editingPos.tp)
+                    const contractSize = 100_000
+                    const slUsd = !isNaN(slVal)
+                      ? (isBuy ? slVal - pos.openPrice : pos.openPrice - slVal) * pos.volume * contractSize : null
+                    const tpUsd = !isNaN(tpVal)
+                      ? (isBuy ? tpVal - pos.openPrice : pos.openPrice - tpVal) * pos.volume * contractSize : null
+                    const fmtUsd = (v: number) =>
+                      (v >= 0 ? '+' : '') + v.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                    return (
+                      <div className="space-y-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-[#ef4444] font-semibold w-6">SL</span>
+                          <input
+                            type="number" step="0.00001" value={editingPos.sl}
+                            onChange={e => setEditingPos(p => p ? { ...p, sl: e.target.value } : p)}
+                            className="flex-1 px-3 py-2 rounded-lg bg-[#0d1117] border border-[#ef4444]/40 text-[#ef4444] text-[13px] font-mono focus:outline-none"
+                          />
+                          {slUsd !== null && <span className={cn('text-[12px] font-mono font-bold w-20 text-right', slUsd >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>{fmtUsd(slUsd)}</span>}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-[#22c55e] font-semibold w-6">TP</span>
+                          <input
+                            type="number" step="0.00001" value={editingPos.tp}
+                            onChange={e => setEditingPos(p => p ? { ...p, tp: e.target.value } : p)}
+                            className="flex-1 px-3 py-2 rounded-lg bg-[#0d1117] border border-[#22c55e]/40 text-[#22c55e] text-[13px] font-mono focus:outline-none"
+                          />
+                          {tpUsd !== null && <span className={cn('text-[12px] font-mono font-bold w-20 text-right', tpUsd >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>{fmtUsd(tpUsd)}</span>}
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleModifyPosition(pos.id, editingPos.sl, editingPos.tp)}
+                            className="flex-1 py-2 rounded-lg text-[12px] font-bold bg-[#22c55e]/15 border border-[#22c55e]/50 text-[#22c55e]"
+                          >✓ Confirmar</button>
+                          <button
+                            onClick={() => setEditingPos(null)}
+                            className="flex-1 py-2 rounded-lg text-[12px] font-semibold border border-[#30363d] text-[#484f58]"
+                          >✕ Cancelar</button>
+                        </div>
+                      </div>
+                    )
+                  })()}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setEditingPos(isEditing ? null : { id: pos.id, sl: pos.stopLoss?.toFixed(5) ?? '', tp: pos.takeProfit?.toFixed(5) ?? '' })}
+                      className={cn(
+                        'flex-1 py-2 rounded-lg text-[12px] font-semibold border transition-colors',
+                        isEditing ? 'border-[#f59e0b]/50 bg-[#f59e0b]/10 text-[#f59e0b]' : 'border-[#30363d] text-[#484f58]',
+                      )}
+                    >✎ Editar SL/TP</button>
+                    <button
+                      onClick={() => handleClosePosition(pos.id)}
+                      className="flex-1 py-2 rounded-lg text-[12px] font-semibold border border-[#ef4444]/40 text-[#ef4444]"
+                    ><XIcon size={12} className="inline mr-1" />Fechar</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+        <div className="h-4" />
+      </div>
+
+      {/* ── Bottom sheet: Histórico ─────────────────────────────────── */}
+      <div className={cn(
+        'md:hidden fixed bottom-[60px] left-0 right-0 bg-[#161b22] border-t border-[#30363d] rounded-t-2xl z-20 transition-transform duration-300 max-h-[78vh] overflow-y-auto overscroll-contain',
+        mobileTab === 'history' ? 'translate-y-0' : 'translate-y-full pointer-events-none',
+      )}>
+        <div className="w-10 h-1 bg-[#30363d] rounded-full mx-auto mt-3 mb-2 shrink-0" />
+        <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between flex-wrap gap-2">
+          <span className="text-[12px] font-bold text-[#f0f6fc] flex items-center gap-1.5">
+            <History size={12} className="text-[#26c6da]" /> Relatório de Operações
+          </span>
+          <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]">
+            {(['today', '7d', '30d', '3m'] as const).map(p => {
+              const labels = { today: 'Hoje', '7d': '7d', '30d': '30d', '3m': '3m' }
+              return (
+                <button
+                  key={p}
+                  onClick={() => setHistoryPeriod(p)}
+                  disabled={historyLoading}
+                  className={cn(
+                    'px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all disabled:opacity-50',
+                    historyPeriod === p ? 'bg-[#26c6da] text-[#0d1117]' : 'text-[#484f58] hover:text-[#8b949e]',
+                  )}
+                >{labels[p]}</button>
+              )
+            })}
+          </div>
+        </div>
+        {!metaConnected ? (
+          <div className="px-4 py-10 text-center text-[12px] text-[#484f58]">Conecte o MetaAPI para ver o histórico</div>
+        ) : historyLoading ? (
+          <div className="px-4 py-10 text-center text-[12px] text-[#26c6da] animate-pulse">Carregando…</div>
+        ) : metaHistory.length === 0 ? (
+          <div className="px-4 py-10 text-center text-[12px] text-[#484f58]">Nenhuma operação fechada no período</div>
+        ) : (
+          <>
+            {/* KPIs compactos */}
+            {(() => {
+              const wins     = metaHistory.filter(d => d.profit > 0).length
+              const losses   = metaHistory.filter(d => d.profit < 0).length
+              const tot      = metaHistory.reduce((s, d) => s + d.profit, 0)
+              const wr       = (wins / metaHistory.length * 100).toFixed(0)
+              return (
+                <div className="grid grid-cols-3 border-b border-[#30363d]">
+                  {[
+                    { label: 'Operações', val: String(metaHistory.length), sub: `${wins}G · ${losses}P`, c: '#8b949e' },
+                    { label: 'Lucro',     val: `${tot >= 0 ? '+' : ''}${tot.toFixed(2)}`, sub: 'USD', c: tot >= 0 ? '#22c55e' : '#ef4444' },
+                    { label: 'Win Rate',  val: `${wr}%`, sub: `${wins} wins`, c: Number(wr) >= 50 ? '#22c55e' : '#ef4444' },
+                  ].map((s, i) => (
+                    <div key={s.label} className={cn('flex flex-col items-center py-3 px-2', i < 2 && 'border-r border-[#21262d]')}>
+                      <span className="text-[8px] text-[#484f58] uppercase tracking-widest mb-1">{s.label}</span>
+                      <span className="text-[14px] font-mono font-bold leading-none" style={{ color: s.c }}>{s.val}</span>
+                      <span className="text-[8px] text-[#484f58] mt-1">{s.sub}</span>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
+            {/* Lista de trades */}
+            <div className="divide-y divide-[#21262d]">
+              {metaHistory.map(deal => {
+                const isBuy  = deal.type === 'DEAL_TYPE_BUY'
+                const isWin  = deal.profit > 0
+                const isLoss = deal.profit < 0
+                const color  = isWin ? '#22c55e' : isLoss ? '#ef4444' : '#8b949e'
+                const dt     = new Date(deal.time)
+                const fmtDate = dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+                const fmtTime = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                return (
+                  <div key={deal.id} className="px-4 py-3 flex items-center gap-3" style={{ borderLeft: `3px solid ${color}40` }}>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="font-bold text-[12px] text-[#f0f6fc]">{deal.symbol}</span>
+                        <span className={cn('text-[10px] font-bold', isBuy ? 'text-[#3b82f6]' : 'text-[#f59e0b]')}>
+                          {isBuy ? '▲ BUY' : '▼ SELL'}
+                        </span>
+                        <span className="ml-auto text-[11px] font-mono" style={{ color }}>
+                          {isWin ? '✓ TP' : isLoss ? '✕ SL' : '— FEC'}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-[#484f58] font-mono">{fmtDate} {fmtTime} · {deal.volume}L</div>
+                    </div>
+                    <span className="font-mono font-bold text-[14px] shrink-0" style={{ color }}>
+                      {deal.profit > 0 ? '+' : ''}{deal.profit.toFixed(2)}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )}
+        <div className="h-4" />
+      </div>
+
+      {/* Feature 5: alertas do bot — posições abertas/fechadas automaticamente */}
+      {botAlerts.length > 0 && (
+        <div className="fixed top-16 right-4 flex flex-col gap-1.5 z-40 pointer-events-none">
+          {botAlerts.map(alert => (
+            <div
+              key={alert.id}
+              className={cn(
+                'flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-semibold shadow-lg',
+                alert.kind === 'open'
+                  ? 'bg-[#0d1117] border border-[#22c55e]/40 text-[#22c55e]'
+                  : 'bg-[#0d1117] border border-[#ef4444]/40 text-[#ef4444]',
+              )}
+            >
+              <span className="w-1.5 h-1.5 rounded-full inline-block shrink-0"
+                style={{ background: alert.kind === 'open' ? '#22c55e' : '#ef4444' }} />
+              <span>{alert.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Feature 3: toast de feedback ao executar ordem OCO via MetaAPI */}
+      {orderToast && (
+        <div className={cn(
+          'fixed bottom-[76px] md:bottom-6 right-4 md:right-6 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-2xl border text-[11px] font-semibold max-w-xs',
+          orderToast.ok
+            ? 'bg-[#0d1117] border-[#22c55e]/50 text-[#22c55e]'
+            : 'bg-[#0d1117] border-[#ef4444]/50 text-[#ef4444]',
+        )}>
+          <span className={cn(
+            'w-2 h-2 rounded-full inline-block shrink-0',
+            orderToast.ok ? 'bg-[#22c55e]' : 'bg-[#ef4444]',
+          )} />
+          <span>{orderToast.msg}</span>
+        </div>
+      )}
     </div>
   )
 }
