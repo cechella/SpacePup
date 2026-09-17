@@ -241,6 +241,101 @@ function HeroSparkline({ trades, height = 80 }: { trades: ManualTrade[]; height?
   return <canvas ref={canvasRef} width={400} height={height} style={{ width: '100%', height }} />
 }
 
+// ── Broker Live Data type ─────────────────────────────────────────────────────
+interface BrokerLiveData {
+  id:                 string
+  nome:               string
+  tipo:               string
+  metaapi_account_id: string | null
+  balance:            number
+  equity:             number
+  freeMargin:         number
+  updatedAt:          string | null
+  todayPnl:           number
+  connected:          boolean
+}
+
+// ── Cards de comparação de corretoras ─────────────────────────────────────────
+const BROKER_META: Record<string, { label: string; color: string; bg: string }> = {
+  pepperstone:    { label: 'PP', color: '#4a9eff', bg: '#0d1a28' },
+  fusion_markets: { label: 'FM', color: '#a855f7', bg: '#150d27' },
+  exness:         { label: 'EX', color: '#1de9b6', bg: '#0a1a20' },
+  xm:             { label: 'XM', color: '#00e676', bg: '#0d2016' },
+}
+function getBrokerMeta(id: string) {
+  return BROKER_META[id] ?? { label: id.slice(0, 2).toUpperCase(), color: C.sub, bg: C.card2 }
+}
+
+function BrokerCompareRow({ brokers }: { brokers: BrokerLiveData[] }) {
+  if (brokers.length === 0) return null
+  return (
+    <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(brokers.length, 4)}, minmax(0, 1fr))` }}>
+      {brokers.map(b => {
+        const meta  = getBrokerMeta(b.id)
+        const pnlColor = b.todayPnl > 0 ? C.teal : b.todayPnl < 0 ? C.rose : C.sub
+        const hasMeta  = b.metaapi_account_id || b.id === 'pepperstone'
+        return (
+          <div key={b.id} className="rounded-xl p-4" style={{
+            background: meta.bg,
+            border: `1px solid ${b.connected ? meta.color + '40' : C.border}`,
+          }}>
+            {/* Logo + nome + badge */}
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs shrink-0"
+                style={{ background: meta.color + '20', color: meta.color, border: `1px solid ${meta.color}40`, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: '0.03em' }}>
+                {meta.label}
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-bold truncate" style={{ color: C.text, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: '0.02em' }}>
+                  {b.nome || b.id}
+                </div>
+                <div className="text-[9px]" style={{ color: C.muted }}>{b.tipo || 'ECN'}</div>
+              </div>
+              <div className="ml-auto shrink-0">
+                {b.connected
+                  ? <span className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ background: `${meta.color}15`, color: meta.color }}>● ao vivo</span>
+                  : hasMeta
+                    ? <span className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ background: `${C.muted}12`, color: C.muted }}>offline</span>
+                    : <span className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ background: `${C.gold}12`, color: C.gold }}>aguardando</span>
+                }
+              </div>
+            </div>
+
+            {/* Balance */}
+            <div className="mb-2">
+              <div className="text-[9px] uppercase tracking-wider mb-0.5" style={{ color: C.muted }}>Saldo</div>
+              <div className="font-black" style={{
+                fontFamily: "'Barlow Condensed', sans-serif",
+                fontSize: 22,
+                color: b.connected ? C.text : C.muted,
+                lineHeight: 1,
+              }}>
+                {b.connected ? `$${b.balance.toFixed(2)}` : '—'}
+              </div>
+              {b.connected && b.equity !== b.balance && (
+                <div className="text-[10px] mt-0.5" style={{ color: C.sub }}>
+                  Equity <span style={{ color: C.text }}>${b.equity.toFixed(2)}</span>
+                </div>
+              )}
+            </div>
+
+            {/* P&L hoje */}
+            <div className="pt-2" style={{ borderTop: `1px solid ${C.border}` }}>
+              <div className="text-[9px] uppercase tracking-wider mb-0.5" style={{ color: C.muted }}>P&L Hoje</div>
+              <div className="font-bold text-sm font-mono" style={{ color: b.connected ? pnlColor : C.muted }}>
+                {b.connected
+                  ? `${b.todayPnl >= 0 ? '+' : ''}$${Math.abs(b.todayPnl).toFixed(2)}`
+                  : hasMeta ? '—' : 'Configurar MetaAPI'
+                }
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Progress bar do ML ────────────────────────────────────────────────────────
 function MLProgress({ current }: { current: number }) {
   const pct   = Math.min((current / ML_TARGET) * 100, 100)
@@ -1017,6 +1112,7 @@ export default function AdminDashboard() {
   const [metaAccount,    setMetaAccount]    = useState<{ balance: number; equity: number; freeMargin: number; updatedAt?: string } | null>(null)
   const [metaLoading,    setMetaLoading]    = useState(false)
   const [todayPnlMeta,   setTodayPnlMeta]  = useState<number | null>(null)
+  const [brokersLive,    setBrokersLive]    = useState<BrokerLiveData[]>([])
   const [configOpen,     setConfigOpen]     = useState(false)
   const [cfgDraft,       setCfgDraft]       = useState<SessionConfig>(SESSION_DEFAULTS)
   const importRef                           = useRef<HTMLInputElement>(null)
@@ -1038,37 +1134,68 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (!mounted) return
-    const fetchAccount = async () => {
+
+    const fetchBrokersSummary = async () => {
       setMetaLoading(true)
       try {
-        const res = await fetch('/api/metaapi/account')
-        if (res.ok) {
-          const data = await res.json()
-          setMetaAccount({
-            balance:    data.balance    ?? 0,
-            equity:     data.equity     ?? 0,
-            freeMargin: data.freeMargin ?? 0,
-            updatedAt:  data.updatedAt,
+        // 1. Busca lista de corretoras habilitadas
+        const bRes = await fetch('/api/brokers')
+        const { brokers: brokerList } = bRes.ok ? await bRes.json() : { brokers: [] }
+        const enabled: any[] = Array.isArray(brokerList) ? brokerList.filter((b: any) => b.enabled) : []
+
+        // Se nenhuma corretora no Supabase, usa Pepperstone via env var
+        const targets = enabled.length > 0 ? enabled : [{ id: 'pepperstone', nome: 'Pepperstone', tipo: 'Razor ECN', metaapi_account_id: null }]
+
+        // 2. Busca MetaAPI para cada corretora em paralelo
+        const results = await Promise.allSettled(
+          targets.map(async (broker: any) => {
+            const canFetch = broker.metaapi_account_id || broker.id === 'pepperstone'
+            if (!canFetch) {
+              return { id: broker.id, nome: broker.nome || broker.id, tipo: broker.tipo || 'ECN', metaapi_account_id: null, balance: 0, equity: 0, freeMargin: 0, updatedAt: null, todayPnl: 0, connected: false } as BrokerLiveData
+            }
+            const q = broker.metaapi_account_id ? `?accountId=${broker.metaapi_account_id}` : ''
+            const [accRes, pnlRes] = await Promise.all([
+              fetch(`/api/metaapi/account${q}`),
+              fetch(`/api/metaapi/today-pnl${q}`),
+            ])
+            const acc = accRes.ok ? await accRes.json() : null
+            const pnl = pnlRes.ok ? await pnlRes.json() : null
+            return {
+              id:                 broker.id,
+              nome:               broker.nome || broker.id,
+              tipo:               broker.tipo || 'ECN',
+              metaapi_account_id: broker.metaapi_account_id ?? null,
+              balance:            acc?.balance    ?? 0,
+              equity:             acc?.equity     ?? 0,
+              freeMargin:         acc?.freeMargin ?? 0,
+              updatedAt:          acc?.updatedAt  ?? null,
+              todayPnl:           typeof pnl?.todayPnl === 'number' ? pnl.todayPnl : 0,
+              connected:          !!acc && !acc.error,
+            } as BrokerLiveData
           })
+        )
+
+        const live: BrokerLiveData[] = results
+          .filter(r => r.status === 'fulfilled')
+          .map(r => (r as PromiseFulfilledResult<BrokerLiveData>).value)
+
+        setBrokersLive(live)
+
+        // Compatibilidade: alimenta metaAccount com Pepperstone (ou primeiro conectado)
+        const primary = live.find(b => b.id === 'pepperstone') ?? live.find(b => b.connected)
+        if (primary?.connected) {
+          setMetaAccount({ balance: primary.balance, equity: primary.equity, freeMargin: primary.freeMargin, updatedAt: primary.updatedAt ?? undefined })
         }
+        // P&L total = soma de todos os brokers conectados
+        const sumPnl = live.filter(b => b.connected).reduce((s, b) => s + b.todayPnl, 0)
+        if (live.some(b => b.connected)) setTodayPnlMeta(sumPnl)
+
       } catch {}
       setMetaLoading(false)
     }
-    const fetchTodayHistory = async () => {
-      try {
-        const res = await fetch('/api/metaapi/today-pnl')
-        if (res.ok) {
-          const data = await res.json()
-          if (typeof data.todayPnl === 'number') {
-            const total = data.todayPnl
-            setTodayPnlMeta(total)
-          }
-        }
-      } catch {}
-    }
-    fetchAccount()
-    fetchTodayHistory()
-    const id = setInterval(() => { fetchAccount(); fetchTodayHistory() }, 60_000)
+
+    fetchBrokersSummary()
+    const id = setInterval(fetchBrokersSummary, 60_000)
     return () => clearInterval(id)
   }, [mounted])
 
@@ -1181,8 +1308,9 @@ export default function AdminDashboard() {
   const rafiStrong = trades.filter(t => (t.rafi ?? 0) >= 2.5).length
   const recent = [...trades].reverse().slice(0, 8)
 
-  // P&L do dia: prioriza MetaAPI (trades reais Pepperstone); cai para cálculo manual
-  const todayPnl = todayPnlMeta ?? gate.todayPnl
+  // P&L do dia: soma dos brokers conectados via MetaAPI; cai para cálculo manual
+  const connectedBrokers = brokersLive.filter(b => b.connected)
+  const todayPnl         = todayPnlMeta ?? gate.todayPnl
 
   // Percentual do dia (relativo ao capital no início do dia)
   const capitalStartOfDay = capitalParaJornada - todayPnl
@@ -1220,7 +1348,11 @@ export default function AdminDashboard() {
             <h1 className="font-black tracking-tight" style={{
               color: C.text, fontFamily: "'Barlow Condensed', sans-serif", fontSize: 22, letterSpacing: '-0.02em'
             }}>RAFI TRADING BOT</h1>
-            <p className="text-[10px]" style={{ color: C.muted }}>EURUSD · Pepperstone · Fase 1A</p>
+            <p className="text-[10px]" style={{ color: C.muted }}>
+              EURUSD · {connectedBrokers.length > 1
+                ? `${connectedBrokers.length} corretoras`
+                : connectedBrokers[0]?.nome ?? 'Pepperstone'} · Fase 1A
+            </p>
           </div>
         </div>
 
@@ -1357,8 +1489,10 @@ export default function AdminDashboard() {
           <div>
             <div className="flex items-center gap-2 mb-2">
               <span className="text-[10px] uppercase tracking-widest" style={{ color: C.muted }}>Desempenho Hoje</span>
-              {todayPnlMeta !== null
-                ? <span className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ background: `${C.teal}15`, color: C.teal }}>● Pepperstone ao vivo</span>
+              {connectedBrokers.length > 0
+                ? <span className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ background: `${C.teal}15`, color: C.teal }}>
+                    ● {connectedBrokers.length > 1 ? `${connectedBrokers.length} corretoras ao vivo` : `${connectedBrokers[0].nome} ao vivo`}
+                  </span>
                 : <span className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ background: `${C.muted}15`, color: C.muted }}>trades mapeados</span>
               }
             </div>
@@ -1403,6 +1537,9 @@ export default function AdminDashboard() {
           </div>
         </div>
       </div>
+
+      {/* ── Comparação de corretoras ───────────────────────────────────────── */}
+      {brokersLive.length > 0 && <BrokerCompareRow brokers={brokersLive} />}
 
       {/* ── 4 Stat tiles ───────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
