@@ -64,10 +64,11 @@ interface FaixaLote {
 
 // ── Logo por corretora ───────────────────────────────────────────────────
 const LOGOS: Record<string, { label: string; cor: string; bg: string; bd: string }> = {
-  xm:             { label: 'XM',  cor: C.gr, bg: '#0d2016', bd: '#1a4028' },
+  xm:             { label: 'XM',  cor: C.am, bg: '#1f1508', bd: '#3d2a10' },
   pepperstone:    { label: 'PP',  cor: C.bl, bg: '#0d1a28', bd: '#1a2a44' },
   exness:         { label: 'EX',  cor: C.cy, bg: '#0a1a20', bd: '#1a3040' },
   fusion_markets: { label: 'FM',  cor: '#a855f7', bg: '#150d27', bd: '#2d1a4a' },
+  forex_com:      { label: 'FX',  cor: '#22c55e', bg: '#0a1f12', bd: '#1a3d22' },
 }
 function getLogo(id: string) {
   return LOGOS[id] ?? { label: id.slice(0,2).toUpperCase(), cor: C.t2, bg: C.s3, bd: C.bd }
@@ -77,6 +78,7 @@ const MT5_PATHS: Record<string, string> = {
   pepperstone:    "C:\\Program Files\\MetaTrader 5\\terminal64.exe",
   exness:         "C:\\Program Files\\MetaTrader 5 EXNESS\\terminal64.exe",
   fusion_markets: "C:\\Program Files\\MetaTrader 5 FusionMarkets\\terminal64.exe",
+  forex_com:      "C:\\Program Files\\MetaTrader 5 FOREX.com\\terminal64.exe",
 }
 
 function lotePorSaldo(saldo: number, faixas: FaixaLote[]): string {

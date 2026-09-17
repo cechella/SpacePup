@@ -257,10 +257,11 @@ interface BrokerLiveData {
 
 // ── Cards de comparação de corretoras ─────────────────────────────────────────
 const BROKER_META: Record<string, { label: string; color: string; bg: string }> = {
-  pepperstone:    { label: 'PP', color: '#4a9eff', bg: '#0d1a28' },
-  fusion_markets: { label: 'FM', color: '#a855f7', bg: '#150d27' },
-  exness:         { label: 'EX', color: '#1de9b6', bg: '#0a1a20' },
-  xm:             { label: 'XM', color: '#00e676', bg: '#0d2016' },
+  pepperstone:    { label: 'PP',  color: '#4a9eff', bg: '#0d1a28' },
+  fusion_markets: { label: 'FM',  color: '#a855f7', bg: '#150d27' },
+  forex_com:      { label: 'FX',  color: '#22c55e', bg: '#0a1f12' },
+  exness:         { label: 'EX',  color: '#1de9b6', bg: '#0a1a20' },
+  xm:             { label: 'XM',  color: '#f0b429', bg: '#1f1508' },
 }
 function getBrokerMeta(id: string) {
   return BROKER_META[id] ?? { label: id.slice(0, 2).toUpperCase(), color: C.sub, bg: C.card2 }
