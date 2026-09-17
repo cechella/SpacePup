@@ -130,20 +130,21 @@ export function PositionsOverlay({ positions, livePrice, getY, getPrice, onModif
               background: `${entryColor}22`,
               border:     `1px solid ${entryColor}66`,
               color:      entryColor,
-              fontSize:   10, fontWeight: 700,
-              padding:    '2px 7px', borderRadius: 4,
+              fontSize:   12, fontWeight: 700,
+              padding:    '3px 9px', borderRadius: 4,
               whiteSpace: 'nowrap', fontFamily: 'monospace',
               pointerEvents: 'none',
+              display: 'flex', alignItems: 'center', gap: 6,
             }}>
-              {isBuy ? '▲ BUY' : '▼ SELL'} {Math.abs(pos.volume)}L{' '}
-              <span style={{ color: pnlClr }}>{pnlStr}</span>
+              <span style={{ fontSize: 11 }}>{isBuy ? '▲ BUY' : '▼ SELL'} {Math.abs(pos.volume)}L</span>
+              <span style={{ color: pnlClr, fontSize: 14, fontWeight: 800 }}>{pnlStr}</span>
             </div>
 
             {/* Preço de entrada (lado direito) */}
             <div style={{
               position: 'absolute', right: 88, top: yEntry,
               transform: 'translateY(-50%)',
-              color: `${entryColor}cc`, fontSize: 9,
+              color: `${entryColor}cc`, fontSize: 10,
               fontFamily: 'monospace', fontWeight: 600,
               pointerEvents: 'none',
             }}>
@@ -165,16 +166,17 @@ export function PositionsOverlay({ positions, livePrice, getY, getPrice, onModif
                     background: `${tpColor}22`,
                     border:     `1px solid ${tpColor}`,
                     color:      tpColor,
-                    fontSize: 9, fontWeight: 700,
-                    padding: '2px 5px', borderRadius: 3,
+                    fontSize: 12, fontWeight: 700,
+                    padding: '3px 8px', borderRadius: 4,
                     whiteSpace: 'nowrap', fontFamily: 'monospace',
                     cursor: 'ns-resize', userSelect: 'none',
                     pointerEvents: 'all', touchAction: 'none',
+                    display: 'flex', alignItems: 'center', gap: 6,
                   }}
                   onPointerDown={e => handlePointerDown(e, pos.id, 'tp', pos.stopLoss, pos.takeProfit)}
                 >
-                  TP {effectiveTP.toFixed(5)}&nbsp;&nbsp;
-                  <span style={{ color: tpDollar >= 0 ? '#10b981' : '#ef4444' }}>{fmt(tpDollar)}</span>
+                  <span style={{ fontSize: 10, opacity: 0.8 }}>TP {effectiveTP.toFixed(5)}</span>
+                  <span style={{ color: tpDollar >= 0 ? '#10b981' : '#ef4444', fontSize: 14, fontWeight: 800 }}>{fmt(tpDollar)}</span>
                 </div>
               </>
             )}
@@ -194,16 +196,17 @@ export function PositionsOverlay({ positions, livePrice, getY, getPrice, onModif
                     background: `${slColor}22`,
                     border:     `1px solid ${slColor}`,
                     color:      slColor,
-                    fontSize: 9, fontWeight: 700,
-                    padding: '2px 5px', borderRadius: 3,
+                    fontSize: 12, fontWeight: 700,
+                    padding: '3px 8px', borderRadius: 4,
                     whiteSpace: 'nowrap', fontFamily: 'monospace',
                     cursor: 'ns-resize', userSelect: 'none',
                     pointerEvents: 'all', touchAction: 'none',
+                    display: 'flex', alignItems: 'center', gap: 6,
                   }}
                   onPointerDown={e => handlePointerDown(e, pos.id, 'sl', pos.stopLoss, pos.takeProfit)}
                 >
-                  SL {effectiveSL.toFixed(5)}&nbsp;&nbsp;
-                  <span style={{ color: slDollar >= 0 ? '#10b981' : '#ef4444' }}>{fmt(slDollar)}</span>
+                  <span style={{ fontSize: 10, opacity: 0.8 }}>SL {effectiveSL.toFixed(5)}</span>
+                  <span style={{ color: slDollar >= 0 ? '#10b981' : '#ef4444', fontSize: 14, fontWeight: 800 }}>{fmt(slDollar)}</span>
                 </div>
               </>
             )}
