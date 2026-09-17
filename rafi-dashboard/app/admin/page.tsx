@@ -1016,6 +1016,7 @@ export default function AdminDashboard() {
   const [tick,           setTick]           = useState(0)
   const [metaAccount,    setMetaAccount]    = useState<{ balance: number; equity: number; freeMargin: number; updatedAt?: string } | null>(null)
   const [metaLoading,    setMetaLoading]    = useState(false)
+  const [todayPnlMeta,   setTodayPnlMeta]  = useState<number | null>(null)
   const [configOpen,     setConfigOpen]     = useState(false)
   const [cfgDraft,       setCfgDraft]       = useState<SessionConfig>(SESSION_DEFAULTS)
   const importRef                           = useRef<HTMLInputElement>(null)
@@ -1053,8 +1054,21 @@ export default function AdminDashboard() {
       } catch {}
       setMetaLoading(false)
     }
+    const fetchTodayHistory = async () => {
+      try {
+        const res = await fetch('/api/metaapi/history?period=today')
+        if (res.ok) {
+          const data = await res.json()
+          if (Array.isArray(data.history)) {
+            const total = (data.history as { profit: number }[]).reduce((s, d) => s + (d.profit ?? 0), 0)
+            setTodayPnlMeta(total)
+          }
+        }
+      } catch {}
+    }
     fetchAccount()
-    const id = setInterval(fetchAccount, 30_000)
+    fetchTodayHistory()
+    const id = setInterval(() => { fetchAccount(); fetchTodayHistory() }, 60_000)
     return () => clearInterval(id)
   }, [mounted])
 
@@ -1167,11 +1181,14 @@ export default function AdminDashboard() {
   const rafiStrong = trades.filter(t => (t.rafi ?? 0) >= 2.5).length
   const recent = [...trades].reverse().slice(0, 8)
 
-  // Percentual do dia (relativo ao capital no início do dia)
-  const capitalStartOfDay = capitalParaJornada - gate.todayPnl
-  const todayPct = capitalStartOfDay > 0 ? (gate.todayPnl / capitalStartOfDay) * 100 : 0
+  // P&L do dia: prioriza MetaAPI (trades reais Pepperstone); cai para cálculo manual
+  const todayPnl = todayPnlMeta ?? gate.todayPnl
 
-  const heroColor    = gate.todayPnl >= 0 ? C.teal : C.rose
+  // Percentual do dia (relativo ao capital no início do dia)
+  const capitalStartOfDay = capitalParaJornada - todayPnl
+  const todayPct = capitalStartOfDay > 0 ? (todayPnl / capitalStartOfDay) * 100 : 0
+
+  const heroColor    = todayPnl >= 0 ? C.teal : C.rose
   const winRateColor = winRate === null ? C.text : winRate >= 60 ? C.teal : winRate >= 50 ? C.gold : C.rose
 
   if (!mounted) return null
@@ -1338,8 +1355,12 @@ export default function AdminDashboard() {
         <div className="relative grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
           {/* Números */}
           <div>
-            <div className="text-[10px] uppercase tracking-widest mb-2" style={{ color: C.muted }}>
-              Desempenho Hoje
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[10px] uppercase tracking-widest" style={{ color: C.muted }}>Desempenho Hoje</span>
+              {todayPnlMeta !== null
+                ? <span className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ background: `${C.teal}15`, color: C.teal }}>● Pepperstone ao vivo</span>
+                : <span className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ background: `${C.muted}15`, color: C.muted }}>trades mapeados</span>
+              }
             </div>
             <div className="flex items-end gap-4 flex-wrap">
               <div style={{
@@ -1350,7 +1371,7 @@ export default function AdminDashboard() {
                 color: heroColor,
                 letterSpacing: '-0.02em',
               }}>
-                {gate.todayPnl >= 0 ? '+' : ''}${Math.abs(gate.todayPnl).toFixed(2)}
+                {todayPnl >= 0 ? '+' : ''}${Math.abs(todayPnl).toFixed(2)}
               </div>
               {todayPct !== 0 && (
                 <div className="px-3 py-1.5 rounded-xl font-bold text-xl mb-1" style={{
@@ -1367,7 +1388,7 @@ export default function AdminDashboard() {
               <span style={{ color: C.sub }}>Capital <span style={{ color: C.text, fontWeight: 700 }}>
                 ${capitalParaJornada.toFixed(2)}
               </span></span>
-              {gate.todayPnl !== 0 && (
+              {todayPnl !== 0 && (
                 <span style={{ color: C.sub }}>Win rate <span style={{ color: winRateColor, fontWeight: 700 }}>
                   {winRate !== null ? `${winRate}%` : '—'}
                 </span></span>
