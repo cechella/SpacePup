@@ -106,9 +106,16 @@ class BrokerCoordinator:
                 try:
                     self._state_mach.estado_atual = EstadoBroker(estado_str)
                     self._cb.estado = EstadoCB(cb_str)
+                    # Restaura override manual — sem isso o bot sobrescreve MANUALLY_DISABLED
+                    # após reinicialização, pois o flag fica None em memória.
+                    override_db = estado_persistido.get('override_manual')
+                    if estado_str == 'MANUALLY_DISABLED' and not override_db:
+                        override_db = 'MANUAL_DISABLED'
+                    if override_db:
+                        self._state_mach.aplicar_override_manual(override_db)
                     logger.info(
                         f"[{self.broker_id}] Estado restaurado do Supabase: "
-                        f"estado={estado_str} cb={cb_str}"
+                        f"estado={estado_str} cb={cb_str} override={override_db}"
                     )
                 except ValueError:
                     logger.warning(

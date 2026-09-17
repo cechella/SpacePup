@@ -586,21 +586,21 @@ export default function ChartPage() {
         const res = await fetch('/api/brokers')
         const { brokers } = await res.json()
         if (!Array.isArray(brokers) || brokers.length === 0) return
-        // Mesma lógica do broker_ranking.py: estado > circuit_breaker > health_score > prioridade
-        const estadoOrder: Record<string, number> = {
-          ACTIVE: 0, ACTIVE_REDUCED: 1, STANDBY: 2, QUARANTINED: 3,
-          DISABLED_BY_HEALTH: 4, MANUALLY_DISABLED: 5,
-        }
-        const active = brokers.filter((b: { enabled: boolean }) => b.enabled)
-        if (active.length === 0) return
-        active.sort((a: { health_estado: string; circuit_breaker: string; health_score: number; broker_priority: number },
-                     b: { health_estado: string; circuit_breaker: string; health_score: number; broker_priority: number }) => {
-          const ea = estadoOrder[a.health_estado ?? 'STANDBY'] ?? 9
-          const eb = estadoOrder[b.health_estado ?? 'STANDBY'] ?? 9
+        // Espelho exato do broker_ranking.py: só ACTIVE/ACTIVE_REDUCED com CB CLOSED/HALF_OPEN
+        const estadosAceitos = new Set(['ACTIVE', 'ACTIVE_REDUCED'])
+        const cbAceitos      = new Set(['CLOSED', 'HALF_OPEN'])
+        const active = brokers.filter((b: { enabled: boolean; health_estado?: string; circuit_breaker?: string }) =>
+          b.enabled &&
+          estadosAceitos.has(b.health_estado ?? '') &&
+          cbAceitos.has(b.circuit_breaker ?? 'CLOSED')
+        )
+        if (active.length === 0) { setRouteBroker(null); return }
+        // Critério de desempate entre os candidatos válidos: ACTIVE antes de ACTIVE_REDUCED, score maior primeiro
+        active.sort((a: { health_estado: string; health_score: number; broker_priority: number },
+                     b: { health_estado: string; health_score: number; broker_priority: number }) => {
+          const ea = a.health_estado === 'ACTIVE' ? 0 : 1
+          const eb = b.health_estado === 'ACTIVE' ? 0 : 1
           if (ea !== eb) return ea - eb
-          const ca = a.circuit_breaker === 'CLOSED' ? 0 : 1
-          const cb = b.circuit_breaker === 'CLOSED' ? 0 : 1
-          if (ca !== cb) return ca - cb
           if (b.health_score !== a.health_score) return b.health_score - a.health_score
           return (a.broker_priority ?? 99) - (b.broker_priority ?? 99)
         })
