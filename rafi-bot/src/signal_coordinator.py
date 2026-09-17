@@ -42,11 +42,14 @@ class SignalCoordinator:
       - Gravar o sinal na fila signals_pending do Supabase.
       - Evitar ordens duplicadas via signal_id único.
       - Registrar no log qual broker ganhou e por quê.
+      - Rejeitar brokers com margem insuficiente (margem_minima_usd).
     """
 
-    def __init__(self, supabase: Client, ranking: DynamicRanking):
-        self._supa    = supabase
-        self._ranking = ranking
+    def __init__(self, supabase: Client, ranking: DynamicRanking,
+                 margem_minima_usd: float = 50.0):
+        self._supa             = supabase
+        self._ranking          = ranking
+        self._margem_minima    = margem_minima_usd
 
     # ──────────────────────────────────────────────────────────
     # API pública
@@ -66,7 +69,7 @@ class SignalCoordinator:
         """
         signal_id = self._gerar_signal_id(candle_time, symbol, direction)
 
-        broker_id = self._ranking.melhor_broker_para_ordem()
+        broker_id = self._ranking.melhor_broker_para_ordem(self._margem_minima)
         if not broker_id:
             logger.warning(
                 "SINAL DESCARTADO — nenhum broker disponível | "

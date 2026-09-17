@@ -33,6 +33,7 @@ class BrokerRankEntry:
     circuit_breaker: EstadoCB
     broker_priority: int        # prioridade fixa (1=mais prioritário) para desempate
     allocation_pct: float = 0.0  # percentual atual de alocação
+    margem_livre: float = 0.0    # margem livre atual em USD (0.0 = desconhecida)
 
 
 # Ordenação numérica dos estados (maior = mais preferível para receber ordens)
@@ -83,18 +84,29 @@ class DynamicRanking:
 
         self._logar_ranking()
 
-    def melhor_broker_para_ordem(self) -> Optional[str]:
+    def melhor_broker_para_ordem(self, margem_minima_usd: float = 0.0) -> Optional[str]:
         """
         Retorna o broker_id do melhor broker apto a receber uma nova ordem.
         Considera apenas brokers em estado ACTIVE ou ACTIVE_REDUCED com CB CLOSED/HALF_OPEN.
+        Se margem_minima_usd > 0, exclui brokers com margem_livre abaixo desse valor —
+        um broker sem saldo suficiente não pode receber ordens independente do score.
         Retorna None se nenhum broker estiver disponível.
         """
         estados_aceitos = {EstadoBroker.ACTIVE, EstadoBroker.ACTIVE_REDUCED}
         cb_aceitos = {EstadoCB.CLOSED, EstadoCB.HALF_OPEN}
 
         for entry in self._entries:
-            if entry.estado in estados_aceitos and entry.circuit_breaker in cb_aceitos:
-                return entry.broker_id
+            if entry.estado not in estados_aceitos:
+                continue
+            if entry.circuit_breaker not in cb_aceitos:
+                continue
+            if margem_minima_usd > 0 and entry.margem_livre < margem_minima_usd:
+                logger.warning(
+                    "Broker %s ignorado: margem_livre=%.2f < mínimo=%.2f",
+                    entry.broker_id, entry.margem_livre, margem_minima_usd,
+                )
+                continue
+            return entry.broker_id
 
         logger.warning("Nenhum broker disponível para receber ordens neste momento")
         return None
