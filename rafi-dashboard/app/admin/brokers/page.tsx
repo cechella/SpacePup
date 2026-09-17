@@ -46,6 +46,13 @@ interface Broker {
   motivo_estado?:      string | null
 }
 
+interface LiveData {
+  balance:   number
+  equity:    number
+  todayPnl:  number
+  connected: boolean
+}
+
 interface CredForm {
   mt5_login:          string
   mt5_senha:          string
@@ -95,6 +102,8 @@ export default function BrokersPage() {
   const [loading, setLoading]   = useState(true)
   const [toggling, setToggling] = useState<string | null>(null)
   const [lastUpdate, setLastUpdate] = useState('')
+  const [liveData, setLiveData] = useState<Record<string, LiveData>>({})
+  const [liveLoading, setLiveLoading] = useState(false)
 
   // Dados dinâmicos do Supabase
   const [faixas,   setFaixas]   = useState<FaixaLote[]>([])
@@ -108,6 +117,38 @@ export default function BrokersPage() {
   const [credOk,     setCredOk]     = useState(false)
   const [showSenha,  setShowSenha]  = useState(false)
 
+  const fetchLiveData = useCallback(async (brokerList: Broker[]) => {
+    setLiveLoading(true)
+    const results: Record<string, LiveData> = {}
+
+    await Promise.allSettled(
+      brokerList.map(async (b) => {
+        const hasMetaApi = b.metaapi_account_id || b.id === 'pepperstone'
+        if (!hasMetaApi) return
+        const qp = b.metaapi_account_id ? `?accountId=${b.metaapi_account_id}` : ''
+        try {
+          const [accRes, pnlRes] = await Promise.all([
+            fetch(`/api/metaapi/account${qp}`).then(r => r.json()),
+            fetch(`/api/metaapi/today-pnl${qp}`).then(r => r.json()),
+          ])
+          if (accRes.balance !== undefined) {
+            results[b.id] = {
+              balance:   accRes.balance  ?? 0,
+              equity:    accRes.equity   ?? 0,
+              todayPnl:  pnlRes.todayPnl ?? 0,
+              connected: true,
+            }
+          }
+        } catch {
+          results[b.id] = { balance: 0, equity: 0, todayPnl: 0, connected: false }
+        }
+      })
+    )
+
+    setLiveData(results)
+    setLiveLoading(false)
+  }, [])
+
   const fetchBrokers = useCallback(async () => {
     try {
       const res  = await fetch('/api/brokers')
@@ -115,13 +156,14 @@ export default function BrokersPage() {
       if (json.brokers) {
         setBrokers(json.brokers)
         setLastUpdate(new Date().toLocaleTimeString('pt-BR'))
+        fetchLiveData(json.brokers)
       }
     } catch {
       // silencioso
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [fetchLiveData])
 
   // Busca config e faixas do Supabase uma vez ao montar
   useEffect(() => {
@@ -206,6 +248,12 @@ export default function BrokersPage() {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {liveLoading && (
+            <span style={{ fontSize: 9, color: C.cy }}>● buscando saldos ao vivo...</span>
+          )}
+          {!liveLoading && Object.keys(liveData).length > 0 && (
+            <span style={{ fontSize: 9, color: C.gr }}>● MetaAPI ao vivo</span>
+          )}
           {lastUpdate && (
             <span style={{ color: C.t3, fontSize: 10 }}>atualizado {lastUpdate}</span>
           )}
@@ -236,7 +284,7 @@ export default function BrokersPage() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 12, marginBottom: 28 }}>
           {brokers.map((b) => (
-            <BrokerCard key={b.id} broker={b} faixas={faixas} onToggle={toggle} toggling={toggling === b.id} onCred={abrirCred} />
+            <BrokerCard key={b.id} broker={b} faixas={faixas} live={liveData[b.id]} onToggle={toggle} toggling={toggling === b.id} onCred={abrirCred} />
           ))}
         </div>
       )}
@@ -321,16 +369,19 @@ export default function BrokersPage() {
 }
 
 // ── Card individual de corretora ──────────────────────────────────────────
-function BrokerCard({ broker, faixas, onToggle, toggling, onCred }: {
+function BrokerCard({ broker, faixas, live, onToggle, toggling, onCred }: {
   broker: Broker
   faixas: FaixaLote[]
+  live?: LiveData
   onToggle: (b: Broker) => void
   toggling: boolean
   onCred: (b: Broker) => void
 }) {
   const logo   = getLogo(broker.id)
   const active = broker.enabled
-  const pnlColor = broker.pnl_hoje > 0 ? C.gr : broker.pnl_hoje < 0 ? C.re : C.tx
+  const displayBalance = live?.connected ? live.balance : (broker.saldo ?? 0)
+  const displayPnl     = live?.connected ? live.todayPnl : (broker.pnl_hoje ?? 0)
+  const pnlColor = displayPnl > 0 ? C.gr : displayPnl < 0 ? C.re : C.tx
 
   return (
     <div style={{
@@ -390,9 +441,17 @@ function BrokerCard({ broker, faixas, onToggle, toggling, onCred }: {
 
         {/* Metrics */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
-          <Metric label="Saldo"     value={`$${(broker.saldo ?? 0).toFixed(2)}`}      color={active ? C.gr : C.tx} />
+          <Metric
+            label={live?.connected ? 'Saldo ●' : 'Saldo'}
+            value={`$${displayBalance.toFixed(2)}`}
+            color={live?.connected ? C.cy : active ? C.gr : C.tx}
+          />
           <Metric label="Posições"  value={active ? String(broker.posicoes ?? 0) : '—'} />
-          <Metric label="P&L Hoje"  value={active ? `${broker.pnl_hoje >= 0 ? '+' : ''}$${(broker.pnl_hoje ?? 0).toFixed(2)}` : '—'} color={active ? pnlColor : C.t2} />
+          <Metric
+            label={live?.connected ? 'P&L Hoje ●' : 'P&L Hoje'}
+            value={active || live?.connected ? `${displayPnl >= 0 ? '+' : ''}$${displayPnl.toFixed(2)}` : '—'}
+            color={active || live?.connected ? pnlColor : C.t2}
+          />
         </div>
 
         {/* Health Score — exibido quando o bot está populando dados */}
@@ -465,7 +524,7 @@ function BrokerCard({ broker, faixas, onToggle, toggling, onCred }: {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ fontSize: 10, color: C.t2 }}>
-              {broker.simbolo} · {lotePorSaldo(broker.saldo ?? 0, faixas)}L
+              {broker.simbolo} · {lotePorSaldo(displayBalance, faixas)}L
             </div>
             <button onClick={() => onCred(broker)} title="Configurar conexão MT5"
               style={{ background: 'transparent', border: `1px solid ${C.bd}`, borderRadius: 5, padding: '3px 6px', cursor: 'pointer', color: broker.mt5_login ? C.cy : C.t3, display: 'flex', alignItems: 'center', gap: 3, fontSize: 9 }}>
