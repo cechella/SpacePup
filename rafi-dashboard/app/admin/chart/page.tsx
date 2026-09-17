@@ -803,9 +803,18 @@ export default function ChartPage() {
   }, [metaConnected])
 
   const handleAdd = useCallback((t: ManualTrade) => {
-    setTrades(p => [...p, t])
-    upsertTrade(t as any).catch((err) => console.error('[Supabase] upsertTrade:', err))
-  }, [])
+    // Injeta estado mental do check-in para cruzamento posterior com resultado
+    const tradeWithCheckin: ManualTrade = checkin ? {
+      ...t,
+      checkinId:      checkin.id      ?? null,
+      checkinSono:    checkin.sono,
+      checkinEnergia: checkin.energia,
+      checkinMental:  checkin.mental,
+      checkinHumor:   checkin.humor,
+    } : t
+    setTrades(p => [...p, tradeWithCheckin])
+    upsertTrade(tradeWithCheckin as any).catch((err) => console.error('[Supabase] upsertTrade:', err))
+  }, [checkin])
   const handleRemove = useCallback((id: string)     => setTrades(p => p.filter(t => t.id !== id)), [])
   const handleUpdate = useCallback((id: string, updates: Partial<ManualTrade>) =>
     setTrades(p => p.map(t => t.id === id ? { ...t, ...updates } : t)), [])

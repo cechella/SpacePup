@@ -29,6 +29,12 @@ export interface ManualTrade {
   sessionMinute?: number | null  // minutos desde 13:30 UTC (0-180)
   dayOfWeek?:    0 | 1 | 2 | 3 | null  // Seg=0 Ter=1 Qua=2 Qui=3
   entryType?:    'manual' | 'bot'
+  // Estado mental no momento da entrada — usado pelo CO-PILOTO para aprender o perfil
+  checkinId?:      string | null
+  checkinSono?:    'otimo' | 'ok' | 'mal' | null
+  checkinEnergia?: 'alta'  | 'ok' | 'baixa' | null
+  checkinMental?:  'focado'| 'ok' | 'ruim'  | null
+  checkinHumor?:   'feliz' | 'neutro' | 'triste' | null
 }
 
 interface Props {

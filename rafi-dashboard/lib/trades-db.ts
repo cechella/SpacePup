@@ -25,6 +25,12 @@ export interface TradeRecord {
   sessionMinute?: number | null
   dayOfWeek?:     0 | 1 | 2 | 3 | null
   entryType?:     'manual' | 'bot'
+  // Estado mental — cruzado com resultado para aprender perfil do trader
+  checkinId?:      string | null
+  checkinSono?:    'otimo' | 'ok' | 'mal' | null
+  checkinEnergia?: 'alta'  | 'ok' | 'baixa' | null
+  checkinMental?:  'focado'| 'ok' | 'ruim'  | null
+  checkinHumor?:   'feliz' | 'neutro' | 'triste' | null
 }
 
 function fromRow(row: Record<string, unknown>): TradeRecord {
@@ -49,6 +55,11 @@ function fromRow(row: Record<string, unknown>): TradeRecord {
     sessionMinute: row.session_minute != null ? Number(row.session_minute) : undefined,
     dayOfWeek:     row.day_of_week != null ? Number(row.day_of_week) as 0|1|2|3 : undefined,
     entryType:     (row.entry_type as TradeRecord['entryType']) ?? undefined,
+    checkinId:      (row.checkin_id      as string) ?? undefined,
+    checkinSono:    (row.checkin_sono    as TradeRecord['checkinSono'])    ?? undefined,
+    checkinEnergia: (row.checkin_energia as TradeRecord['checkinEnergia']) ?? undefined,
+    checkinMental:  (row.checkin_mental  as TradeRecord['checkinMental'])  ?? undefined,
+    checkinHumor:   (row.checkin_humor   as TradeRecord['checkinHumor'])   ?? undefined,
   }
 }
 
@@ -74,6 +85,11 @@ function toRow(t: TradeRecord) {
     session_minute:  t.sessionMinute ?? null,
     day_of_week:     t.dayOfWeek     ?? null,
     entry_type:      t.entryType     ?? 'manual',
+    checkin_id:      t.checkinId      ?? null,
+    checkin_sono:    t.checkinSono    ?? null,
+    checkin_energia: t.checkinEnergia ?? null,
+    checkin_mental:  t.checkinMental  ?? null,
+    checkin_humor:   t.checkinHumor   ?? null,
     updated_at:      new Date().toISOString(),
   }
 }

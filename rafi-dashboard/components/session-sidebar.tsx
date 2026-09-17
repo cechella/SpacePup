@@ -44,12 +44,23 @@ interface CopilotResult {
   dataCount:  number
 }
 
+// Retorna true se o estado mental é "positivo" (bem dormido, focado, bem-humorado)
+function isBomEstado(t: ManualTrade): boolean {
+  return (
+    (t as any).checkinSono    !== 'mal'    &&
+    (t as any).checkinMental  !== 'ruim'   &&
+    (t as any).checkinHumor   !== 'triste' &&
+    (t as any).checkinEnergia !== 'baixa'
+  )
+}
+
 function computeCopilot(
   trades: ManualTrade[],
   rafiValue: number | null,
   bbExpanding: boolean | null,
-  checkinPenalty: number = 0,
+  checkin: CheckinResult | null,
 ): CopilotResult {
+  const checkinPenalty = checkin?.scorePenalty ?? 0
   const now    = new Date()
   const utcMin = now.getUTCHours() * 60 + now.getUTCMinutes()
   const OVERLAP_START = OVERLAP.start  // 12:00 UTC
@@ -64,11 +75,26 @@ function computeCopilot(
   const rafiStrong = rafiValue != null ? Math.abs(rafiValue) >= 2.5 : null
 
   const completed = trades.filter(t => t.result === 'win' || t.result === 'loss')
+  // Trades com dado de check-in preenchido
+  const withCheckin = completed.filter(t => (t as any).checkinSono != null)
   // similares = mesma fase de overlap (dentro ou fora)
   const similars  = completed.filter(t => (t.overlapPhase != null) === inOverlap)
   const wins      = similars.filter(t => t.result === 'win').length
   const losses    = similars.filter(t => t.result === 'loss').length
   const total     = wins + losses
+
+  // ── Análise de estado mental ──────────────────────────────────────────────
+  const bomEstado  = withCheckin.filter(isBomEstado)
+  const malEstado  = withCheckin.filter(t => !isBomEstado(t))
+  const bomWins    = bomEstado.filter(t => t.result === 'win').length
+  const malWins    = malEstado.filter(t => t.result === 'win').length
+  const bomRate    = bomEstado.length >= 3 ? Math.round((bomWins / bomEstado.length) * 100) : null
+  const malRate    = malEstado.length >= 3 ? Math.round((malWins / malEstado.length) * 100) : null
+
+  // Estado de hoje
+  const hojeEstadoBom = checkin
+    ? checkin.sono !== 'mal' && checkin.mental !== 'ruim' && checkin.humor !== 'triste' && checkin.energia !== 'baixa'
+    : null
 
   let score: number
   let profileMsg: string
@@ -76,7 +102,13 @@ function computeCopilot(
   if (total >= 10) {
     const baseRate = Math.round((wins / total) * 100)
     const bonus    = (rafiStrong ? 5 : 0) + (bbExpanding ? 3 : 0)
-    score = Math.min(Math.max(baseRate + bonus, 20), 95)
+    // Ajuste pelo perfil de estado mental quando há dados suficientes
+    let mentalAdj = 0
+    if (hojeEstadoBom !== null && bomRate !== null && malRate !== null) {
+      const diff = bomRate - malRate
+      mentalAdj = hojeEstadoBom ? Math.round(diff * 0.3) : -Math.round(diff * 0.3)
+    }
+    score = Math.min(Math.max(baseRate + bonus + mentalAdj, 20), 95)
     profileMsg = `Seu perfil: ${baseRate}% de acerto neste contexto. Últimas ${total} ocorrências: ${wins}W · ${losses}L.`
   } else if (total > 0) {
     const baseRate = Math.round((wins / total) * 100)
@@ -103,6 +135,28 @@ function computeCopilot(
     : overlapPhase === 'late' ? 'late 90-180min'
     : null
 
+  // Fator de estado mental: aparece quando há dados suficientes
+  let mentalFactor: { label: string; ok: boolean | null } | null = null
+  if (bomRate !== null && hojeEstadoBom !== null) {
+    if (malRate !== null) {
+      mentalFactor = {
+        label: hojeEstadoBom
+          ? `Estado ótimo · acerto ${bomRate}% vs ${malRate}% (estado ruim)`
+          : `Estado comprometido · acerto ${malRate}% vs ${bomRate}% (estado ótimo)`,
+        ok: hojeEstadoBom,
+      }
+    } else {
+      mentalFactor = {
+        label: hojeEstadoBom
+          ? `Estado ótimo · acerto ${bomRate}% (${bomEstado.length} trades)`
+          : `Estado comprometido · acumulando dados…`,
+        ok: hojeEstadoBom,
+      }
+    }
+  } else if (withCheckin.length > 0 && withCheckin.length < 3) {
+    mentalFactor = { label: `Estado mental · acumulando dados (${withCheckin.length}/3)`, ok: null }
+  }
+
   const factors: CopilotResult['factors'] = [
     {
       label: inOverlap
@@ -124,6 +178,7 @@ function computeCopilot(
         : 'Fora de Segunda–Quinta',
       ok: dayOfWeek != null,
     },
+    ...(mentalFactor ? [mentalFactor] : []),
   ]
 
   return {
@@ -187,8 +242,7 @@ export function SessionSidebar({
   const londonActive  = isActive(LONDON.start, LONDON.end)
   const nyActive      = isActive(NY.start, NY.end)
   const overlapActive = isActive(OVERLAP.start, OVERLAP.end)
-  const checkinPenalty = checkin?.scorePenalty ?? 0
-  const copilot = computeCopilot(trades, rafiValue, bbExpanding, checkinPenalty)
+  const copilot = computeCopilot(trades, rafiValue, bbExpanding, checkin)
 
   const capital    = balance ?? 100
   const journey    = journeyProgress(capital)
