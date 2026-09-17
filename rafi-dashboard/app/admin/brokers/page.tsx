@@ -21,36 +21,38 @@ const C = {
 }
 
 interface Broker {
-  id:              string
-  nome:            string
-  servidor:        string
-  login:           number
-  simbolo:         string
-  enabled:         boolean
-  saldo:           number
-  posicoes:        number
-  pnl_hoje:        number
-  status_text:     string
-  updated_at:      string
-  mt5_login?:      number | null
-  mt5_servidor?:   string | null
-  mt5_simbolo?:    string | null
-  mt5_path?:       string | null
-  mt5_senha?:      string | null
+  id:                  string
+  nome:                string
+  servidor:            string
+  login:               number
+  simbolo:             string
+  enabled:             boolean
+  saldo:               number
+  posicoes:            number
+  pnl_hoje:            number
+  status_text:         string
+  updated_at:          string
+  mt5_login?:          number | null
+  mt5_servidor?:       string | null
+  mt5_simbolo?:        string | null
+  mt5_path?:           string | null
+  mt5_senha?:          string | null
+  metaapi_account_id?: string | null
   // Campos de saúde (broker_health_engine)
-  health_score?:   number | null
-  health_estado?:  string | null
-  circuit_breaker?: string | null
-  broker_priority?: number | null
-  motivo_estado?:  string | null
+  health_score?:       number | null
+  health_estado?:      string | null
+  circuit_breaker?:    string | null
+  broker_priority?:    number | null
+  motivo_estado?:      string | null
 }
 
 interface CredForm {
-  mt5_login:    string
-  mt5_senha:    string
-  mt5_servidor: string
-  mt5_simbolo:  string
-  mt5_path:     string
+  mt5_login:          string
+  mt5_senha:          string
+  mt5_servidor:       string
+  mt5_simbolo:        string
+  mt5_path:           string
+  metaapi_account_id: string
 }
 
 interface FaixaLote {
@@ -62,17 +64,19 @@ interface FaixaLote {
 
 // ── Logo por corretora ───────────────────────────────────────────────────
 const LOGOS: Record<string, { label: string; cor: string; bg: string; bd: string }> = {
-  xm:          { label: 'XM',  cor: C.gr, bg: '#0d2016', bd: '#1a4028' },
-  pepperstone: { label: 'PP',  cor: C.bl, bg: '#0d1a28', bd: '#1a2a44' },
-  exness:      { label: 'EX',  cor: C.cy, bg: '#0a1a20', bd: '#1a3040' },
+  xm:             { label: 'XM',  cor: C.gr, bg: '#0d2016', bd: '#1a4028' },
+  pepperstone:    { label: 'PP',  cor: C.bl, bg: '#0d1a28', bd: '#1a2a44' },
+  exness:         { label: 'EX',  cor: C.cy, bg: '#0a1a20', bd: '#1a3040' },
+  fusion_markets: { label: 'FM',  cor: '#a855f7', bg: '#150d27', bd: '#2d1a4a' },
 }
 function getLogo(id: string) {
   return LOGOS[id] ?? { label: id.slice(0,2).toUpperCase(), cor: C.t2, bg: C.s3, bd: C.bd }
 }
 
 const MT5_PATHS: Record<string, string> = {
-  pepperstone: "C:\\Program Files\\MetaTrader 5\\terminal64.exe",
-  exness:      "C:\\Program Files\\MetaTrader 5 EXNESS\\terminal64.exe",
+  pepperstone:    "C:\\Program Files\\MetaTrader 5\\terminal64.exe",
+  exness:         "C:\\Program Files\\MetaTrader 5 EXNESS\\terminal64.exe",
+  fusion_markets: "C:\\Program Files\\MetaTrader 5 FusionMarkets\\terminal64.exe",
 }
 
 function lotePorSaldo(saldo: number, faixas: FaixaLote[]): string {
@@ -97,7 +101,7 @@ export default function BrokersPage() {
 
   // Modal de credenciais
   const [credBroker, setCredBroker] = useState<Broker | null>(null)
-  const [credForm,   setCredForm]   = useState<CredForm>({ mt5_login: '', mt5_senha: '', mt5_servidor: '', mt5_simbolo: '', mt5_path: '' })
+  const [credForm,   setCredForm]   = useState<CredForm>({ mt5_login: '', mt5_senha: '', mt5_servidor: '', mt5_simbolo: '', mt5_path: '', metaapi_account_id: '' })
   const [credSaving, setCredSaving] = useState(false)
   const [credOk,     setCredOk]     = useState(false)
   const [showSenha,  setShowSenha]  = useState(false)
@@ -139,11 +143,12 @@ export default function BrokersPage() {
     setCredOk(false)
     setShowSenha(false)
     setCredForm({
-      mt5_login:    String(broker.mt5_login ?? broker.login ?? ''),
-      mt5_senha:    '',
-      mt5_servidor: broker.mt5_servidor ?? broker.servidor ?? '',
-      mt5_simbolo:  broker.mt5_simbolo  ?? broker.simbolo  ?? '',
-      mt5_path:     broker.mt5_path     ?? MT5_PATHS[broker.id] ?? '',
+      mt5_login:          String(broker.mt5_login ?? broker.login ?? ''),
+      mt5_senha:          '',
+      mt5_servidor:       broker.mt5_servidor ?? broker.servidor ?? '',
+      mt5_simbolo:        broker.mt5_simbolo  ?? broker.simbolo  ?? '',
+      mt5_path:           broker.mt5_path     ?? MT5_PATHS[broker.id] ?? '',
+      metaapi_account_id: broker.metaapi_account_id ?? '',
     })
   }
 
@@ -152,11 +157,12 @@ export default function BrokersPage() {
     setCredSaving(true)
     try {
       const body: Record<string, unknown> = {
-        id:           credBroker.id,
-        mt5_login:    credForm.mt5_login    ? Number(credForm.mt5_login) : null,
-        mt5_servidor: credForm.mt5_servidor || null,
-        mt5_simbolo:  credForm.mt5_simbolo  || null,
-        mt5_path:     credForm.mt5_path     || null,
+        id:                  credBroker.id,
+        mt5_login:           credForm.mt5_login    ? Number(credForm.mt5_login) : null,
+        mt5_servidor:        credForm.mt5_servidor || null,
+        mt5_simbolo:         credForm.mt5_simbolo  || null,
+        mt5_path:            credForm.mt5_path     || null,
+        metaapi_account_id:  credForm.metaapi_account_id || null,
       }
       if (credForm.mt5_senha) body.mt5_senha = credForm.mt5_senha
       await fetch('/api/brokers', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -252,10 +258,11 @@ export default function BrokersPage() {
             </div>
 
             {[
-              { label: 'Login MT5', key: 'mt5_login', type: 'number', placeholder: credBroker.login?.toString() ?? '12345678' },
-              { label: 'Servidor',  key: 'mt5_servidor', type: 'text', placeholder: credBroker.servidor ?? 'Broker-Live01' },
-              { label: 'Símbolo',   key: 'mt5_simbolo', type: 'text', placeholder: credBroker.simbolo ?? 'EURUSD' },
-              { label: 'MT5 Path',  key: 'mt5_path', type: 'text', placeholder: MT5_PATHS[credBroker.id] ?? '' },
+              { label: 'Login MT5',          key: 'mt5_login',          type: 'number', placeholder: credBroker.login?.toString() ?? '12345678' },
+              { label: 'Servidor',           key: 'mt5_servidor',       type: 'text',   placeholder: credBroker.servidor ?? 'Broker-Live01' },
+              { label: 'Símbolo',            key: 'mt5_simbolo',        type: 'text',   placeholder: credBroker.simbolo ?? 'EURUSD' },
+              { label: 'MT5 Path',           key: 'mt5_path',           type: 'text',   placeholder: MT5_PATHS[credBroker.id] ?? '' },
+              { label: 'MetaAPI Account ID', key: 'metaapi_account_id', type: 'text',   placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' },
             ].map(({ label, key, type, placeholder }) => (
               <div key={key} style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 10, color: C.t2, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 5 }}>{label}</div>

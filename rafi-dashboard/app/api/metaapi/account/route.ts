@@ -8,10 +8,14 @@ const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
 
 export const runtime = 'edge'
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    // Suporta ?accountId=<uuid> para multi-broker; cai para env var se não informado
+    const { searchParams } = new URL(req.url)
+    const accountId = searchParams.get('accountId') ?? ACCOUNT
+
     const res = await fetch(
-      `${BASE}/users/current/accounts/${ACCOUNT}/accountInformation`,
+      `${BASE}/users/current/accounts/${accountId}/accountInformation`,
       {
         headers: { 'auth-token': TOKEN },
         signal:  AbortSignal.timeout(8_000),

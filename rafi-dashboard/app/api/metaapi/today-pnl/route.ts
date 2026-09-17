@@ -6,15 +6,19 @@ const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
 
 export const runtime = 'edge'
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    // Suporta ?accountId=<uuid> para multi-broker; cai para env var se não informado
+    const { searchParams } = new URL(req.url)
+    const accountId = searchParams.get('accountId') ?? ACCOUNT
+
     const todayStart = new Date()
     todayStart.setUTCHours(0, 0, 0, 0)
     const from = todayStart.toISOString()
     const to   = new Date().toISOString()
 
     const res = await fetch(
-      `${BASE}/users/current/accounts/${ACCOUNT}/history-deals/time/${from}/${to}`,
+      `${BASE}/users/current/accounts/${accountId}/history-deals/time/${from}/${to}`,
       {
         headers: { 'auth-token': TOKEN },
         signal:  AbortSignal.timeout(8_000),
