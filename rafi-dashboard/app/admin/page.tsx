@@ -1056,11 +1056,11 @@ export default function AdminDashboard() {
     }
     const fetchTodayHistory = async () => {
       try {
-        const res = await fetch('/api/metaapi/history?period=today')
+        const res = await fetch('/api/metaapi/today-pnl')
         if (res.ok) {
           const data = await res.json()
-          if (Array.isArray(data.history)) {
-            const total = (data.history as { profit: number }[]).reduce((s, d) => s + (d.profit ?? 0), 0)
+          if (typeof data.todayPnl === 'number') {
+            const total = data.todayPnl
             setTodayPnlMeta(total)
           }
         }
