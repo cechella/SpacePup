@@ -21,22 +21,28 @@ const C = {
 }
 
 interface Broker {
-  id:           string
-  nome:         string
-  servidor:     string
-  login:        number
-  simbolo:      string
-  enabled:      boolean
-  saldo:        number
-  posicoes:     number
-  pnl_hoje:     number
-  status_text:  string
-  updated_at:   string
-  mt5_login?:   number | null
-  mt5_servidor?: string | null
-  mt5_simbolo?: string | null
-  mt5_path?:    string | null
-  mt5_senha?:   string | null
+  id:              string
+  nome:            string
+  servidor:        string
+  login:           number
+  simbolo:         string
+  enabled:         boolean
+  saldo:           number
+  posicoes:        number
+  pnl_hoje:        number
+  status_text:     string
+  updated_at:      string
+  mt5_login?:      number | null
+  mt5_servidor?:   string | null
+  mt5_simbolo?:    string | null
+  mt5_path?:       string | null
+  mt5_senha?:      string | null
+  // Campos de saúde (broker_health_engine)
+  health_score?:   number | null
+  health_estado?:  string | null
+  circuit_breaker?: string | null
+  broker_priority?: number | null
+  motivo_estado?:  string | null
 }
 
 interface CredForm {
@@ -381,6 +387,63 @@ function BrokerCard({ broker, faixas, onToggle, toggling, onCred }: {
           <Metric label="Posições"  value={active ? String(broker.posicoes ?? 0) : '—'} />
           <Metric label="P&L Hoje"  value={active ? `${broker.pnl_hoje >= 0 ? '+' : ''}$${(broker.pnl_hoje ?? 0).toFixed(2)}` : '—'} color={active ? pnlColor : C.t2} />
         </div>
+
+        {/* Health Score — exibido quando o bot está populando dados */}
+        {broker.health_estado && broker.health_estado !== 'STANDBY' || (broker.health_score ?? 0) > 0 ? (
+          <div style={{ marginBottom: 12, padding: '10px 12px', background: C.s2, borderRadius: 8, border: `1px solid ${C.bd}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.t2 }}>Health Score</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {/* Circuit Breaker */}
+                <span style={{
+                  fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 3,
+                  background: broker.circuit_breaker === 'OPEN' ? 'rgba(239,68,68,.15)' : 'rgba(0,230,118,.1)',
+                  color: broker.circuit_breaker === 'OPEN' ? C.re : C.gr,
+                  border: `1px solid ${broker.circuit_breaker === 'OPEN' ? 'rgba(239,68,68,.3)' : 'rgba(0,230,118,.2)'}`,
+                }}>
+                  CB {broker.circuit_breaker === 'OPEN' ? 'ABERTO' : 'FECHADO'}
+                </span>
+                {/* Estado */}
+                <span style={{
+                  fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 3,
+                  background: broker.health_estado === 'ACTIVE' ? 'rgba(0,230,118,.1)'
+                    : broker.health_estado === 'ACTIVE_REDUCED' ? 'rgba(255,179,0,.1)'
+                    : broker.health_estado === 'QUARANTINED' ? 'rgba(239,68,68,.1)'
+                    : 'rgba(90,125,150,.08)',
+                  color: broker.health_estado === 'ACTIVE' ? C.gr
+                    : broker.health_estado === 'ACTIVE_REDUCED' ? C.am
+                    : broker.health_estado === 'QUARANTINED' ? C.re : C.t2,
+                  border: `1px solid ${broker.health_estado === 'ACTIVE' ? 'rgba(0,230,118,.2)' : C.bd}`,
+                }}>
+                  {(broker.health_estado ?? 'STANDBY').replace('_', ' ')}
+                </span>
+              </div>
+            </div>
+            {/* Barra de score */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ fontSize: 20, fontWeight: 700, color: (broker.health_score ?? 0) >= 80 ? C.gr : (broker.health_score ?? 0) >= 65 ? C.am : C.t2, fontVariantNumeric: 'tabular-nums', minWidth: 36 }}>
+                {(broker.health_score ?? 0) > 0 ? Math.round(broker.health_score ?? 0) : '—'}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ height: 6, background: C.s3, borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%', borderRadius: 3,
+                    width: `${Math.min(broker.health_score ?? 0, 100)}%`,
+                    background: (broker.health_score ?? 0) >= 80 ? C.gr : (broker.health_score ?? 0) >= 65 ? C.am : C.re,
+                    transition: 'width .4s ease',
+                  }} />
+                </div>
+                <div style={{ fontSize: 9, color: C.t3, marginTop: 3 }}>
+                  {broker.motivo_estado ?? (broker.health_score ?? 0) === 0 ? 'Aguardando dados do bot' : ''}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : broker.enabled ? (
+          <div style={{ marginBottom: 12, padding: '8px 12px', background: C.s2, borderRadius: 6, border: `1px solid ${C.bd}` }}>
+            <span style={{ fontSize: 10, color: C.t3, fontStyle: 'italic' }}>Health score disponível após 20 trades · bot calculando…</span>
+          </div>
+        ) : null}
 
         {/* Status pill + symbol + config button */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

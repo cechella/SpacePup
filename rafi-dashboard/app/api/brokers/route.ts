@@ -18,13 +18,37 @@ function getServiceClient() {
 export async function GET() {
   try {
     const supa = getServiceClient()
+    // Busca brokers com estado de saúde em join lateral
     const { data, error } = await supa
       .from('rafi_brokers')
-      .select('*')
-      .order('id')
+      .select(`
+        *,
+        broker_health_state (
+          estado,
+          circuit_breaker,
+          health_score,
+          motivo_estado,
+          atualizado_em
+        )
+      `)
+      .order('broker_priority', { ascending: true, nullsFirst: false })
 
     if (error) throw error
-    return NextResponse.json({ brokers: data ?? [] })
+
+    // Achata o join: campos de saúde sobem para o nível raiz do broker
+    const brokers = (data ?? []).map((b: Record<string, unknown> & { broker_health_state?: Record<string, unknown> | null }) => {
+      const hs = b.broker_health_state
+      return {
+        ...b,
+        broker_health_state: undefined,
+        health_estado:    hs?.estado          ?? b.health_estado    ?? 'STANDBY',
+        circuit_breaker:  hs?.circuit_breaker ?? 'CLOSED',
+        health_score:     hs?.health_score    ?? b.health_score     ?? 0,
+        motivo_estado:    hs?.motivo_estado   ?? null,
+      }
+    })
+
+    return NextResponse.json({ brokers })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
     return NextResponse.json({ error: msg }, { status: 500 })

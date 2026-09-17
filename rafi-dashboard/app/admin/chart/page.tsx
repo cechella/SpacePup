@@ -160,6 +160,10 @@ export default function ChartPage() {
   // Check-in de estado mental do dia
   const [checkin,     setCheckin]     = useState<CheckinResult | null>(null)
   const [showCheckin, setShowCheckin] = useState(false)
+  // Roteamento multi-corretora: broker vencedor atual do ranking
+  const [routeBroker, setRouteBroker] = useState<{
+    id: string; nome: string; estado: string; health_score: number; circuit_breaker: string
+  } | null>(null)
   const fileInputRef        = useRef<HTMLInputElement>(null)
   const historyPanelRef     = useRef<HTMLDivElement>(null)
   const snapshotCaptureRef  = useRef<((entryTime: number, oco?: { entry: number; sl: number; tp: number; direction: 'buy' | 'sell' }) => string | null) | null>(null)
@@ -573,6 +577,46 @@ export default function ChartPage() {
     } catch {}
     countCandles().then(n => setSbCandleCount(n)).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Roteamento: busca broker vencedor do ranking a cada 30s
+  useEffect(() => {
+    const fetchRouting = async () => {
+      try {
+        const res = await fetch('/api/brokers')
+        const { brokers } = await res.json()
+        if (!Array.isArray(brokers) || brokers.length === 0) return
+        // Mesma lógica do broker_ranking.py: estado > circuit_breaker > health_score > prioridade
+        const estadoOrder: Record<string, number> = {
+          ACTIVE: 0, ACTIVE_REDUCED: 1, STANDBY: 2, QUARANTINED: 3,
+          DISABLED_BY_HEALTH: 4, MANUALLY_DISABLED: 5,
+        }
+        const active = brokers.filter((b: { enabled: boolean }) => b.enabled)
+        if (active.length === 0) return
+        active.sort((a: { health_estado: string; circuit_breaker: string; health_score: number; broker_priority: number },
+                     b: { health_estado: string; circuit_breaker: string; health_score: number; broker_priority: number }) => {
+          const ea = estadoOrder[a.health_estado ?? 'STANDBY'] ?? 9
+          const eb = estadoOrder[b.health_estado ?? 'STANDBY'] ?? 9
+          if (ea !== eb) return ea - eb
+          const ca = a.circuit_breaker === 'CLOSED' ? 0 : 1
+          const cb = b.circuit_breaker === 'CLOSED' ? 0 : 1
+          if (ca !== cb) return ca - cb
+          if (b.health_score !== a.health_score) return b.health_score - a.health_score
+          return (a.broker_priority ?? 99) - (b.broker_priority ?? 99)
+        })
+        const winner = active[0]
+        setRouteBroker({
+          id:              winner.id,
+          nome:            winner.nome ?? winner.id,
+          estado:          winner.health_estado ?? 'STANDBY',
+          health_score:    winner.health_score ?? 0,
+          circuit_breaker: winner.circuit_breaker ?? 'CLOSED',
+        })
+      } catch { /* silencioso */ }
+    }
+    fetchRouting()
+    const iv = setInterval(fetchRouting, 30_000)
+    return () => clearInterval(iv)
   }, [])
 
   // Histórico: carrega ao conectar ou ao mudar período; limpa ao desconectar
@@ -1192,6 +1236,39 @@ export default function ChartPage() {
               </>
             )}
             <span className="ml-auto text-[#484f58]">Atualizado {metaAccount.updatedAt}</span>
+          </div>
+        )}
+
+        {/* Barra de roteamento multi-corretora */}
+        {routeBroker && (
+          <div className="hidden md:flex items-center gap-3 px-3 py-1.5 bg-[#0b1219] rounded-lg border border-[#30363d]/60 text-[10px] shrink-0">
+            <span className="text-[#484f58] font-semibold uppercase tracking-wider">Próxima ordem →</span>
+            <div className={cn(
+              'flex items-center gap-1.5 px-2 py-0.5 rounded border font-bold text-[11px]',
+              routeBroker.estado === 'ACTIVE'
+                ? 'bg-[#3b82f6]/10 border-[#3b82f6]/30 text-[#3b82f6]'
+                : routeBroker.estado === 'ACTIVE_REDUCED'
+                ? 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]'
+                : 'bg-[#484f58]/10 border-[#30363d] text-[#484f58]',
+            )}>
+              <span className={cn(
+                'w-1.5 h-1.5 rounded-full inline-block',
+                routeBroker.circuit_breaker === 'CLOSED' ? 'bg-[#22c55e]' : 'bg-[#ef4444]',
+              )} />
+              {routeBroker.nome.replace('pepperstone','Pepperstone').replace('exness','Exness').replace('tickmill','Tickmill')}
+              {routeBroker.health_score > 0 && (
+                <span className="text-[9px] font-bold opacity-70 ml-0.5">({Math.round(routeBroker.health_score)})</span>
+              )}
+            </div>
+            <span className="text-[#30363d]">·</span>
+            <span className={cn(
+              'text-[9px] font-semibold uppercase tracking-wider',
+              routeBroker.estado === 'ACTIVE' ? 'text-[#22c55e]' :
+              routeBroker.estado === 'ACTIVE_REDUCED' ? 'text-[#f59e0b]' : 'text-[#484f58]',
+            )}>{routeBroker.estado.replace('_', ' ')}</span>
+            {routeBroker.circuit_breaker !== 'CLOSED' && (
+              <span className="text-[9px] text-[#ef4444] font-semibold">· CB {routeBroker.circuit_breaker}</span>
+            )}
           </div>
         )}
 
