@@ -127,6 +127,8 @@ export default function ChartPage() {
     openPrice: number; currentPrice: number; profit: number
     stopLoss: number; takeProfit: number
   }>>([])
+  const metaPositionsRef = useRef<typeof metaPositions>([])
+  useEffect(() => { metaPositionsRef.current = metaPositions }, [metaPositions])
   // Feature 3: toast de feedback ao enviar ordem
   const [orderToast, setOrderToast] = useState<{ ok: boolean; msg: string } | null>(null)
   // Feature 4: countdown para próximo auto-refresh dos candles
@@ -509,6 +511,13 @@ export default function ChartPage() {
     const stopLoss   = parseFloat(sl)
     const takeProfit = parseFloat(tp)
     if (isNaN(stopLoss) || isNaN(takeProfit)) return
+
+    // Atualização otimista imediata — linha fica no lugar arrastado sem esperar API
+    const snapshot = metaPositionsRef.current
+    setMetaPositions(prev => prev.map(p =>
+      p.id === positionId ? { ...p, stopLoss, takeProfit } : p,
+    ))
+
     try {
       const res = await fetch('/api/metaapi/positions/modify', {
         method:  'PATCH',
@@ -517,15 +526,14 @@ export default function ChartPage() {
       })
       const data = await res.json()
       if (res.ok && data.ok) {
-        // Atualiza localmente para refletir de imediato antes do próximo poll
-        setMetaPositions(prev => prev.map(p =>
-          p.id === positionId ? { ...p, stopLoss, takeProfit } : p,
-        ))
         setOrderToast({ ok: true, msg: `SL/TP atualizados com sucesso` })
       } else {
+        // Reverte para o valor anterior se a API rejeitou
+        setMetaPositions(snapshot)
         setOrderToast({ ok: false, msg: data.error ?? 'Erro ao modificar posição' })
       }
     } catch {
+      setMetaPositions(snapshot)
       setOrderToast({ ok: false, msg: 'Erro de conexão ao modificar posição' })
     }
     setEditingPos(null)
@@ -1255,7 +1263,7 @@ export default function ChartPage() {
                 'w-1.5 h-1.5 rounded-full inline-block',
                 routeBroker.circuit_breaker === 'CLOSED' ? 'bg-[#22c55e]' : 'bg-[#ef4444]',
               )} />
-              {routeBroker.nome.replace('pepperstone','Pepperstone').replace('exness','Exness').replace('tickmill','Tickmill')}
+              {routeBroker.nome.replace('pepperstone','Pepperstone').replace('exness','Exness')}
               {routeBroker.health_score > 0 && (
                 <span className="text-[9px] font-bold opacity-70 ml-0.5">({Math.round(routeBroker.health_score)})</span>
               )}

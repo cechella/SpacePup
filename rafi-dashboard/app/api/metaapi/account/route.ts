@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 
 // Usa REST API direta do MetaAPI (igual à rota de preço) — sem SDK,
 // sem conexão TCP, sem waitSynchronized. Retorna dados instantâneos.
-const BASE    = 'https://mt-client-api-v1.london.agiliumtrade.ai'
+const BASE    = process.env.METAAPI_BASE_URL ?? 'https://mt-client-api-v1.london.agiliumtrade.ai'
 const TOKEN   = process.env.METAAPI_TOKEN!
 const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
 

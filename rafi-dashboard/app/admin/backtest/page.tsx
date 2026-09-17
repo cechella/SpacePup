@@ -67,7 +67,6 @@ const CORRETORAS = [
   { id: 'auto',        label: 'Auto (ativa)' },
   { id: 'pepperstone', label: 'Pepperstone' },
   { id: 'exness',      label: 'Exness' },
-  { id: 'tickmill',    label: 'Tickmill' },
 ]
 
 function statusLabel(s: RunStatus) {
@@ -431,7 +430,6 @@ function DadosMercado() {
   const CORRETORAS_UPLOAD = [
     { id: 'pepperstone', label: 'Pepperstone' },
     { id: 'exness',      label: 'Exness'      },
-    { id: 'tickmill',    label: 'Tickmill'     },
   ]
 
   return (

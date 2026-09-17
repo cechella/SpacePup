@@ -185,7 +185,6 @@ function EquityCurve({ trades }: { trades: Trade[] }) {
 const BROKERS = [
   { id: 'pepperstone', label: 'Pepperstone', abbr: 'PP' },
   { id: 'exness',      label: 'Exness',      abbr: 'EX' },
-  { id: 'tickmill',    label: 'Tickmill',    abbr: 'TI' },
 ]
 
 export default function MonitorPage() {

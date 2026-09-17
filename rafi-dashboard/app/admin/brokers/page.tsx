@@ -65,7 +65,6 @@ const LOGOS: Record<string, { label: string; cor: string; bg: string; bd: string
   xm:          { label: 'XM',  cor: C.gr, bg: '#0d2016', bd: '#1a4028' },
   pepperstone: { label: 'PP',  cor: C.bl, bg: '#0d1a28', bd: '#1a2a44' },
   exness:      { label: 'EX',  cor: C.cy, bg: '#0a1a20', bd: '#1a3040' },
-  tickmill:    { label: 'TI',  cor: C.am, bg: '#1a1500', bd: '#302800' },
 }
 function getLogo(id: string) {
   return LOGOS[id] ?? { label: id.slice(0,2).toUpperCase(), cor: C.t2, bg: C.s3, bd: C.bd }
@@ -74,7 +73,6 @@ function getLogo(id: string) {
 const MT5_PATHS: Record<string, string> = {
   pepperstone: "C:\\Program Files\\MetaTrader 5\\terminal64.exe",
   exness:      "C:\\Program Files\\MetaTrader 5 EXNESS\\terminal64.exe",
-  tickmill:    "C:\\Program Files\\Tickmill UK MT5 Terminal\\terminal64.exe",
 }
 
 function lotePorSaldo(saldo: number, faixas: FaixaLote[]): string {

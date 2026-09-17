@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-const BASE    = 'https://mt-client-api-v1.london.agiliumtrade.ai'
+const BASE    = process.env.METAAPI_BASE_URL ?? 'https://mt-client-api-v1.london.agiliumtrade.ai'
 const TOKEN   = process.env.METAAPI_TOKEN!
 const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
 
