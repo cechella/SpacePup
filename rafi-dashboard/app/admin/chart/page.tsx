@@ -879,11 +879,17 @@ export default function ChartPage() {
     })
       .then(async res => {
         if (res.ok) {
-          setOrderToast({ ok: true, msg: `Ordem ${direction === 'buy' ? 'COMPRA' : 'VENDA'} enviada para Pepperstone ✓` })
+          const result = await res.json().catch(() => ({}))
+          const tipo = direction === 'buy' ? 'COMPRA' : 'VENDA'
+          const nomeP = routeBroker?.nome ?? result.broker ?? 'Exness'
+          const replicadas = (result.replication as Array<{ok:boolean}>)?.filter(r => r.ok).length ?? 1
+          const sufixo = replicadas > 1 ? ` · replicada em ${replicadas} corretoras` : ''
+          setOrderToast({ ok: true, msg: `Ordem ${tipo} enviada para ${nomeP}${sufixo} ✓` })
           setTimeout(() => fetchLiveData(), 3000)
         } else {
           const err = await res.json().catch(() => ({}))
-          setOrderToast({ ok: false, msg: `Pepperstone rejeitou: ${err?.error ?? res.status}` })
+          const nomeP = routeBroker?.nome ?? 'Corretora'
+          setOrderToast({ ok: false, msg: `${nomeP} rejeitou: ${err?.error ?? res.status}` })
         }
         setTimeout(() => setOrderToast(null), 6000)
       })
@@ -1025,12 +1031,12 @@ export default function ChartPage() {
           </button>
         </div>
 
-        {/* Conta Pepperstone */}
+        {/* Conta corretora principal */}
         {metaConnected && metaAccount && (
           <div className="px-4 py-3 border-b border-[#30363d]">
             <div className="text-[9px] font-semibold text-[#26c6da] uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-[#26c6da] animate-pulse inline-block" />
-              Pepperstone · MT5
+              {routeBroker?.nome ?? 'Corretora'} · MT5
             </div>
             <div className="space-y-2">
               {([
@@ -1227,12 +1233,12 @@ export default function ChartPage() {
           </div>
         </div>
 
-        {/* Feature 1: barra de saldo Pepperstone — só visível quando MetaAPI conectado (oculta em mobile, exibida na gaveta) */}
+        {/* Feature 1: barra de saldo da corretora principal — só visível quando MetaAPI conectado (oculta em mobile, exibida na gaveta) */}
         {metaConnected && metaAccount && (
           <div className="hidden md:flex items-center gap-4 px-3 py-1.5 bg-[#0b1219] rounded-lg border border-[#30363d]/60 text-[10px] shrink-0 flex-wrap">
             <div className="flex items-center gap-1.5 font-semibold text-[#26c6da]">
               <span className="w-1.5 h-1.5 rounded-full bg-[#26c6da] inline-block animate-pulse" />
-              Pepperstone · MT5
+              {routeBroker?.nome ?? 'Corretora'} · MT5
             </div>
             <div className="w-px h-4 bg-[#30363d]" />
             <span className="text-[#484f58]">Saldo</span>
@@ -1715,7 +1721,7 @@ export default function ChartPage() {
           <div className="hidden md:block shrink-0 rounded-xl border border-[#30363d] bg-[#0b1219] overflow-hidden">
             <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between">
               <span className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">
-                Posições Abertas · Pepperstone
+                Posições Abertas · {routeBroker?.nome ?? 'Corretora'}
               </span>
               <span className={cn('text-[10px] font-mono font-bold', totalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
                 P&amp;L total {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} USD
@@ -1930,7 +1936,7 @@ export default function ChartPage() {
               <span className="text-[11px] font-bold text-[#f0f6fc] flex items-center gap-1.5">
                 <History size={11} className="text-[#26c6da]" />
                 Relatório de Operações
-                <span className="text-[9px] font-normal text-[#484f58] ml-1">· Pepperstone</span>
+                <span className="text-[9px] font-normal text-[#484f58] ml-1">· {routeBroker?.nome ?? 'Corretora'}</span>
               </span>
               {/* Filtros de período */}
               <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]">
@@ -2169,7 +2175,7 @@ export default function ChartPage() {
       )}>
         <div className="w-10 h-1 bg-[#30363d] rounded-full mx-auto mt-3 mb-2 shrink-0" />
         <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between">
-          <span className="text-[11px] font-semibold text-[#8b949e] uppercase tracking-wider">Posições Abertas · Pepperstone</span>
+          <span className="text-[11px] font-semibold text-[#8b949e] uppercase tracking-wider">Posições Abertas · {routeBroker?.nome ?? 'Corretora'}</span>
           {metaPositions.length > 0 && (
             <span className={cn('text-[11px] font-mono font-bold', totalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
               P&amp;L {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} USD
