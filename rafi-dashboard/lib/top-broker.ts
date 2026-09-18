@@ -38,7 +38,7 @@ export async function getTopBroker(): Promise<{ accountId: string; brokerId: str
   try {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    if (!url || !key) return { accountId: ENV_ID, brokerId: '' }
+    if (!url || !key) return { accountId: ENV_ID, brokerId: '', symbol: 'EURUSD' }
 
     const supa = createClient(url, key, { auth: { persistSession: false } })
 
