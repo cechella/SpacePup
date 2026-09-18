@@ -428,11 +428,14 @@ export default function BrokersPage() {
       </div>
 
       {/* Notice */}
-      <div style={{ background: C.s1, border: `1px solid ${C.bd}`, borderLeft: `3px solid ${C.bl}`, borderRadius: 6, padding: '10px 14px', fontSize: 12, color: C.t2, marginBottom: 20, lineHeight: 1.6 }}>
-        <strong style={{ color: C.bl }}>Como funciona:</strong> cada corretora tem um toggle Liga/Desliga independente.
-        Múltiplas podem estar ativas ao mesmo tempo — para rodar simultâneas, inicie dois processos no VPS:
-        <code style={{ color: C.tx, marginLeft: 6 }}>py -m src.executor --broker exness</code> e
-        <code style={{ color: C.tx, marginLeft: 6 }}>py -m src.executor --broker pepperstone</code>
+      <div style={{ background: C.s1, border: `1px solid ${C.bd}`, borderLeft: `3px solid ${C.bl}`, borderRadius: 6, padding: '10px 14px', fontSize: 12, color: C.t2, marginBottom: 20, lineHeight: 1.8 }}>
+        <strong style={{ color: C.bl }}>Como funciona:</strong> o toggle habilita a corretora para a <strong style={{ color: C.tx }}>Mesa de Operação</strong> (trade manual) e para o <strong style={{ color: C.tx }}>bot automático</strong>. São dois sistemas independentes:<br />
+        <span style={{ color: C.gr }}>● Mesa de Operação</span> — funciona assim que o toggle está ON + MetaAPI conectado. Não precisa de nada no VPS.<br />
+        <span style={{ color: C.am }}>● Bot automático</span> — precisa de um processo Python rodando no VPS para cada corretora:
+        {' '}<code style={{ color: C.tx }}>py -m src.executor --broker icmarkets</code>,
+        {' '}<code style={{ color: C.tx }}>--broker tickmill</code>,
+        {' '}<code style={{ color: C.tx }}>--broker exness</code>,
+        {' '}<code style={{ color: C.tx }}>--broker pepperstone</code>
       </div>
 
       {/* Broker cards */}
@@ -857,10 +860,11 @@ function BrokerCard({ broker, faixas, live, onToggle, toggling, onCred }: {
           </div>
 
           {/* Toggle */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
             <span style={{ fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: active ? C.gr : C.t2 }}>
               {active ? 'ATIVA' : 'INATIVA'}
             </span>
+            <span style={{ fontSize: 8, color: C.t3 }}>Mesa + Bot</span>
             <button
               onClick={() => !toggling && onToggle(broker)}
               disabled={toggling}
@@ -943,27 +947,55 @@ function BrokerCard({ broker, faixas, live, onToggle, toggling, onCred }: {
                   }} />
                 </div>
                 <div style={{ fontSize: 9, color: C.t3, marginTop: 3 }}>
-                  {broker.motivo_estado ?? (broker.health_score ?? 0) === 0 ? 'Aguardando dados do bot' : ''}
+                  {broker.motivo_estado
+                    ? broker.motivo_estado
+                    : (broker.health_score ?? 0) === 0
+                      ? `Bot offline — inicie no VPS: py -m src.executor --broker ${broker.id}`
+                      : ''}
                 </div>
               </div>
             </div>
           </div>
         ) : broker.enabled ? (
           <div style={{ marginBottom: 12, padding: '8px 12px', background: C.s2, borderRadius: 6, border: `1px solid ${C.bd}` }}>
-            <span style={{ fontSize: 10, color: C.t3, fontStyle: 'italic' }}>Health score disponível após 20 trades · bot calculando…</span>
+            <div style={{ fontSize: 10, color: C.t3 }}>
+              <span style={{ color: C.gr }}>Mesa de Operação: pronta</span>
+              <span style={{ color: C.bd, margin: '0 6px' }}>|</span>
+              <span>Bot automático: offline — inicie no VPS com <code style={{ color: C.am }}>py -m src.executor --broker {broker.id}</code></span>
+            </div>
           </div>
         ) : null}
 
         {/* Status pill + symbol + config button */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{
-            fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
-            padding: '3px 8px', borderRadius: 4,
-            background: active ? '#0d2016' : C.s3,
-            color: active ? C.gr : C.t2,
-            border: `1px solid ${active ? '#1a4028' : C.bd}`,
-          }}>
-            {active ? `● ${broker.status_text || 'AGUARDANDO SINAL'}` : '○ DESLIGADA'}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            {/* Mesa de Operação status */}
+            <div style={{
+              fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+              padding: '3px 7px', borderRadius: 4,
+              background: active ? '#0d2016' : C.s3,
+              color: active ? C.gr : C.t2,
+              border: `1px solid ${active ? '#1a4028' : C.bd}`,
+            }}>
+              {active ? '● MESA ON' : '○ DESABILITADA'}
+            </div>
+            {/* Bot status — só aparece quando habilitada */}
+            {active && (() => {
+              const st = broker.status_text ?? ''
+              const botOnline = st !== '' && st !== 'DESLIGADA'
+              return (
+                <div style={{
+                  fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+                  padding: '3px 7px', borderRadius: 4,
+                  background: botOnline ? 'rgba(255,179,0,.08)' : C.s3,
+                  color: botOnline ? C.am : C.t3,
+                  border: `1px solid ${botOnline ? 'rgba(255,179,0,.25)' : C.bd}`,
+                  title: botOnline ? '' : `Iniciar: py -m src.executor --broker ${broker.id}`,
+                }}>
+                  {botOnline ? `BOT: ${st}` : 'BOT: OFFLINE'}
+                </div>
+              )
+            })()}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ fontSize: 10, color: C.t2 }}>
