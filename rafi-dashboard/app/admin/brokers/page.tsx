@@ -234,6 +234,14 @@ export default function BrokersPage() {
     return () => clearInterval(iv)
   }, [])
 
+  // Recalcula health scores com dados reais a cada 60s
+  useEffect(() => {
+    const run = () => fetch('/api/admin/health-engine', { method: 'POST' }).catch(() => {})
+    run()
+    const iv = setInterval(run, 60_000)
+    return () => clearInterval(iv)
+  }, [])
+
   // Busca posições abertas de TODAS as corretoras a cada 5s
   useEffect(() => {
     const fetchPerf = async () => {
@@ -513,7 +521,7 @@ function ParamLegend() {
     {
       label: 'Health Score',
       desc:  'Pontuação de saúde da corretora de 0 a 100.',
-      detail: 'Calculado pelo bot com base em: spread médio, latência de execução, taxa de rejeição de ordens e uptime. Quanto maior, melhor. ≥ 80 = verde, ≥ 65 = amarelo, < 65 = vermelho. Atualmente os valores são estáticos (definidos manualmente no Supabase) — cálculo dinâmico disponível na Fase 2.',
+      detail: 'Calculado automaticamente com dados reais de cada chamada MetaAPI: 40% latência p90 (quanto mais rápido, melhor), 50% taxa de sucesso dos últimos 50 eventos, 10% recência (inativo > 2h perde pontos). ≥ 78 = ACTIVE, ≥ 52 = ACTIVE_REDUCED, ≥ 25 = STANDBY, < 25 = QUARANTINED. Atualiza a cada 60s enquanto este painel estiver aberto.',
       color: C.am,
     },
     {

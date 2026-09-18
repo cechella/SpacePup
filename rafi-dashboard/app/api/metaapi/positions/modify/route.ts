@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getActiveBrokers } from '@/lib/top-broker'
+import { logBrokerEvent } from '@/lib/broker-health'
 
 const BASE  = process.env.METAAPI_BASE_URL ?? 'https://mt-client-api-v1.london.agiliumtrade.ai'
 const TOKEN = process.env.METAAPI_TOKEN!
@@ -19,7 +20,8 @@ async function fetchPositions(accountId: string): Promise<any[]> {
   return Array.isArray(raw) ? raw : []
 }
 
-async function modifyPosition(accountId: string, positionId: string, stopLoss: number, takeProfit: number) {
+async function modifyPosition(accountId: string, brokerId: string, positionId: string, stopLoss: number, takeProfit: number) {
+  const t0  = Date.now()
   const res = await fetch(
     `${BASE}/users/current/accounts/${accountId}/trade`,
     {
@@ -30,6 +32,7 @@ async function modifyPosition(accountId: string, positionId: string, stopLoss: n
     }
   )
   const text = await res.text()
+  logBrokerEvent(brokerId, 'modify', res.ok, Date.now() - t0, res.ok ? undefined : text.slice(0, 200))
   return { ok: res.ok, detail: text }
 }
 
@@ -51,7 +54,7 @@ export async function PATCH(req: Request) {
       brokers.map(async (b, idx) => {
         // Corretora principal: usa o positionId fornecido diretamente
         if (idx === 0) {
-          const r = await modifyPosition(b.accountId, positionId, stopLoss, takeProfit)
+          const r = await modifyPosition(b.accountId, b.brokerId, positionId, stopLoss, takeProfit)
           return { brokerId: b.brokerId, nome: b.nome, positionId, ...r }
         }
 
@@ -67,7 +70,7 @@ export async function PATCH(req: Request) {
           return { brokerId: b.brokerId, nome: b.nome, positionId: null, ok: false, detail: 'Posição não encontrada' }
         }
 
-        const r = await modifyPosition(b.accountId, match.id, stopLoss, takeProfit)
+        const r = await modifyPosition(b.accountId, b.brokerId, match.id, stopLoss, takeProfit)
         return { brokerId: b.brokerId, nome: b.nome, positionId: match.id, ...r }
       })
     )

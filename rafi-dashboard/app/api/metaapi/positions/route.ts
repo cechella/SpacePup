@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getTopBroker, getActiveBrokers } from '@/lib/top-broker'
+import { logBrokerEvent } from '@/lib/broker-health'
 
 const BASE  = process.env.METAAPI_BASE_URL ?? 'https://mt-client-api-v1.london.agiliumtrade.ai'
 const TOKEN = process.env.METAAPI_TOKEN!
@@ -71,6 +72,7 @@ export async function DELETE(req: Request) {
           }
         }
 
+        const t0  = Date.now()
         const res = await fetch(
           `${BASE}/users/current/accounts/${b.accountId}/trade`,
           {
@@ -81,6 +83,7 @@ export async function DELETE(req: Request) {
           }
         )
         const text = await res.text()
+        logBrokerEvent(b.brokerId, 'close', res.ok, Date.now() - t0, res.ok ? undefined : text.slice(0, 200))
         return { brokerId: b.brokerId, nome: b.nome, ok: res.ok, detail: text }
       })
     )

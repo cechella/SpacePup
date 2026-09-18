@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getActiveBrokers } from '@/lib/top-broker'
+import { logBrokerEvent } from '@/lib/broker-health'
 
 const BASE  = process.env.METAAPI_BASE_URL ?? 'https://mt-client-api-v1.london.agiliumtrade.ai'
 const TOKEN = process.env.METAAPI_TOKEN!
@@ -12,6 +13,7 @@ async function sendOrder(
   symbol: string,
   payload: Record<string, unknown>,
 ) {
+  const t0  = Date.now()
   const res = await fetch(
     `${BASE}/users/current/accounts/${accountId}/trade`,
     {
@@ -21,13 +23,16 @@ async function sendOrder(
       signal:  AbortSignal.timeout(8_000),
     }
   )
+  const latency = Date.now() - t0
 
   if (!res.ok) {
     const text = await res.text()
+    logBrokerEvent(brokerId, 'order', false, latency, text.slice(0, 200))
     return { brokerId, symbol, ok: false, error: text }
   }
 
   const result = await res.json()
+  logBrokerEvent(brokerId, 'order', true, latency)
   return { brokerId, symbol, ok: true, orderId: result?.orderId, positionId: result?.positionId }
 }
 
