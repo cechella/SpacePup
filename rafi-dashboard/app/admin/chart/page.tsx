@@ -2192,13 +2192,16 @@ export default function ChartPage() {
                   <button
                     onClick={() => setHistoryBroker('')}
                     className={cn(
-                      'px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all whitespace-nowrap',
+                      'px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all whitespace-nowrap flex items-center gap-1',
                       historyBroker === ''
                         ? 'bg-[#26c6da] text-[#0d1117]'
                         : 'text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
                     )}
                   >
-                    Auto
+                    🏆
+                    {historyBroker === '' && routeBroker?.nome
+                      ? <span>#{1} {routeBroker.nome}</span>
+                      : <span>Auto</span>}
                   </button>
                   {enabledBrokers.map(b => (
                     <button
@@ -2586,13 +2589,16 @@ export default function ChartPage() {
                 <button
                   onClick={() => setHistoryBroker('')}
                   className={cn(
-                    'px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all whitespace-nowrap',
+                    'px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all whitespace-nowrap flex items-center gap-1',
                     historyBroker === ''
                       ? 'bg-[#26c6da] text-[#0d1117]'
                       : 'text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
                   )}
                 >
-                  Auto
+                  🏆
+                  {historyBroker === '' && routeBroker?.nome
+                    ? <span>#{1} {routeBroker.nome}</span>
+                    : <span>Auto</span>}
                 </button>
                 {enabledBrokers.map(b => (
                   <button
