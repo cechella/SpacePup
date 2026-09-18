@@ -104,6 +104,7 @@ const BROKER_BADGE: Record<string, { bg: string; ring: string; label: string }> 
   tickmill:    { bg: '#1d4ed8', ring: '#3b82f6', label: 'TIC' },
   pepperstone: { bg: '#15803d', ring: '#22c55e', label: 'PEP' },
   exness:      { bg: '#b45309', ring: '#f59e0b', label: 'EXN' },
+  icmarkets:   { bg: '#065f46', ring: '#10b981', label: 'ICM' },
 }
 function brokerBadge(brokerId: string, nome: string) {
   const b = BROKER_BADGE[brokerId] ?? { bg: '#374151', ring: '#6b7280', label: nome.slice(0, 3).toUpperCase() }

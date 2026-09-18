@@ -2,6 +2,7 @@
  * API Route: /api/brokers
  * GET  → lista todas as corretoras (rafi_brokers)
  * POST → ativa/desativa uma corretora { id, enabled }
+ *        ou cria uma nova { id, nome, metaapi_account_id, simbolo?, broker_priority?, mt5_login?, mt5_servidor?, _create: true }
  *
  * Escritas usam SERVICE_ROLE_KEY (servidor) — o anon key só tem SELECT.
  */
@@ -58,8 +59,32 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { id, enabled } = body
 
+    // Modo criação: _create: true → INSERT nova corretora
+    if (body._create) {
+      const { id, nome, metaapi_account_id, simbolo, broker_priority, mt5_login, mt5_servidor } = body
+      if (!id || !nome || !metaapi_account_id) {
+        return NextResponse.json({ error: 'id, nome e metaapi_account_id são obrigatórios' }, { status: 400 })
+      }
+      const supa = getServiceClient()
+      const { error } = await supa.from('rafi_brokers').insert({
+        id,
+        nome,
+        metaapi_account_id,
+        simbolo:         simbolo        ?? 'EURUSD',
+        broker_priority: broker_priority ?? 99,
+        mt5_login:       mt5_login       ?? null,
+        mt5_servidor:    mt5_servidor    ?? null,
+        enabled:         false,
+        created_at:      new Date().toISOString(),
+        updated_at:      new Date().toISOString(),
+      })
+      if (error) throw error
+      return NextResponse.json({ ok: true, id, created: true })
+    }
+
+    // Modo toggle enabled
+    const { id, enabled } = body
     if (!id || typeof enabled !== 'boolean') {
       return NextResponse.json({ error: 'id (string) e enabled (boolean) são obrigatórios' }, { status: 400 })
     }

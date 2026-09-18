@@ -12,7 +12,7 @@ const ESTADO_LABEL: Record<string, string> = {
 }
 
 const SYMBOL_MAP: Record<string, string> = {
-  exness: 'EURUSDz', pepperstone: 'EURUSD', tickmill: 'EURUSD',
+  exness: 'EURUSDz', pepperstone: 'EURUSD', tickmill: 'EURUSD', icmarkets: 'EURUSD',
 }
 
 const MA_BASE  = process.env.METAAPI_BASE_URL ?? 'https://mt-client-api-v1.london.agiliumtrade.ai'
