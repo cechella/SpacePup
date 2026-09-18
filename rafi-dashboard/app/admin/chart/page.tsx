@@ -722,47 +722,33 @@ export default function ChartPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Roteamento: busca broker vencedor do ranking a cada 30s
+  // Roteamento: busca broker vencedor do ranking a cada 30s via /api/brokers/top
+  // Usa a mesma lógica do servidor: P&L do dia → estado → health score → exec_score → priority
   useEffect(() => {
     const fetchRouting = async () => {
       try {
-        const res = await fetch('/api/brokers')
-        const { brokers } = await res.json()
-        if (!Array.isArray(brokers) || brokers.length === 0) return
-        // Inclui STANDBY para que o routeBroker seja definido mesmo sem bot rodando
-        const estadosAceitos = new Set(['ACTIVE', 'ACTIVE_REDUCED', 'STANDBY'])
-        const cbAceitos      = new Set(['CLOSED', 'HALF_OPEN'])
-        const active = brokers.filter((b: { enabled: boolean; health_estado?: string; circuit_breaker?: string }) =>
-          b.enabled &&
-          estadosAceitos.has(b.health_estado ?? 'STANDBY') &&
-          cbAceitos.has(b.circuit_breaker ?? 'CLOSED')
-        )
-        // Alimenta o seletor do histórico com todas as corretoras habilitadas
-        setEnabledBrokers(
-          brokers
-            .filter((b: any) => b.enabled && b.metaapi_account_id)
-            .map((b: any) => ({ id: b.id, nome: b.nome ?? b.id }))
-        )
-        if (active.length === 0) { setRouteBroker(null); return }
-        // Critério: ACTIVE → health score → exec score real → broker_priority
-        active.sort((a: { health_estado: string; health_score: number; exec_score?: number | null; broker_priority: number },
-                     b: { health_estado: string; health_score: number; exec_score?: number | null; broker_priority: number }) => {
-          const ea = a.health_estado === 'ACTIVE' ? 0 : 1
-          const eb = b.health_estado === 'ACTIVE' ? 0 : 1
-          if (ea !== eb) return ea - eb
-          if (b.health_score !== a.health_score) return b.health_score - a.health_score
-          const esA = a.exec_score ?? -1
-          const esB = b.exec_score ?? -1
-          if (esB !== esA) return esB - esA
-          return (a.broker_priority ?? 99) - (b.broker_priority ?? 99)
-        })
-        const winner = active[0]
+        // Busca lista completa só para alimentar o seletor de histórico
+        const listRes = await fetch('/api/brokers')
+        const { brokers } = await listRes.json()
+        if (Array.isArray(brokers)) {
+          setEnabledBrokers(
+            brokers
+              .filter((b: any) => b.enabled && b.metaapi_account_id)
+              .map((b: any) => ({ id: b.id, nome: b.nome ?? b.id }))
+          )
+        }
+
+        // Broker #1 real — inclui P&L do dia como critério primário
+        const topRes = await fetch('/api/brokers/top')
+        if (!topRes.ok) return
+        const top = await topRes.json()
+        if (!top?.id) return
         setRouteBroker({
-          id:              winner.id,
-          nome:            winner.nome ?? winner.id,
-          estado:          winner.health_estado ?? 'STANDBY',
-          health_score:    winner.health_score ?? 0,
-          circuit_breaker: winner.circuit_breaker ?? 'CLOSED',
+          id:              top.id,
+          nome:            top.nome ?? top.id,
+          estado:          top.estado          ?? 'STANDBY',
+          health_score:    top.health_score    ?? 0,
+          circuit_breaker: top.circuit_breaker ?? 'CLOSED',
         })
       } catch { /* silencioso */ }
     }
