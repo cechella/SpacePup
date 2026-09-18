@@ -69,6 +69,20 @@ interface FaixaLote {
   capital_max: number | null
 }
 
+interface RankedBroker {
+  id:             string
+  nome:           string
+  symbol:         string
+  estado:         string
+  estadoLabel:    string
+  circuitBreaker: string
+  healthScore:    number
+  priority:       number
+  eligible:       boolean
+  rank:           number
+  reason:         string
+}
+
 // ── Logo por corretora ───────────────────────────────────────────────────
 const LOGOS: Record<string, { label: string; cor: string; bg: string; bd: string }> = {
   xm:             { label: 'XM',  cor: C.am, bg: '#1f1508', bd: '#3d2a10' },
@@ -110,9 +124,9 @@ export default function BrokersPage() {
   const [mapiActive, setMapiActive]   = useState<boolean | null>(null)
 
   // Dados dinâmicos do Supabase
-  const [faixas,   setFaixas]   = useState<FaixaLote[]>([])
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [liveConfig, setLiveConfig] = useState<Record<string, any> | null>(null)
+  const [faixas,      setFaixas]      = useState<FaixaLote[]>([])
+  const [ranking,     setRanking]     = useState<RankedBroker[]>([])
+  const [rankLoading, setRankLoading] = useState(true)
 
   // Modal de credenciais
   const [credBroker, setCredBroker] = useState<Broker | null>(null)
@@ -172,15 +186,24 @@ export default function BrokersPage() {
     }
   }, [fetchLiveData])
 
-  // Busca config e faixas do Supabase uma vez ao montar
+  // Busca faixas de lote do Supabase uma vez ao montar
   useEffect(() => {
-    Promise.all([
-      fetch('/api/config').then(r => r.json()).catch(() => ({})),
-      fetch('/api/admin/save-faixa').then(r => r.json()).catch(() => ({})),
-    ]).then(([cfgRes, faixasRes]) => {
-      if (cfgRes.live) setLiveConfig(cfgRes.live)
-      if (faixasRes.faixas?.length) setFaixas(faixasRes.faixas)
-    })
+    fetch('/api/admin/save-faixa').then(r => r.json()).catch(() => ({}))
+      .then((res: { faixas?: FaixaLote[] }) => { if (res.faixas?.length) setFaixas(res.faixas) })
+  }, [])
+
+  // Busca ranking dinâmico das corretoras a cada 30s
+  useEffect(() => {
+    const fetchRanking = async () => {
+      try {
+        const res = await fetch('/api/brokers/ranking')
+        const json = await res.json()
+        if (json.brokers) setRanking(json.brokers)
+      } catch { /* silencioso */ } finally { setRankLoading(false) }
+    }
+    fetchRanking()
+    const iv = setInterval(fetchRanking, 30_000)
+    return () => clearInterval(iv)
   }, [])
 
   useEffect(() => {
@@ -337,8 +360,8 @@ export default function BrokersPage() {
         </div>
       )}
 
-      {/* Config compartilhado — dados reais do Supabase */}
-      <SharedConfig liveConfig={liveConfig} faixas={faixas} />
+      {/* Ranking dinâmico das corretoras */}
+      <BrokerRanking ranking={ranking} loading={rankLoading} />
 
       {/* Modal de credenciais MT5 */}
       {credBroker && (
@@ -594,152 +617,108 @@ function Metric({ label, value, color }: { label: string; value: string; color?:
   )
 }
 
-// ── Painel de configurações compartilhadas — dados reais do Supabase ────────
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function SharedConfig({ liveConfig, faixas }: { liveConfig: Record<string, any> | null; faixas: FaixaLote[] }) {
-  const cfg = liveConfig
+// ── Painel de ranking dinâmico das corretoras ────────────────────────────────
+function BrokerRanking({ ranking, loading }: { ranking: RankedBroker[]; loading: boolean }) {
+  const RANK_COLORS = ['#f59e0b', '#94a3b8', '#b45309']
 
-  // Helper para formatar valor com fallback
-  const val = (key: string, fallback = '—') => {
-    if (!cfg) return fallback
-    const v = cfg[key]
-    if (v === null || v === undefined) return fallback
-    return String(v)
+  const estadoCor = (estado: string) => {
+    if (estado === 'ACTIVE')         return C.gr
+    if (estado === 'ACTIVE_REDUCED') return C.am
+    if (estado === 'STANDBY')        return C.bl
+    return C.re
   }
-
-  const modo = val('estrategia_modo', 'autoscan')
-  const rr   = val('ratio_risco_retorno', '1.3')
-  const maxPos = val('max_trades_simultaneos', '1')
-  const bbPeriodo = val('bb_periodo', '6')
-  const bbLimiar  = val('bb_limiar_estreita', '0.0016')
-  const bbExpMin  = val('bb_squeeze_expansao_min', '1.05')
-  const srLookback = val('autoscan_sr_lookback', '10')
-  const minBreak   = val('autoscan_min_breakout', '0.00005')
-  const minGap     = val('autoscan_min_gap_candles', '5')
-  const stopOff    = val('autoscan_stop_offset', '0.00010')
-
-  // Formatar minBreak em pips
-  const minBreakPips = cfg?.autoscan_min_breakout != null
-    ? `${(cfg.autoscan_min_breakout * 10000).toFixed(1)} pips`
-    : '5 pips'
-
-  const stopOffPips = cfg?.autoscan_stop_offset != null
-    ? `${(cfg.autoscan_stop_offset * 10000).toFixed(1)} pip`
-    : '1 pip'
-
-  const minGapMin = cfg?.autoscan_min_gap_candles != null
-    ? `${cfg.autoscan_min_gap_candles} candles (${cfg.autoscan_min_gap_candles * 5} min)`
-    : '5 candles (25 min)'
-
-  const estrategiaRows = [
-    ['Modo',              modo.toUpperCase()],
-    ['BB Período',        bbPeriodo],
-    ['BB Squeeze (lim.)', `< ${bbLimiar}`],
-    ['BB Expansão mín.',  `${bbExpMin}×`],
-    ['S/R Lookback',      `${srLookback} candles`],
-    ['Rompimento mín.',   minBreakPips],
-    ['Gap entre sinais',  minGapMin],
-    ['Stop offset',       stopOffPips],
-    ['R:R',               `${rr}×`],
-    ['Máx. Posições',     maxPos],
-  ]
-
-  const backtestRows = [
-    ['Trades (OOS)',   '36.897'],
-    ['Win Rate (OOS)', '68.1%'],
-    ['Profit Factor',  '2.33'],
-    ['Período OOS',    'nov/2018–ago/2026'],
-  ]
-
-  const isLoading = !liveConfig && !faixas.length
 
   return (
     <div style={{ background: C.s1, border: `1px solid ${C.bd}`, borderRadius: 10, overflow: 'hidden', marginTop: 8 }}>
       <div style={{ background: C.s2, borderBottom: `1px solid ${C.bd}`, padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.tx }}>
-          Parâmetros do Bot — válidos para todas as corretoras ativas
+          Ranking Dinâmico · Cascata de Seleção Automática
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {isLoading && <span style={{ fontSize: 9, color: C.t3 }}>carregando...</span>}
-          {!isLoading && liveConfig && (
-            <span style={{ fontSize: 9, color: C.gr }}>● Supabase live</span>
-          )}
-          <span style={{ fontSize: 9, color: C.t2 }}>edite em /admin/config</span>
-        </div>
+        {loading
+          ? <span style={{ fontSize: 9, color: C.t3 }}>carregando...</span>
+          : <span style={{ fontSize: 9, color: C.t2 }}>atualiza a cada 30s · critérios: estado → health score → prioridade</span>
+        }
       </div>
 
-      <div style={{ padding: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-        {/* Estratégia */}
-        <div>
-          <SectionTitle>Estratégia Autoscan</SectionTitle>
-          {estrategiaRows.map(([k, v]) => (
-            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7, alignItems: 'baseline' }}>
-              <span style={{ fontSize: 12, color: C.t2 }}>{k}</span>
-              <span style={{
-                fontSize: 12,
-                color: k === 'Modo' ? C.cy : k === 'R:R' || k === 'Win Rate' ? C.gr : C.tx,
-                fontWeight: 500,
-              }}>{v}</span>
-            </div>
-          ))}
+      <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+        {loading && ranking.length === 0 && (
+          <div style={{ gridColumn: '1/-1', color: C.t3, fontSize: 12, textAlign: 'center', padding: 24 }}>
+            Buscando ranking...
+          </div>
+        )}
+        {ranking.map((b) => {
+          const rankColor = RANK_COLORS[b.rank - 1] ?? C.t2
+          const isTop = b.rank === 1
 
-          <SectionTitle style={{ marginTop: 14 }}>Backtest OOS (26 anos)</SectionTitle>
-          {backtestRows.map(([k, v]) => (
-            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
-              <span style={{ fontSize: 12, color: C.t2 }}>{k}</span>
-              <span style={{ fontSize: 12, color: k === 'Trades (OOS)' || k === 'Período OOS' ? C.tx : C.gr, fontWeight: 500 }}>{v}</span>
-            </div>
-          ))}
-        </div>
+          return (
+            <div key={b.id} style={{
+              background:    C.s2,
+              border:        `1px solid ${isTop ? rankColor : C.bd}`,
+              borderTop:     `3px solid ${isTop ? rankColor : C.bd}`,
+              borderRadius:  8,
+              padding:       14,
+              opacity:       b.eligible ? 1 : 0.55,
+            }}>
+              {/* Cabeçalho: rank + nome + badge */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <div style={{
+                  background: `${rankColor}22`, border: `1px solid ${rankColor}`,
+                  color: rankColor, borderRadius: 4, padding: '2px 8px',
+                  fontSize: 11, fontWeight: 700, flexShrink: 0,
+                }}>
+                  #{b.rank}
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.tx, flex: 1 }}>{b.nome}</div>
+                {isTop && (
+                  <div style={{ background: '#0d2010', border: `1px solid ${C.gr}`, color: C.gr, borderRadius: 4, padding: '2px 6px', fontSize: 9, fontWeight: 700, flexShrink: 0 }}>
+                    ★ ATIVO
+                  </div>
+                )}
+              </div>
 
-        {/* Tabela de lotes */}
-        <div>
-          <SectionTitle>Crescimento de Lote — automático por saldo</SectionTitle>
-          {faixas.length === 0 ? (
-            <div style={{ fontSize: 11, color: C.t3 }}>Carregando tabela do Supabase...</div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
-              <thead>
-                <tr>
-                  {['Capital', 'Lote', 'Pip ~value'].map((h) => (
-                    <th key={h} style={{ textAlign: 'left', fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase', color: C.t2, padding: '4px 6px 8px', borderBottom: `1px solid ${C.bd}` }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {faixas.map((f) => {
-                  const pipVal = `$${(f.lote * 10).toFixed(0)}/pip`
-                  const maxLabel = f.capital_max === null ? '+' : `$${f.capital_max.toLocaleString('pt-BR')}`
-                  return (
-                    <tr key={f.ordem}>
-                      <td style={{ padding: '5px 6px', color: C.tx, borderBottom: `1px solid #111b27` }}>
-                        ${f.capital_min.toLocaleString('pt-BR')} – {maxLabel}
-                      </td>
-                      <td style={{ padding: '5px 6px', color: C.gr, fontWeight: 700, borderBottom: `1px solid #111b27` }}>
-                        {f.lote.toFixed(2)}L
-                      </td>
-                      <td style={{ padding: '5px 6px', color: C.bl, borderBottom: `1px solid #111b27` }}>
-                        {pipVal}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
+              {/* Estado + barra de health */}
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                  <span style={{ fontSize: 11, color: estadoCor(b.estado), fontWeight: 600 }}>
+                    ● {b.estadoLabel}
+                  </span>
+                  <span style={{ fontSize: 12, color: C.tx, fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
+                    {b.healthScore.toFixed(0)}
+                  </span>
+                </div>
+                <div style={{ height: 5, background: C.bd, borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%',
+                    width:  `${Math.min(b.healthScore, 100)}%`,
+                    background: b.healthScore >= 60 ? C.gr : b.healthScore >= 30 ? C.am : C.re,
+                    borderRadius: 3,
+                  }} />
+                </div>
+              </div>
+
+              {/* Métricas */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginBottom: 10, fontSize: 10, color: C.t2 }}>
+                <div>CB: <span style={{ color: b.circuitBreaker === 'CLOSED' ? C.gr : C.re }}>
+                  {b.circuitBreaker === 'CLOSED' ? '✓ Fechado' : '✗ Aberto'}
+                </span></div>
+                <div>Priority: <span style={{ color: C.tx }}>{b.priority}</span></div>
+                <div style={{ gridColumn: '1/-1' }}>
+                  Símbolo: <span style={{ color: C.cy, fontFamily: 'monospace', fontSize: 11 }}>{b.symbol}</span>
+                </div>
+              </div>
+
+              {/* Motivo */}
+              <div style={{ background: C.bg, borderRadius: 4, padding: '6px 8px' }}>
+                <div style={{ fontSize: 9, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>
+                  Por que #{b.rank}?
+                </div>
+                <div style={{ fontSize: 10, color: C.t2, lineHeight: 1.5 }}>{b.reason}</div>
+              </div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
 }
 
-function SectionTitle({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return (
-    <div style={{
-      fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.t2,
-      marginBottom: 10, paddingBottom: 6, borderBottom: `1px solid ${C.bd}`, ...style,
-    }}>
-      {children}
-    </div>
-  )
-}
