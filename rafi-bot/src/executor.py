@@ -521,6 +521,18 @@ class RafiBot:
             logger.info("Ctrl+C — encerrando bot.")
         finally:
             self._health.parar()
+            # Marca a corretora como DESLIGADA no Supabase antes de desconectar
+            try:
+                from src.supabase_sync import publicar_status_broker
+                publicar_status_broker(
+                    broker_id  = self._broker_id,
+                    saldo      = self.capital,
+                    posicoes   = 0,
+                    pnl_hoje   = self._pnl_hoje,
+                    status_text = 'DESLIGADA',
+                )
+            except Exception:
+                pass
             self.mt5.desconectar()
             logger.info("Bot encerrado.")
 

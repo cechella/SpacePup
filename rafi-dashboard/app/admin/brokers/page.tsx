@@ -1456,7 +1456,11 @@ function BrokerCard({ broker, faixas, live, onToggle, onToggleBot, toggling, tog
             {/* Bot status — só aparece quando habilitada */}
             {active && (() => {
               const st = broker.status_text ?? ''
-              const botOnline = st !== '' && st !== 'DESLIGADA'
+              // Considera stale (OFFLINE) se updated_at > 3 min sem heartbeat do bot
+              const secsOld = broker.updated_at
+                ? (Date.now() - new Date(broker.updated_at).getTime()) / 1000
+                : Infinity
+              const botOnline = st !== '' && st !== 'DESLIGADA' && secsOld < 180
               return (
                 <div
                   title={botOnline ? undefined : `Iniciar no VPS: py -m src.executor --broker ${broker.id}`}
