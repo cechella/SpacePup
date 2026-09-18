@@ -167,7 +167,8 @@ export default function ChartPage() {
   }>>([])
   const [historyPeriod,      setHistoryPeriod]      = useState<'today' | '7d' | '30d' | '3m'>('today')
   const [historyLoading,     setHistoryLoading]     = useState(false)
-  const [historyBroker,      setHistoryBroker]      = useState<string>('')  // '' = top broker automático
+  const [historyBroker,      setHistoryBroker]      = useState<string>('')  // '' = todas as corretoras (Auto)
+  const [historyGroups,      setHistoryGroups]      = useState<Array<{ rank: number; brokerId: string; nome: string; trades: typeof metaHistory }>>([])
   const [enabledBrokers,     setEnabledBrokers]     = useState<Array<{ id: string; nome: string }>>([]) // corretoras disponíveis para escolha
   // Posições abertas de TODAS as corretoras ativas (cross-broker live panel)
   const [allBrokerPositions, setAllBrokerPositions] = useState<Array<{
@@ -610,15 +611,29 @@ export default function ChartPage() {
     setHistoryLoading(true)
     try {
       const params = new URLSearchParams({ period })
-      if (broker) params.set('broker', broker)
+      if (broker) {
+        params.set('broker', broker)
+      } else {
+        params.set('all', 'true')
+      }
       const res = await fetch(`/api/metaapi/history?${params}`)
       if (res.ok) {
         const data = await res.json()
-        if (!data.error) setMetaHistory(data.history ?? [])
+        if (!data.error) {
+          setMetaHistory(data.history ?? [])
+          if (data.groups) {
+            // Modo Auto: grupos de corretoras
+            setHistoryGroups(data.groups)
+          } else {
+            // Corretora específica: grupo único
+            const nome = enabledBrokers.find(b => b.id === broker)?.nome ?? broker
+            setHistoryGroups([{ rank: 0, brokerId: broker, nome, trades: data.history ?? [] }])
+          }
+        }
       }
     } catch {}
     setHistoryLoading(false)
-  }, [])
+  }, [enabledBrokers])
 
   // Feature 2: fecha posição individual via MetaAPI
   const handleClosePosition = useCallback(async (positionId: string) => {
@@ -2192,15 +2207,13 @@ export default function ChartPage() {
                   <button
                     onClick={() => setHistoryBroker('')}
                     className={cn(
-                      'px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all whitespace-nowrap flex items-center gap-1',
+                      'px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all whitespace-nowrap',
                       historyBroker === ''
                         ? 'bg-[#26c6da] text-[#0d1117]'
                         : 'text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
                     )}
                   >
-                    {historyBroker === '' && routeBroker?.nome
-                      ? <><span>🏆</span><span>#1 {routeBroker.nome}</span></>
-                      : 'Auto'}
+                    Auto
                   </button>
                   {enabledBrokers.map(b => (
                     <button
@@ -2251,23 +2264,6 @@ export default function ChartPage() {
               )}
             </div>
 
-            {/* Badge da corretora ativa no relatório */}
-            <div className="px-4 pt-2.5 pb-1 flex items-center gap-1.5">
-              {historyBroker ? (
-                <span className="text-[10px] font-semibold text-[#8b949e]">
-                  {enabledBrokers.find(b => b.id === historyBroker)?.nome ?? historyBroker}
-                </span>
-              ) : (
-                <>
-                  <span className="text-[11px]">🏆</span>
-                  <span className="text-[10px] font-semibold text-[#26c6da]">
-                    {routeBroker?.nome ?? '…'}
-                  </span>
-                  <span className="text-[9px] text-[#484f58]">· #1 do ranking</span>
-                </>
-              )}
-            </div>
-
             {/* Resumo estatístico — 5 KPIs */}
             {metaHistory.length > 0 && (() => {
               const wins       = metaHistory.filter(d => d.profit > 0).length
@@ -2302,9 +2298,9 @@ export default function ChartPage() {
               </div>
             )}
 
-            {/* Tabela de operações */}
+            {/* Tabela de operações agrupada por corretora */}
             {metaHistory.length > 0 && (
-              <div className="overflow-x-auto max-h-[260px] overflow-y-auto">
+              <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
                 <table className="w-full text-[10px] border-collapse">
                   <thead className="sticky top-0 z-10 bg-[#0d1117]">
                     <tr className="border-b border-[#30363d]">
@@ -2315,55 +2311,61 @@ export default function ChartPage() {
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#21262d]/50">
-                    {metaHistory.map(deal => {
-                      const isBuy  = deal.direction === 'buy'
-                      const isWin  = deal.profit > 0
-                      const isLoss = deal.profit < 0
-                      const color  = isWin ? '#22c55e' : isLoss ? '#ef4444' : '#8b949e'
-                      const dt     = new Date(deal.time)
-                      const fmtDate = dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
-                      const fmtTime = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-                      return (
-                        <tr
-                          key={deal.id}
-                          className="hover:bg-[#161b22] transition-colors group"
-                          style={{ borderLeft: `2px solid ${color}35` }}
-                        >
-                          {/* Resultado */}
-                          <td className="px-3 py-2">
-                            <span
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-bold"
-                              style={{ background: `${color}15`, color }}
-                            >
-                              {isWin ? '✓ TP' : isLoss ? '✕ SL' : '— FEC'}
+                  <tbody>
+                    {(historyGroups.length > 0 ? historyGroups : [{ rank: 0, brokerId: '', nome: '', trades: metaHistory }]).map(group => (
+                      <>
+                        {/* Linha-cabeçalho da corretora */}
+                        <tr key={`hdr-${group.brokerId}`} className="bg-[#161b22] border-y border-[#21262d]">
+                          <td colSpan={8} className="px-3 py-1.5">
+                            <span className="flex items-center gap-1.5">
+                              {group.rank === 1 && <span className="text-[11px]">🏆</span>}
+                              {group.rank > 1 && (
+                                <span className="text-[9px] font-bold text-[#484f58]">#{group.rank}</span>
+                              )}
+                              <span className="text-[10px] font-bold text-[#26c6da]">{group.nome}</span>
+                              {group.rank === 1 && (
+                                <span className="text-[8px] text-[#484f58]">· #1 do ranking</span>
+                              )}
+                              <span className="ml-auto text-[8px] text-[#484f58]">{group.trades.length} op.</span>
                             </span>
-                          </td>
-                          {/* Par */}
-                          <td className="px-3 py-2 font-semibold text-[#f0f6fc] whitespace-nowrap">{deal.symbol}</td>
-                          {/* Direção */}
-                          <td className="px-3 py-2 whitespace-nowrap">
-                            <span className={cn('font-bold', isBuy ? 'text-[#3b82f6]' : 'text-[#f59e0b]')}>
-                              {isBuy ? '▲ BUY' : '▼ SELL'}
-                            </span>
-                          </td>
-                          {/* Lote */}
-                          <td className="px-3 py-2 text-[#8b949e] font-mono">{deal.volume}</td>
-                          {/* Preço entrada */}
-                          <td className="px-3 py-2 font-mono text-[#8b949e] whitespace-nowrap">{deal.entryPrice?.toFixed(5) ?? '—'}</td>
-                          {/* Preço saída */}
-                          <td className="px-3 py-2 font-mono text-[#8b949e] whitespace-nowrap">{deal.price?.toFixed(5) ?? '—'}</td>
-                          {/* Lucro */}
-                          <td className="px-3 py-2 font-mono font-bold whitespace-nowrap" style={{ color }}>
-                            {deal.profit > 0 ? '+' : ''}{deal.profit.toFixed(2)}
-                          </td>
-                          {/* Data/hora */}
-                          <td className="px-3 py-2 text-[#484f58] whitespace-nowrap font-mono">
-                            {fmtDate} <span className="text-[#30363d]">·</span> {fmtTime}
                           </td>
                         </tr>
-                      )
-                    })}
+                        {/* Trades da corretora */}
+                        {group.trades.map(deal => {
+                          const isBuy  = deal.direction === 'buy'
+                          const isWin  = deal.profit > 0
+                          const isLoss = deal.profit < 0
+                          const color  = isWin ? '#22c55e' : isLoss ? '#ef4444' : '#8b949e'
+                          const dt     = new Date(deal.time)
+                          const fDate  = dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
+                          const fTime  = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                          return (
+                            <tr key={deal.id} className="hover:bg-[#161b22] transition-colors divide-y divide-[#21262d]/50" style={{ borderLeft: `2px solid ${color}35` }}>
+                              <td className="px-3 py-2">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-bold" style={{ background: `${color}15`, color }}>
+                                  {isWin ? '✓ TP' : isLoss ? '✕ SL' : '— FEC'}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 font-semibold text-[#f0f6fc] whitespace-nowrap">{deal.symbol}</td>
+                              <td className="px-3 py-2 whitespace-nowrap">
+                                <span className={cn('font-bold', isBuy ? 'text-[#3b82f6]' : 'text-[#f59e0b]')}>
+                                  {isBuy ? '▲ BUY' : '▼ SELL'}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-[#8b949e] font-mono">{deal.volume}</td>
+                              <td className="px-3 py-2 font-mono text-[#8b949e] whitespace-nowrap">{deal.entryPrice?.toFixed(5) ?? '—'}</td>
+                              <td className="px-3 py-2 font-mono text-[#8b949e] whitespace-nowrap">{deal.price?.toFixed(5) ?? '—'}</td>
+                              <td className="px-3 py-2 font-mono font-bold whitespace-nowrap" style={{ color }}>
+                                {deal.profit > 0 ? '+' : ''}{deal.profit.toFixed(2)}
+                              </td>
+                              <td className="px-3 py-2 text-[#484f58] whitespace-nowrap font-mono">
+                                {fDate} <span className="text-[#30363d]">·</span> {fTime}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </>
+                    ))}
                   </tbody>
                   {/* Rodapé com totais */}
                   <tfoot className="sticky bottom-0 bg-[#0d1117] border-t border-[#30363d]">
@@ -2374,10 +2376,7 @@ export default function ChartPage() {
                       <td className="px-3 py-2 font-mono font-bold text-[10px]" style={{
                         color: metaHistory.reduce((s, d) => s + d.profit, 0) >= 0 ? '#22c55e' : '#ef4444'
                       }}>
-                        {(() => {
-                          const t = metaHistory.reduce((s, d) => s + d.profit, 0)
-                          return `${t >= 0 ? '+' : ''}${t.toFixed(2)}`
-                        })()}
+                        {(() => { const t = metaHistory.reduce((s, d) => s + d.profit, 0); return `${t >= 0 ? '+' : ''}${t.toFixed(2)}` })()}
                       </td>
                       <td className="px-3 py-2 text-[9px] text-[#484f58]">total</td>
                     </tr>
@@ -2605,15 +2604,13 @@ export default function ChartPage() {
                 <button
                   onClick={() => setHistoryBroker('')}
                   className={cn(
-                    'px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all whitespace-nowrap flex items-center gap-1',
+                    'px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all whitespace-nowrap',
                     historyBroker === ''
                       ? 'bg-[#26c6da] text-[#0d1117]'
                       : 'text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
                   )}
                 >
-                  {historyBroker === '' && routeBroker?.nome
-                    ? <><span>🏆</span><span>#1 {routeBroker.nome}</span></>
-                    : 'Auto'}
+                  Auto
                 </button>
                 {enabledBrokers.map(b => (
                   <button
@@ -2657,23 +2654,6 @@ export default function ChartPage() {
           <div className="px-4 py-10 text-center text-[12px] text-[#484f58]">Nenhuma operação fechada no período</div>
         ) : (
           <>
-            {/* Badge corretora ativa (mobile) */}
-            <div className="px-4 pt-2.5 pb-1 flex items-center gap-1.5">
-              {historyBroker ? (
-                <span className="text-[10px] font-semibold text-[#8b949e]">
-                  {enabledBrokers.find(b => b.id === historyBroker)?.nome ?? historyBroker}
-                </span>
-              ) : (
-                <>
-                  <span className="text-[11px]">🏆</span>
-                  <span className="text-[10px] font-semibold text-[#26c6da]">
-                    {routeBroker?.nome ?? '…'}
-                  </span>
-                  <span className="text-[9px] text-[#484f58]">· #1 do ranking</span>
-                </>
-              )}
-            </div>
-
             {/* KPIs compactos */}
             {(() => {
               const wins     = metaHistory.filter(d => d.profit > 0).length
