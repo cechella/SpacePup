@@ -197,6 +197,9 @@ export default function ChartPage() {
   const [isDesktop, setIsDesktop] = useState(false)
   const chartHRef = useRef(460)
   useEffect(() => { chartHRef.current = chartH }, [chartH])
+  // Zerar Tudo — confirmação inline e estado de loading
+  const [closeAllConfirm, setCloseAllConfirm] = useState(false)
+  const [closingAll,      setClosingAll]      = useState(false)
   // Altura da toolbar interna (colapsável arrastando para cima)
   // null = altura natural (auto); 0 = colapsada
   const [toolbarH,    setToolbarH]    = useState<number | null>(null)
@@ -682,6 +685,17 @@ export default function ChartPage() {
       }
     } catch {}
   }, [])
+
+  // Fecha todas as posições abertas de todas as corretoras de uma vez
+  const handleCloseAll = useCallback(async () => {
+    setClosingAll(true)
+    const positions = [...metaPositionsRef.current]
+    for (const pos of positions) {
+      await handleClosePosition(pos.id)
+    }
+    setClosingAll(false)
+    setCloseAllConfirm(false)
+  }, [handleClosePosition])
 
   // Modifica SL/TP de uma posição aberta via MetaAPI — replica para todas as corretoras ativas
   const handleModifyPosition = useCallback(async (positionId: string, sl: string, tp: string) => {
@@ -2272,9 +2286,41 @@ export default function ChartPage() {
                   </span>
                 )}
               </span>
-              <span className={cn('text-[10px] font-mono font-bold', liveTotalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
-                P&amp;L líq. {liveTotalPnl >= 0 ? '+' : ''}{liveTotalPnl.toFixed(2)} USD
-              </span>
+              <div className="flex items-center gap-2">
+                <span className={cn('text-[10px] font-mono font-bold', liveTotalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
+                  P&amp;L líq. {liveTotalPnl >= 0 ? '+' : ''}{liveTotalPnl.toFixed(2)} USD
+                </span>
+                {/* Zerar Tudo — fecha todas as posições abertas */}
+                {!closeAllConfirm ? (
+                  <button
+                    onClick={() => setCloseAllConfirm(true)}
+                    disabled={closingAll}
+                    className="text-[9px] font-semibold px-2 py-0.5 rounded border border-[#ef444455] text-[#ef4444] hover:bg-[#ef444415] transition-colors disabled:opacity-40 whitespace-nowrap"
+                  >
+                    × Zerar tudo
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <span className="text-[9px] text-[#ef4444] font-semibold whitespace-nowrap">
+                      Fechar {flatBrokerPositions.length} pos.?
+                    </span>
+                    <button
+                      onClick={handleCloseAll}
+                      disabled={closingAll}
+                      className="text-[9px] font-semibold px-2 py-0.5 rounded bg-[#ef4444] text-white hover:bg-[#dc2626] transition-colors disabled:opacity-60 whitespace-nowrap"
+                    >
+                      {closingAll ? '...' : 'Confirmar'}
+                    </button>
+                    <button
+                      onClick={() => setCloseAllConfirm(false)}
+                      disabled={closingAll}
+                      className="text-[9px] font-semibold px-2 py-0.5 rounded border border-[#30363d] text-[#8b949e] hover:text-white transition-colors disabled:opacity-40"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="overflow-x-auto">
