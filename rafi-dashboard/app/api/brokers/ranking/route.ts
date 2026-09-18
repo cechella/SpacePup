@@ -62,24 +62,26 @@ export async function GET() {
     }
   })
 
-  // Busca P&L do dia para corretoras elegíveis em paralelo
+  // Busca P&L fechado do dia + P&L flutuante das posições abertas em paralelo
   const today = new Date()
   today.setUTCHours(0, 0, 0, 0)
   const from = today.toISOString()
   const to   = new Date().toISOString()
-  const pnlMap: Record<string, number> = {}
+  const closedPnlMap: Record<string, number> = {}
+  const openPnlMap:   Record<string, number> = {}
 
   if (MA_TOKEN) {
     await Promise.allSettled(
       brokers.filter(b => b.eligible).map(async b => {
         try {
-          const res = await fetch(
+          // Trades fechados hoje
+          const hRes = await fetch(
             `${MA_BASE}/users/current/accounts/${b.accountId}/history-deals/time/${from}/${to}`,
             { headers: { 'auth-token': MA_TOKEN }, signal: AbortSignal.timeout(5_000), cache: 'no-store' },
           )
-          if (res.ok) {
-            const deals: any[] = await res.json()
-            pnlMap[b.id] = Array.isArray(deals)
+          if (hRes.ok) {
+            const deals: any[] = await hRes.json()
+            closedPnlMap[b.id] = Array.isArray(deals)
               ? deals
                   .filter(d =>
                     d.entryType === 'DEAL_ENTRY_OUT' &&
@@ -87,17 +89,33 @@ export async function GET() {
                   )
                   .reduce((sum: number, d: any) => sum + (d.profit ?? 0), 0)
               : 0
-          } else {
-            pnlMap[b.id] = 0
-          }
-        } catch {
-          pnlMap[b.id] = 0
-        }
+          } else { closedPnlMap[b.id] = 0 }
+        } catch { closedPnlMap[b.id] = 0 }
+
+        try {
+          // Posições abertas agora (P&L flutuante)
+          const pRes = await fetch(
+            `${MA_BASE}/users/current/accounts/${b.accountId}/positions`,
+            { headers: { 'auth-token': MA_TOKEN }, signal: AbortSignal.timeout(5_000) },
+          )
+          if (pRes.ok) {
+            const positions: any[] = await pRes.json()
+            openPnlMap[b.id] = Array.isArray(positions)
+              ? positions.reduce((sum: number, p: any) => sum + (p.profit ?? 0), 0)
+              : 0
+          } else { openPnlMap[b.id] = 0 }
+        } catch { openPnlMap[b.id] = 0 }
       }),
     )
   }
 
-  // Ordena: 1º P&L do dia (maior lucro = melhor), 2º Estado, 3º HealthScore, 4º Prioridade
+  // P&L total = fechado hoje + flutuante agora
+  const pnlMap: Record<string, number> = {}
+  for (const b of brokers) {
+    pnlMap[b.id] = (closedPnlMap[b.id] ?? 0) + (openPnlMap[b.id] ?? 0)
+  }
+
+  // Ordena: 1º P&L total (fechado + flutuante), 2º Estado, 3º HealthScore, 4º Prioridade
   const ranked = [...brokers].sort((a, b) => {
     if (!a.eligible && !b.eligible) return 0
     if (!a.eligible) return 1

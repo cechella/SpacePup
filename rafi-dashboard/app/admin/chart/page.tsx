@@ -905,15 +905,33 @@ export default function ChartPage() {
     [liveBrokerPositions],
   )
 
-  // Ranking ao vivo: reordena corretoras pelo P&L líquido tick a tick
+  // P&L dos trades FECHADOS hoje por corretora — complementa o flutuante ao vivo
+  const closedPnlTodayByBroker = useMemo(() => {
+    const todayStart = new Date()
+    todayStart.setUTCHours(0, 0, 0, 0)
+    const todayTs = todayStart.getTime()
+    const map: Record<string, number> = {}
+    historyGroups.forEach(g => {
+      map[g.brokerId] = g.trades
+        .filter(t => new Date(t.time).getTime() >= todayTs)
+        .reduce((s, t) => s + (t.profit ?? 0), 0)
+    })
+    return map
+  }, [historyGroups])
+
+  // Ranking ao vivo: reordena corretoras pelo P&L TOTAL = fechado hoje + flutuante agora
   // Quando há posições abertas, quem está ganhando mais sobe para #1 instantaneamente
   const liveRankedBrokers = useMemo(() => {
     const hasPositions = liveBrokerPositions.some(b => b.positions.length > 0)
     if (!hasPositions) return liveBrokerPositions
     return [...liveBrokerPositions]
-      .sort((a, b) => (b.totalNetPnl ?? b.totalPnl) - (a.totalNetPnl ?? a.totalPnl))
+      .sort((a, b) => {
+        const totalA = (closedPnlTodayByBroker[a.brokerId] ?? 0) + (a.totalNetPnl ?? a.totalPnl)
+        const totalB = (closedPnlTodayByBroker[b.brokerId] ?? 0) + (b.totalNetPnl ?? b.totalPnl)
+        return totalB - totalA
+      })
       .map((b, i) => ({ ...b, rank: i + 1 }))
-  }, [liveBrokerPositions])
+  }, [liveBrokerPositions, closedPnlTodayByBroker])
 
   // ID e nome do broker #1 ao vivo — primitivos para evitar re-renders desnecessários
   const liveTopBrokerId   = useMemo(() =>
