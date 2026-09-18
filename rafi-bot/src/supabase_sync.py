@@ -549,10 +549,10 @@ def carregar_broker_ativo(broker_id: Optional[str] = None) -> Optional[dict]:
         return None
     try:
         q = cliente.table('rafi_brokers').select(
-            'id,nome,servidor,login,simbolo,enabled,saldo,'
+            'id,nome,servidor,login,simbolo,enabled,bot_enabled,saldo,'
             'posicoes,pnl_hoje,status_text,updated_at,'
             'mt5_login,mt5_senha,mt5_servidor,mt5_simbolo,mt5_path'
-        ).eq('enabled', True)
+        ).eq('enabled', True).eq('bot_enabled', True)
         if broker_id:
             q = q.eq('id', broker_id)
         resp = q.limit(1).execute()

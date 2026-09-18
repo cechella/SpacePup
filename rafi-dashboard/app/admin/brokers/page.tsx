@@ -38,6 +38,7 @@ interface Broker {
   mt5_path?:           string | null
   mt5_senha?:          string | null
   metaapi_account_id?: string | null
+  bot_enabled?:        boolean | null
   // Campos de saúde (broker_health_engine)
   health_score?:       number | null
   health_estado?:      string | null
@@ -398,6 +399,20 @@ export default function BrokersPage() {
     }
   }
 
+  const toggleBot = async (broker: Broker) => {
+    setToggling(broker.id + '_bot')
+    try {
+      await fetch('/api/brokers', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ id: broker.id, bot_enabled: !(broker.bot_enabled ?? false) }),
+      })
+      await fetchBrokers()
+    } finally {
+      setToggling(null)
+    }
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────
   return (
     <div style={{ minHeight: '100vh', background: C.bg, padding: '28px 24px', fontFamily: 'monospace' }}>
@@ -494,7 +509,7 @@ export default function BrokersPage() {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 12 }}>
             {brokers.map((b) => (
-              <BrokerCard key={b.id} broker={b} faixas={faixas} live={liveData[b.id]} onToggle={toggle} toggling={toggling === b.id} onCred={abrirCred} />
+              <BrokerCard key={b.id} broker={b} faixas={faixas} live={liveData[b.id]} onToggle={toggle} onToggleBot={toggleBot} toggling={toggling === b.id} togglingBot={toggling === b.id + '_bot'} onCred={abrirCred} />
             ))}
           </div>
         )}
@@ -932,12 +947,14 @@ function ParamLegend() {
 }
 
 // ── Card individual de corretora ──────────────────────────────────────────
-function BrokerCard({ broker, faixas, live, onToggle, toggling, onCred }: {
+function BrokerCard({ broker, faixas, live, onToggle, onToggleBot, toggling, togglingBot, onCred }: {
   broker: Broker
   faixas: FaixaLote[]
   live?: LiveData
   onToggle: (b: Broker) => void
+  onToggleBot: (b: Broker) => void
   toggling: boolean
+  togglingBot: boolean
   onCred: (b: Broker) => void
 }) {
   const logo   = getLogo(broker.id)
@@ -976,30 +993,52 @@ function BrokerCard({ broker, faixas, live, onToggle, toggling, onCred }: {
             </div>
           </div>
 
-          {/* Toggle */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
-            <span style={{ fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: active ? C.gr : C.t2 }}>
-              {active ? 'ATIVA' : 'INATIVA'}
-            </span>
-            <span style={{ fontSize: 8, color: C.t3 }}>Mesa + Bot</span>
-            <button
-              onClick={() => !toggling && onToggle(broker)}
-              disabled={toggling}
-              title={active ? `Desativar ${broker.nome}` : `Ativar ${broker.nome}`}
-              style={{
-                width: 40, height: 22, borderRadius: 11, border: 'none',
-                cursor: toggling ? 'wait' : 'pointer',
-                background: active ? C.gr : C.s3,
-                position: 'relative', transition: 'background .2s',
-                opacity: toggling ? 0.6 : 1,
-              }}
-            >
-              <span style={{
-                position: 'absolute', top: 3, width: 16, height: 16, borderRadius: '50%',
-                background: '#fff', transition: 'left .2s',
-                left: active ? 21 : 3,
-              }} />
-            </button>
+          {/* Toggles — Mesa e Bot separados */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+            {/* Mesa toggle */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 8, color: active ? C.gr : C.t3, letterSpacing: '0.08em' }}>MESA</span>
+              <button
+                onClick={() => !toggling && onToggle(broker)}
+                disabled={toggling}
+                title={active ? `Desativar Mesa ${broker.nome}` : `Ativar Mesa ${broker.nome}`}
+                style={{
+                  width: 34, height: 18, borderRadius: 9, border: 'none',
+                  cursor: toggling ? 'wait' : 'pointer',
+                  background: active ? C.gr : C.s3,
+                  position: 'relative', transition: 'background .2s',
+                  opacity: toggling ? 0.6 : 1, flexShrink: 0,
+                }}
+              >
+                <span style={{
+                  position: 'absolute', top: 2, width: 14, height: 14, borderRadius: '50%',
+                  background: '#fff', transition: 'left .2s',
+                  left: active ? 18 : 2,
+                }} />
+              </button>
+            </div>
+            {/* Bot toggle — só disponível se Mesa estiver ativa */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 8, color: (broker.bot_enabled && active) ? C.am : C.t3, letterSpacing: '0.08em' }}>BOT</span>
+              <button
+                onClick={() => !togglingBot && active && onToggleBot(broker)}
+                disabled={togglingBot || !active}
+                title={!active ? 'Ative a Mesa primeiro' : (broker.bot_enabled ? `Desativar Bot ${broker.nome}` : `Ativar Bot ${broker.nome}`)}
+                style={{
+                  width: 34, height: 18, borderRadius: 9, border: 'none',
+                  cursor: (togglingBot || !active) ? 'not-allowed' : 'pointer',
+                  background: (broker.bot_enabled && active) ? C.am : C.s3,
+                  position: 'relative', transition: 'background .2s',
+                  opacity: (!active || togglingBot) ? 0.4 : 1, flexShrink: 0,
+                }}
+              >
+                <span style={{
+                  position: 'absolute', top: 2, width: 14, height: 14, borderRadius: '50%',
+                  background: '#fff', transition: 'left .2s',
+                  left: (broker.bot_enabled && active) ? 18 : 2,
+                }} />
+              </button>
+            </div>
           </div>
         </div>
 

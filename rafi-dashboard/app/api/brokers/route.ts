@@ -83,7 +83,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, id, created: true })
     }
 
-    // Modo toggle enabled
+    // Modo toggle bot_enabled
+    if (typeof body.bot_enabled === 'boolean') {
+      const { id, bot_enabled } = body
+      if (!id) return NextResponse.json({ error: 'id é obrigatório' }, { status: 400 })
+      const supa = getServiceClient()
+      const { error } = await supa
+        .from('rafi_brokers')
+        .update({ bot_enabled, updated_at: new Date().toISOString() })
+        .eq('id', id)
+      if (error) throw error
+      return NextResponse.json({ ok: true, id, bot_enabled })
+    }
+
+    // Modo toggle enabled (Mesa de Operação)
     const { id, enabled } = body
     if (!id || typeof enabled !== 'boolean') {
       return NextResponse.json({ error: 'id (string) e enabled (boolean) são obrigatórios' }, { status: 400 })
