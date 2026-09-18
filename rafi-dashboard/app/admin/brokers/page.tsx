@@ -1188,9 +1188,9 @@ function ParamLegend() {
       detail: 'Baseado na tabela de faixas cadastrada em Configurações. Ex.: $5.000 → 0.10 lote, $10.000 → 0.20 lote. Aparece no formato "0.10L" no card.',
     },
     {
-      label: 'Priority',
-      desc:  'Número de prioridade para desempate no ranking (menor = mais prioritário).',
-      detail: 'Usado quando duas corretoras têm o mesmo estado e health score. Ex.: Priority 1 bate Priority 2 se tudo mais for igual.',
+      label: 'Rank',
+      desc:  'Posição no ranking calculado por score composto (dados reais de execução).',
+      detail: 'Score 0-100 ponderado: P&L líquido 30d (25%), win rate (20%), profit factor (20%), comissão/lote (15%), swap/deal (10%), exec score Supabase (7%), latência/ping (3%). Ranking calculado automaticamente — sem valores manuais.',
     },
     {
       label: '★ MELHOR P&L',
@@ -1555,7 +1555,7 @@ function BrokerRanking({ ranking, loading, execQuality }: {
         </div>
         {loading
           ? <span style={{ fontSize: 9, color: C.t3 }}>carregando...</span>
-          : <span style={{ fontSize: 9, color: C.t2 }}>atualiza a cada 30s · critérios: estado → health score → prioridade · exec score: win rate + PF + slippage + velocidade</span>
+          : <span style={{ fontSize: 9, color: C.t2 }}>atualiza a cada 30s · critérios: P&amp;L líquido (25%) · win rate (20%) · profit factor (20%) · comissão/lote (15%) · swap (10%) · exec score (7%) · ping (3%)</span>
         }
       </div>
 
@@ -1674,7 +1674,7 @@ function BrokerRanking({ ranking, loading, execQuality }: {
                 <div>CB: <span style={{ color: b.circuitBreaker === 'CLOSED' ? C.gr : C.re }}>
                   {b.circuitBreaker === 'CLOSED' ? '✓ Fechado' : '✗ Aberto'}
                 </span></div>
-                <div>Priority: <span style={{ color: C.tx }}>{b.priority}</span></div>
+                <div>Rank: <span style={{ color: C.tx }}>#{b.priority}</span></div>
                 <div style={{ gridColumn: '1/-1' }}>
                   Símbolo: <span style={{ color: C.cy, fontFamily: 'monospace', fontSize: 11 }}>{b.symbol}</span>
                 </div>
