@@ -875,22 +875,40 @@ export default function ChartPage() {
   const lastCandle = candles[candles.length - 1]
   const lastPrice  = lastCandle?.close ?? 0
   const lastTime   = lastCandle?.time  ?? 0
-  // P&L consolidado de TODAS as corretoras ativas
-  const totalPnl = useMemo(
-    () => allBrokerPositions.reduce((s, b) => s + b.totalPnl, 0),
-    [allBrokerPositions],
-  )
   // Contagem total de posições em todas as corretoras (para badge)
   const totalPositionCount = useMemo(
     () => allBrokerPositions.reduce((s, b) => s + b.positions.length, 0),
     [allBrokerPositions],
   )
-  // Lista plana de posições com info da corretora — usada pelos painéis cross-broker
+  // P&L flutuante calculado tick a tick para TODAS as corretoras
+  // livePrice atualiza a ~300ms, evitando o atraso do poll de 5s
+  const liveBrokerPositions = useMemo(() => {
+    if (livePrice === null) return allBrokerPositions
+    return allBrokerPositions.map(broker => {
+      const positions = broker.positions.map(p => {
+        if (/eurusd/i.test(p.symbol)) {
+          const dir = /buy/i.test(p.type) ? 1 : -1
+          const liveProfit = (livePrice - p.openPrice) * dir * p.volume * 100000
+          return { ...p, profit: Math.round(liveProfit * 100) / 100 }
+        }
+        return p
+      })
+      const totalPnl = positions.reduce((s, p) => s + p.profit, 0)
+      return { ...broker, positions, totalPnl: Math.round(totalPnl * 100) / 100 }
+    })
+  }, [allBrokerPositions, livePrice])
+
+  const liveTotalPnl = useMemo(
+    () => liveBrokerPositions.reduce((s, b) => s + b.totalPnl, 0),
+    [liveBrokerPositions],
+  )
+
+  // Lista plana de posições com P&L ao vivo — usada pelos painéis cross-broker
   const flatBrokerPositions = useMemo(
-    () => allBrokerPositions.flatMap(b =>
+    () => liveBrokerPositions.flatMap(b =>
       b.positions.map(p => ({ ...p, brokerId: b.brokerId, brokerNome: b.nome, rank: b.rank }))
     ),
-    [allBrokerPositions],
+    [liveBrokerPositions],
   )
 
   // Equity ao vivo: saldo fixo + P&L calculado tick a tick via preço SSE
@@ -1442,8 +1460,8 @@ export default function ChartPage() {
                 <span className="text-[#484f58]">Abertas</span>
                 <span className="font-mono font-bold text-[#22c55e]">{metaPositions.length}</span>
                 <span className="text-[#484f58]">P&amp;L</span>
-                <span className={cn('font-mono font-bold', totalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
-                  {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} USD
+                <span className={cn('font-mono font-bold', liveTotalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
+                  {liveTotalPnl >= 0 ? '+'  : ''}{liveTotalPnl.toFixed(2)} USD
                 </span>
               </>
             )}
@@ -1972,8 +1990,8 @@ export default function ChartPage() {
                   <span className="ml-1 text-[#484f58] font-normal normal-case">· {allBrokerPositions.length} corretoras</span>
                 )}
               </span>
-              <span className={cn('text-[10px] font-mono font-bold', totalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
-                P&amp;L total {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} USD
+              <span className={cn('text-[10px] font-mono font-bold', liveTotalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
+                P&amp;L total {liveTotalPnl >= 0 ? '+' : ''}{liveTotalPnl.toFixed(2)} USD
               </span>
             </div>
             <div className="divide-y divide-[#21262d]">
@@ -2127,8 +2145,8 @@ export default function ChartPage() {
                   </span>
                 )}
               </span>
-              <span className={cn('text-[10px] font-mono font-bold', totalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
-                P&amp;L {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} USD
+              <span className={cn('text-[10px] font-mono font-bold', liveTotalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
+                P&amp;L {liveTotalPnl >= 0 ? '+' : ''}{liveTotalPnl.toFixed(2)} USD
               </span>
             </div>
 
@@ -2276,7 +2294,7 @@ export default function ChartPage() {
                 <div className="grid grid-cols-5 border-b border-[#30363d]">
                   {[
                     { label: 'Operações', value: String(metaHistory.length), sub: `${wins}G · ${losses}P`, color: '#8b949e' },
-                    { label: 'Lucro Total', value: `${totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)}`, sub: 'USD', color: totalPnl >= 0 ? '#22c55e' : '#ef4444' },
+                    { label: 'Lucro Total', value: `${liveTotalPnl >= 0 ? '+'  : ''}${totalPnl.toFixed(2)}`, sub: 'USD', color: totalPnl >= 0 ? '#22c55e' : '#ef4444' },
                     { label: 'Win Rate', value: `${winRate}%`, sub: `${wins} wins`, color: Number(winRate) >= 50 ? '#22c55e' : '#ef4444' },
                     { label: 'Melhor', value: `+${bestTrade.toFixed(2)}`, sub: 'USD', color: '#22c55e' },
                     { label: 'Pior', value: worstTrade.toFixed(2), sub: 'USD', color: '#ef4444' },
@@ -2483,8 +2501,8 @@ export default function ChartPage() {
             )}
           </span>
           {(flatBrokerPositions.length > 0 || metaPositions.length > 0) && (
-            <span className={cn('text-[11px] font-mono font-bold', totalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
-              P&amp;L {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} USD
+            <span className={cn('text-[11px] font-mono font-bold', liveTotalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
+              P&amp;L {liveTotalPnl >= 0 ? '+' : ''}{liveTotalPnl.toFixed(2)} USD
             </span>
           )}
         </div>
