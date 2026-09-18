@@ -32,6 +32,8 @@ export async function GET() {
         openPrice:    p.openPrice,
         currentPrice: p.currentPrice,
         profit:       p.profit ?? 0,
+        commission:   p.commission ?? 0,
+        swap:         p.swap ?? 0,
         stopLoss:     p.stopLoss,
         takeProfit:   p.takeProfit,
         openTime:     p.time,

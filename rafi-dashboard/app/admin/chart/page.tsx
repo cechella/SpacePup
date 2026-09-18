@@ -176,9 +176,10 @@ export default function ChartPage() {
     positions: Array<{
       id: string; symbol: string; type: string; volume: number
       openPrice: number; currentPrice: number; profit: number
+      commission: number; swap: number; netPnl?: number
       stopLoss: number; takeProfit: number; openTime?: string
     }>
-    totalPnl: number; error?: string | number
+    totalPnl: number; totalNetPnl?: number; error?: string | number
   }>>([])
   const allBrokerPositionsRef = useRef<typeof allBrokerPositions>([])
   useEffect(() => { allBrokerPositionsRef.current = allBrokerPositions }, [allBrokerPositions])
@@ -883,23 +884,24 @@ export default function ChartPage() {
   // P&L flutuante calculado tick a tick para TODAS as corretoras
   // livePrice atualiza a ~300ms, evitando o atraso do poll de 5s
   const liveBrokerPositions = useMemo(() => {
-    if (livePrice === null) return allBrokerPositions
     return allBrokerPositions.map(broker => {
       const positions = broker.positions.map(p => {
-        if (/eurusd/i.test(p.symbol)) {
+        let profit = p.profit
+        if (livePrice !== null && /eurusd/i.test(p.symbol)) {
           const dir = /buy/i.test(p.type) ? 1 : -1
-          const liveProfit = (livePrice - p.openPrice) * dir * p.volume * 100000
-          return { ...p, profit: Math.round(liveProfit * 100) / 100 }
+          profit = Math.round((livePrice - p.openPrice) * dir * p.volume * 100000 * 100) / 100
         }
-        return p
+        const netPnl = Math.round((profit + (p.commission ?? 0) + (p.swap ?? 0)) * 100) / 100
+        return { ...p, profit, netPnl }
       })
-      const totalPnl = positions.reduce((s, p) => s + p.profit, 0)
-      return { ...broker, positions, totalPnl: Math.round(totalPnl * 100) / 100 }
+      const totalPnl    = Math.round(positions.reduce((s, p) => s + p.profit, 0) * 100) / 100
+      const totalNetPnl = Math.round(positions.reduce((s, p) => s + (p.netPnl ?? p.profit), 0) * 100) / 100
+      return { ...broker, positions, totalPnl, totalNetPnl }
     })
   }, [allBrokerPositions, livePrice])
 
   const liveTotalPnl = useMemo(
-    () => liveBrokerPositions.reduce((s, b) => s + b.totalPnl, 0),
+    () => liveBrokerPositions.reduce((s, b) => s + (b.totalNetPnl ?? b.totalPnl), 0),
     [liveBrokerPositions],
   )
 
@@ -1991,7 +1993,7 @@ export default function ChartPage() {
                 )}
               </span>
               <span className={cn('text-[10px] font-mono font-bold', liveTotalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
-                P&amp;L total {liveTotalPnl >= 0 ? '+' : ''}{liveTotalPnl.toFixed(2)} USD
+                P&amp;L líq. {liveTotalPnl >= 0 ? '+' : ''}{liveTotalPnl.toFixed(2)} USD
               </span>
             </div>
             <div className="divide-y divide-[#21262d]">
@@ -2040,17 +2042,38 @@ export default function ChartPage() {
                       </button>
                     </div>
 
-                    {/* SL/TP atuais (sempre visível) */}
-                    {!isEditing && (
-                      <div className="flex items-center gap-4 mt-1 pl-5 text-[9px]">
-                        <span className="text-[#484f58]">
-                          SL <span className="font-mono text-[#ef4444]">{pos.stopLoss?.toFixed(5) ?? '—'}</span>
-                        </span>
-                        <span className="text-[#484f58]">
-                          TP <span className="font-mono text-[#22c55e]">{pos.takeProfit?.toFixed(5) ?? '—'}</span>
-                        </span>
-                      </div>
-                    )}
+                    {/* Custos + P&L líquido (sempre visível) */}
+                    {!isEditing && (() => {
+                      const comm    = (pos as any).commission ?? 0
+                      const sw      = (pos as any).swap ?? 0
+                      const netP    = (pos as any).netPnl ?? (pos.profit + comm + sw)
+                      const netClr  = netP >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'
+                      return (
+                        <div className="flex items-center gap-4 mt-1 pl-5 text-[9px]">
+                          <span className="text-[#484f58]">
+                            SL <span className="font-mono text-[#ef4444]">{pos.stopLoss?.toFixed(5) ?? '—'}</span>
+                          </span>
+                          <span className="text-[#484f58]">
+                            TP <span className="font-mono text-[#22c55e]">{pos.takeProfit?.toFixed(5) ?? '—'}</span>
+                          </span>
+                          {(comm !== 0 || sw !== 0) && (
+                            <>
+                              <span className="text-[#484f58]">
+                                Com. <span className="font-mono text-[#ef4444]">{comm >= 0 ? '+' : ''}{comm.toFixed(2)}</span>
+                              </span>
+                              <span className="text-[#484f58]">
+                                Swap <span className="font-mono" style={{ color: sw < 0 ? '#ef4444' : sw > 0 ? '#22c55e' : '#484f58' }}>
+                                  {sw === 0 ? '—' : `${sw >= 0 ? '+' : ''}${sw.toFixed(2)}`}
+                                </span>
+                              </span>
+                              <span className="text-[#484f58]">
+                                Líq. <span className={cn('font-mono font-bold', netClr)}>{netP >= 0 ? '+' : ''}{netP.toFixed(2)} USD</span>
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      )
+                    })()}
 
                     {/* Edição inline de SL/TP */}
                     {isEditing && editingPos && (() => {
@@ -2146,7 +2169,7 @@ export default function ChartPage() {
                 )}
               </span>
               <span className={cn('text-[10px] font-mono font-bold', liveTotalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
-                P&amp;L {liveTotalPnl >= 0 ? '+' : ''}{liveTotalPnl.toFixed(2)} USD
+                P&amp;L líq. {liveTotalPnl >= 0 ? '+' : ''}{liveTotalPnl.toFixed(2)} USD
               </span>
             </div>
 
@@ -2154,7 +2177,7 @@ export default function ChartPage() {
               <table className="w-full text-[10px] border-collapse">
                 <thead>
                   <tr className="border-b border-[#21262d]">
-                    {['Corretora', 'Par', 'Dir', 'Lote', 'Entrada', 'TP', 'SL', 'P&L ao vivo', ''].map(h => (
+                    {['Corretora', 'Par', 'Dir', 'Lote', 'Entrada', 'TP', 'SL', 'P&L Bruto', 'Comissão', 'Swap', 'P&L Líq.', ''].map(h => (
                       <th key={h} className="px-3 py-1.5 text-left text-[8px] font-semibold text-[#484f58] uppercase tracking-widest whitespace-nowrap">
                         {h}
                       </th>
@@ -2174,6 +2197,10 @@ export default function ChartPage() {
                     const pnlClr = pnl >= 0 ? '#22c55e' : '#ef4444'
                     // Para o "Fechar" passamos o positionId desta corretora;
                     // o backend localiza as posições das demais por símbolo+volume
+                    const commission = (pos as any).commission ?? 0
+                    const swap      = (pos as any).swap ?? 0
+                    const netPnl    = (pos as any).netPnl ?? (pnl + commission + swap)
+                    const netClr    = netPnl >= 0 ? '#22c55e' : '#ef4444'
                     return (
                       <tr key={`${pos.brokerId}-${pos.id}`} className="hover:bg-[#161b22] transition-colors">
                         <td className="px-3 py-2">{brokerBadge(pos.brokerId, pos.brokerNome)}</td>
@@ -2187,8 +2214,17 @@ export default function ChartPage() {
                         <td className="px-3 py-2 font-mono text-[#8b949e]">{pos.openPrice.toFixed(5)}</td>
                         <td className="px-3 py-2 font-mono text-[#10b981]">{pos.takeProfit ? pos.takeProfit.toFixed(5) : '—'}</td>
                         <td className="px-3 py-2 font-mono text-[#ef4444]">{pos.stopLoss  ? pos.stopLoss.toFixed(5)  : '—'}</td>
-                        <td className="px-3 py-2 font-mono font-bold tabular-nums" style={{ color: pnlClr }}>
-                          {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)} USD
+                        <td className="px-3 py-2 font-mono tabular-nums" style={{ color: pnlClr }}>
+                          {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}
+                        </td>
+                        <td className="px-3 py-2 font-mono tabular-nums text-[#ef4444]">
+                          {commission === 0 ? <span className="text-[#484f58]">—</span> : `${commission >= 0 ? '+' : ''}${commission.toFixed(2)}`}
+                        </td>
+                        <td className="px-3 py-2 font-mono tabular-nums" style={{ color: swap < 0 ? '#ef4444' : swap > 0 ? '#22c55e' : '#484f58' }}>
+                          {swap === 0 ? '—' : `${swap >= 0 ? '+' : ''}${swap.toFixed(2)}`}
+                        </td>
+                        <td className="px-3 py-2 font-mono font-bold tabular-nums" style={{ color: netClr }}>
+                          {netPnl >= 0 ? '+' : ''}{netPnl.toFixed(2)} USD
                         </td>
                         <td className="px-3 py-2">
                           <button
@@ -2502,7 +2538,7 @@ export default function ChartPage() {
           </span>
           {(flatBrokerPositions.length > 0 || metaPositions.length > 0) && (
             <span className={cn('text-[11px] font-mono font-bold', liveTotalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
-              P&amp;L {liveTotalPnl >= 0 ? '+' : ''}{liveTotalPnl.toFixed(2)} USD
+              P&amp;L líq. {liveTotalPnl >= 0 ? '+' : ''}{liveTotalPnl.toFixed(2)} USD
             </span>
           )}
         </div>
