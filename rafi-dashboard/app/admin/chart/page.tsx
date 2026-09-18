@@ -197,6 +197,11 @@ export default function ChartPage() {
   const [isDesktop, setIsDesktop] = useState(false)
   const chartHRef = useRef(460)
   useEffect(() => { chartHRef.current = chartH }, [chartH])
+  // Altura da toolbar interna (colapsável arrastando para cima)
+  const TOOLBAR_DEFAULT = 52
+  const [toolbarH,    setToolbarH]    = useState(TOOLBAR_DEFAULT)
+  const toolbarHRef = useRef(TOOLBAR_DEFAULT)
+  useEffect(() => { toolbarHRef.current = toolbarH }, [toolbarH])
   const prevPositionsRef = useRef<typeof metaPositions>([])
   // Check-in de estado mental do dia
   const [checkin,     setCheckin]     = useState<CheckinResult | null>(null)
@@ -379,24 +384,25 @@ export default function ChartPage() {
     document.addEventListener('mouseup',   onUp)
   }, [])
 
-  // Arrasto da borda SUPERIOR do gráfico — direção invertida: arrastar ↑ aumenta chartH
-  const handleTopResizeStart = useCallback((e: React.MouseEvent) => {
+  // Arrasto da borda inferior da toolbar interna — arrastar ↑ colapsa, arrastar ↓ restaura
+  const handleToolbarResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     const startY = e.clientY
-    const startH = chartHRef.current
+    const startH = toolbarHRef.current
     document.body.style.cursor    = 'row-resize'
     document.body.style.userSelect = 'none'
     const onMove = (ev: MouseEvent) => {
-      // arrastar para cima = ev.clientY < startY = delta negativo → chartH aumenta
-      const newH = Math.max(200, Math.min(window.innerHeight - 200, startH - (ev.clientY - startY)))
-      setChartH(newH)
+      // arrastar ↑ = clientY diminui = delta negativo → toolbarH diminui (colapsa)
+      const newH = Math.max(0, Math.min(100, startH + ev.clientY - startY))
+      setToolbarH(newH < 16 ? 0 : newH) // snap para 0 quando quase colapsado
     }
     const onUp = () => {
       document.body.style.cursor    = ''
       document.body.style.userSelect = ''
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup',   onUp)
-      try { localStorage.setItem('mesa_chart_h', String(chartHRef.current)) } catch {}
+      // snap: se ficou no meio, colapsa ou restaura completamente
+      setToolbarH(prev => prev < TOOLBAR_DEFAULT / 2 ? 0 : TOOLBAR_DEFAULT)
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup',   onUp)
@@ -1632,30 +1638,21 @@ export default function ChartPage() {
           </div>
         )}
 
-        {/* Handle de resize superior — desktop only (arrastar ↑ = gráfico cresce) */}
-        {isDesktop && (
-          <div
-            className="hidden md:flex items-center justify-center h-2 shrink-0 cursor-row-resize group select-none"
-            onMouseDown={handleTopResizeStart}
-            onDoubleClick={() => { setChartH(460); try { localStorage.removeItem('mesa_chart_h') } catch {} }}
-            title="Arraste ↑ para ampliar · Duplo clique para restaurar"
-          >
-            <div className="flex items-center gap-0.5 opacity-30 group-hover:opacity-100 transition-opacity">
-              <span className="w-6 h-[2px] rounded-full bg-[#484f58] group-hover:bg-[#3b82f6] transition-colors" />
-              <span className="w-1.5 h-[2px] rounded-full bg-[#484f58] group-hover:bg-[#3b82f6] transition-colors" />
-              <span className="w-6 h-[2px] rounded-full bg-[#484f58] group-hover:bg-[#3b82f6] transition-colors" />
-            </div>
-          </div>
-        )}
-
         {/* Gráfico duplo (candles + RAFI) */}
         <div
           className="flex-1 min-h-0 rounded-xl border border-[#30363d] overflow-hidden flex flex-col md:flex-none"
           style={isDesktop ? { height: chartH } : undefined}
         >
 
-          {/* Toolbar do gráfico — oculta em mobile (controles ficam na gaveta) */}
-          <div className="px-4 py-2 border-b border-[#30363d] bg-[#161b22] hidden md:flex items-center justify-between shrink-0">
+          {/* Toolbar do gráfico — oculta em mobile; altura colapsável via drag handle */}
+          <div
+            className="hidden md:flex items-center justify-between bg-[#161b22] shrink-0 overflow-hidden"
+            style={isDesktop ? {
+              height: toolbarH,
+              borderBottom: toolbarH > 0 ? '1px solid #30363d' : 'none',
+              padding: toolbarH > 0 ? '0 16px' : '0',
+            } : { padding: '8px 16px', borderBottom: '1px solid #30363d' }}
+          >
             <div className="flex items-center gap-3 text-[10px]">
 
               {/* Seletor de Timeframe */}
@@ -2015,6 +2012,22 @@ export default function ChartPage() {
               </div>
             </div>
           </div>
+
+          {/* Handle de colapso da toolbar — arrastar ↑ esconde toolbar, ↓ restaura */}
+          {isDesktop && (
+            <div
+              className="hidden md:flex items-center justify-center h-2 shrink-0 cursor-row-resize group select-none bg-[#0d1117]"
+              onMouseDown={handleToolbarResizeStart}
+              onDoubleClick={() => setToolbarH(toolbarH === 0 ? TOOLBAR_DEFAULT : 0)}
+              title={toolbarH === 0 ? 'Arrastar ↓ ou duplo clique para exibir toolbar' : 'Arrastar ↑ para ocultar toolbar · Duplo clique para alternar'}
+            >
+              <div className="flex items-center gap-0.5 opacity-20 group-hover:opacity-100 transition-opacity">
+                <span className="w-6 h-[2px] rounded-full bg-[#484f58] group-hover:bg-[#3b82f6] transition-colors" />
+                <span className="w-1.5 h-[2px] rounded-full bg-[#484f58] group-hover:bg-[#3b82f6] transition-colors" />
+                <span className="w-6 h-[2px] rounded-full bg-[#484f58] group-hover:bg-[#3b82f6] transition-colors" />
+              </div>
+            </div>
+          )}
 
           {/* Chart */}
           <div className="flex-1 min-h-0">
