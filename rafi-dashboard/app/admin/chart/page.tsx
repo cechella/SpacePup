@@ -99,6 +99,24 @@ interface CsvHistoryEntry {
   scanResult?: { trades: number; wins: number; pnl: number }
 }
 
+// Badge de corretora: mapeamento brokerId → cores
+const BROKER_BADGE: Record<string, { bg: string; ring: string; label: string }> = {
+  tickmill:    { bg: '#1d4ed8', ring: '#3b82f6', label: 'TIC' },
+  pepperstone: { bg: '#15803d', ring: '#22c55e', label: 'PEP' },
+  exness:      { bg: '#b45309', ring: '#f59e0b', label: 'EXN' },
+}
+function brokerBadge(brokerId: string, nome: string) {
+  const b = BROKER_BADGE[brokerId] ?? { bg: '#374151', ring: '#6b7280', label: nome.slice(0, 3).toUpperCase() }
+  return (
+    <span
+      style={{ background: b.bg, border: `1px solid ${b.ring}`, color: b.ring }}
+      className="inline-block px-1 py-0 rounded text-[8px] font-bold font-mono leading-4 shrink-0"
+    >
+      {b.label}
+    </span>
+  )
+}
+
 export default function ChartPage() {
   const [trades,       setTrades]       = useState<ManualTrade[]>([])
   const [tf,           setTf]           = useState<Timeframe>('M5')
@@ -151,6 +169,18 @@ export default function ChartPage() {
   const [historyBroker,      setHistoryBroker]      = useState<string>('')  // '' = top broker automático
   const [historyBrokerOpen,  setHistoryBrokerOpen]  = useState(false)
   const [enabledBrokers,     setEnabledBrokers]     = useState<Array<{ id: string; nome: string }>>([]) // corretoras disponíveis para escolha
+  // Posições abertas de TODAS as corretoras ativas (cross-broker live panel)
+  const [allBrokerPositions, setAllBrokerPositions] = useState<Array<{
+    rank: number; brokerId: string; nome: string; symbol: string
+    positions: Array<{
+      id: string; symbol: string; type: string; volume: number
+      openPrice: number; currentPrice: number; profit: number
+      stopLoss: number; takeProfit: number; openTime?: string
+    }>
+    totalPnl: number; error?: string | number
+  }>>([])
+  const allBrokerPositionsRef = useRef<typeof allBrokerPositions>([])
+  useEffect(() => { allBrokerPositionsRef.current = allBrokerPositions }, [allBrokerPositions])
   // Preço ao vivo: atualiza o último candle tick a tick
   const [livePrice, setLivePrice] = useState<number | null>(null)
   // Ref direto para RAF no gráfico — sem passar pelo scheduler do React
@@ -529,12 +559,13 @@ export default function ChartPage() {
     }
   }, [tf, saveToHistory])
 
-  // Features 1, 2, 5: busca saldo + posições abertas, detecta atividade do bot
+  // Features 1, 2, 5: busca saldo + posições abertas (todas as corretoras), detecta atividade do bot
   const fetchLiveData = useCallback(async () => {
     try {
-      const [accRes, posRes] = await Promise.allSettled([
+      const [accRes, posRes, allPosRes] = await Promise.allSettled([
         fetch('/api/metaapi/account'),
         fetch('/api/metaapi/positions'),
+        fetch('/api/metaapi/all-positions'),
       ])
       if (accRes.status === 'fulfilled' && accRes.value.ok) {
         const acc = await accRes.value.json()
@@ -566,6 +597,10 @@ export default function ChartPage() {
           prevPositionsRef.current = newPos
           return newPos
         })
+      }
+      if (allPosRes.status === 'fulfilled' && allPosRes.value.ok) {
+        const data = await allPosRes.value.json()
+        setAllBrokerPositions(data.brokers ?? [])
       }
     } catch {}
   }, [])
@@ -741,7 +776,7 @@ export default function ChartPage() {
 
   // Features 1, 2, 5: poll saldo + posições a cada 5s quando MetaAPI ativo
   useEffect(() => {
-    if (!metaConnected) { setMetaAccount(null); setMetaPositions([]); setBotAlerts([]); return }
+    if (!metaConnected) { setMetaAccount(null); setMetaPositions([]); setAllBrokerPositions([]); setBotAlerts([]); return }
     fetchLiveData()
     const id = setInterval(fetchLiveData, 5_000)
     return () => clearInterval(id)
@@ -836,7 +871,23 @@ export default function ChartPage() {
   const lastCandle = candles[candles.length - 1]
   const lastPrice  = lastCandle?.close ?? 0
   const lastTime   = lastCandle?.time  ?? 0
-  const totalPnl   = useMemo(() => metaPositions.reduce((s, p) => s + (p.profit ?? 0), 0), [metaPositions])
+  // P&L consolidado de TODAS as corretoras ativas
+  const totalPnl = useMemo(
+    () => allBrokerPositions.reduce((s, b) => s + b.totalPnl, 0),
+    [allBrokerPositions],
+  )
+  // Contagem total de posições em todas as corretoras (para badge)
+  const totalPositionCount = useMemo(
+    () => allBrokerPositions.reduce((s, b) => s + b.positions.length, 0),
+    [allBrokerPositions],
+  )
+  // Lista plana de posições com info da corretora — usada pelos painéis cross-broker
+  const flatBrokerPositions = useMemo(
+    () => allBrokerPositions.flatMap(b =>
+      b.positions.map(p => ({ ...p, brokerId: b.brokerId, brokerNome: b.nome, rank: b.rank }))
+    ),
+    [allBrokerPositions],
+  )
 
   // Equity ao vivo: saldo fixo + P&L calculado tick a tick via preço SSE
   // Evita o atraso do poll de 5s — exibe o capital total em tempo real
@@ -1906,25 +1957,29 @@ export default function ChartPage() {
         )}
 
         {/* Feature 2: painel de posições abertas — só visível quando MetaAPI conectado e há posições (oculto em mobile, acessível pela aba Posições) */}
-        {metaConnected && metaPositions.length > 0 && (
+        {metaConnected && (metaPositions.length > 0 || flatBrokerPositions.length > 0) && (
           <div className="hidden md:block shrink-0 rounded-xl border border-[#30363d] bg-[#0b1219] overflow-hidden">
             <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between">
               <span className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">
-                Posições Abertas · {routeBroker?.nome ?? 'Corretora'}
+                Posições Abertas
+                {allBrokerPositions.length > 1 && (
+                  <span className="ml-1 text-[#484f58] font-normal normal-case">· {allBrokerPositions.length} corretoras</span>
+                )}
               </span>
               <span className={cn('text-[10px] font-mono font-bold', totalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
                 P&amp;L total {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} USD
               </span>
             </div>
             <div className="divide-y divide-[#21262d]">
-              {metaPositions.map(pos => {
+              {(flatBrokerPositions.length > 0 ? flatBrokerPositions : metaPositions.map(p => ({ ...p, brokerId: '', brokerNome: routeBroker?.nome ?? '', rank: 1 }))).map(pos => {
                 const isBuy     = pos.type === 'POSITION_TYPE_BUY'
                 const pnlColor  = pos.profit >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'
                 const isEditing = editingPos?.id === pos.id
                 return (
-                  <div key={pos.id} className="px-4 py-2 text-[10px] hover:bg-[#161b22] transition-colors">
+                  <div key={`${pos.brokerId}-${pos.id}`} className="px-4 py-2 text-[10px] hover:bg-[#161b22] transition-colors">
                     {/* Linha principal */}
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      {brokerBadge(pos.brokerId, pos.brokerNome)}
                       <span className={cn('font-bold text-[11px]', isBuy ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
                         {isBuy ? '▲' : '▼'}
                       </span>
@@ -1935,7 +1990,7 @@ export default function ChartPage() {
                       <span className={cn('font-mono font-bold ml-auto', pnlColor)}>
                         {pos.profit >= 0 ? '+' : ''}{pos.profit.toFixed(2)} USD
                       </span>
-                      {/* Botão editar SL/TP */}
+                      {/* Botão editar SL/TP — usa positionId da corretora top para modify */}
                       <button
                         onClick={() => setEditingPos(isEditing ? null : {
                           id: pos.id,
@@ -2053,13 +2108,18 @@ export default function ChartPage() {
           </div>
         )}
 
-        {/* ── Posições Abertas ao Vivo — sempre visível (mobile + desktop) ── */}
-        {metaConnected && metaPositions.length > 0 && (
+        {/* ── Posições Abertas ao Vivo — cross-broker, sempre visível (mobile + desktop) ── */}
+        {metaConnected && (flatBrokerPositions.length > 0 || metaPositions.length > 0) && (
           <div className="shrink-0 rounded-xl border border-[#3b82f633] bg-[#0b1219] overflow-hidden">
             <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between">
               <span className="text-[10px] font-semibold text-[#3b82f6] uppercase tracking-wider flex items-center gap-1.5">
                 <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse" />
                 Posições Abertas
+                {allBrokerPositions.length > 1 && (
+                  <span className="text-[#484f58] font-normal normal-case ml-1">
+                    · {allBrokerPositions.length} corretoras · {flatBrokerPositions.length} pos.
+                  </span>
+                )}
               </span>
               <span className={cn('text-[10px] font-mono font-bold', totalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
                 P&amp;L {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} USD
@@ -2070,7 +2130,7 @@ export default function ChartPage() {
               <table className="w-full text-[10px] border-collapse">
                 <thead>
                   <tr className="border-b border-[#21262d]">
-                    {['Par', 'Dir', 'Lote', 'Entrada', 'TP', 'SL', 'P&L ao vivo', ''].map(h => (
+                    {['Corretora', 'Par', 'Dir', 'Lote', 'Entrada', 'TP', 'SL', 'P&L ao vivo', ''].map(h => (
                       <th key={h} className="px-3 py-1.5 text-left text-[8px] font-semibold text-[#484f58] uppercase tracking-widest whitespace-nowrap">
                         {h}
                       </th>
@@ -2078,14 +2138,21 @@ export default function ChartPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#21262d]/50">
-                  {metaPositions.map(pos => {
+                  {(flatBrokerPositions.length > 0
+                    ? flatBrokerPositions
+                    : metaPositions.map(p => ({ ...p, brokerId: '', brokerNome: routeBroker?.nome ?? '', rank: 1 }))
+                  ).map(pos => {
                     const isBuy  = pos.type === 'POSITION_TYPE_BUY'
-                    const pnl    = livePrice
+                    // P&L tick-a-tick para EURUSD da corretora top; demais usam último valor da API
+                    const pnl    = (livePrice && /eurusd/i.test(pos.symbol) && pos.rank === 1)
                       ? (isBuy ? 1 : -1) * (livePrice - pos.openPrice) * pos.volume * 100000
                       : (pos.profit ?? 0)
                     const pnlClr = pnl >= 0 ? '#22c55e' : '#ef4444'
+                    // Para o "Fechar" passamos o positionId desta corretora;
+                    // o backend localiza as posições das demais por símbolo+volume
                     return (
-                      <tr key={pos.id} className="hover:bg-[#161b22] transition-colors">
+                      <tr key={`${pos.brokerId}-${pos.id}`} className="hover:bg-[#161b22] transition-colors">
+                        <td className="px-3 py-2">{brokerBadge(pos.brokerId, pos.brokerNome)}</td>
                         <td className="px-3 py-2 font-mono font-bold text-[#f0f6fc]">{pos.symbol}</td>
                         <td className="px-3 py-2">
                           <span className={cn('font-bold', isBuy ? 'text-[#3b82f6]' : 'text-[#f59e0b]')}>
@@ -2103,6 +2170,7 @@ export default function ChartPage() {
                           <button
                             onClick={() => handleClosePosition(pos.id)}
                             className="px-2 py-0.5 rounded text-[9px] font-bold bg-[#ef4444]/15 border border-[#ef4444]/40 text-[#ef4444] hover:bg-[#ef4444]/25 transition-colors whitespace-nowrap"
+                            title="Fecha esta posição em todas as corretoras ativas"
                           >
                             × Fechar
                           </button>
@@ -2353,7 +2421,7 @@ export default function ChartPage() {
       <div className="md:hidden fixed bottom-0 left-0 right-0 h-[60px] bg-[#161b22] border-t border-[#30363d] flex z-20">
         {([
           { id: 'chart',     Icon: BarChart2, label: 'Gráfico',   badge: 0 },
-          { id: 'positions', Icon: Layers,    label: 'Posições',  badge: metaConnected && metaPositions.length > 0 ? metaPositions.length : 0 },
+          { id: 'positions', Icon: Layers,    label: 'Posições',  badge: metaConnected && totalPositionCount > 0 ? totalPositionCount : 0 },
           { id: 'trade',     Icon: Crosshair, label: 'Operação',  badge: 0 },
           { id: 'history',   Icon: History,   label: 'Histórico', badge: 0 },
         ] as Array<{ id: 'chart'|'positions'|'trade'|'history'; Icon: any; label: string; badge: number }>).map(({ id, Icon, label, badge }) => (
@@ -2400,8 +2468,13 @@ export default function ChartPage() {
       )}>
         <div className="w-10 h-1 bg-[#30363d] rounded-full mx-auto mt-3 mb-2 shrink-0" />
         <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between">
-          <span className="text-[11px] font-semibold text-[#8b949e] uppercase tracking-wider">Posições Abertas · {routeBroker?.nome ?? 'Corretora'}</span>
-          {metaPositions.length > 0 && (
+          <span className="text-[11px] font-semibold text-[#8b949e] uppercase tracking-wider flex items-center gap-1.5">
+            Posições Abertas
+            {allBrokerPositions.length > 1 && (
+              <span className="text-[#484f58] font-normal normal-case text-[10px]">· {allBrokerPositions.length} corretoras</span>
+            )}
+          </span>
+          {(flatBrokerPositions.length > 0 || metaPositions.length > 0) && (
             <span className={cn('text-[11px] font-mono font-bold', totalPnl >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
               P&amp;L {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} USD
             </span>
@@ -2411,19 +2484,23 @@ export default function ChartPage() {
           <div className="px-4 py-10 text-center text-[12px] text-[#484f58]">
             Conecte o MetaAPI para ver posições ao vivo
           </div>
-        ) : metaPositions.length === 0 ? (
+        ) : (flatBrokerPositions.length === 0 && metaPositions.length === 0) ? (
           <div className="px-4 py-10 text-center text-[12px] text-[#484f58]">
             Nenhuma posição aberta no momento
           </div>
         ) : (
           <div className="divide-y divide-[#21262d]">
-            {metaPositions.map(pos => {
+            {(flatBrokerPositions.length > 0
+              ? flatBrokerPositions
+              : metaPositions.map(p => ({ ...p, brokerId: '', brokerNome: routeBroker?.nome ?? '', rank: 1 }))
+            ).map(pos => {
               const isBuy     = pos.type === 'POSITION_TYPE_BUY'
               const pnlColor  = pos.profit >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'
               const isEditing = editingPos?.id === pos.id
               return (
-                <div key={pos.id} className="px-4 py-3">
+                <div key={`${pos.brokerId}-${pos.id}`} className="px-4 py-3">
                   <div className="flex items-center gap-2 mb-2">
+                    {brokerBadge(pos.brokerId, pos.brokerNome)}
                     <span className={cn('font-bold text-sm', isBuy ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
                       {isBuy ? '▲' : '▼'}
                     </span>
