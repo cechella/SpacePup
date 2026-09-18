@@ -2257,7 +2257,7 @@ export default function ChartPage() {
                   </svg>
                   Carregando…
                 </div>
-              )
+              )}
             </div>
 
             {/* Resumo estatístico — 5 KPIs */}
