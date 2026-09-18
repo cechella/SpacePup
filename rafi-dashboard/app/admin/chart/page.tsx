@@ -744,13 +744,16 @@ export default function ChartPage() {
             .map((b: any) => ({ id: b.id, nome: b.nome ?? b.id }))
         )
         if (active.length === 0) { setRouteBroker(null); return }
-        // Critério de desempate entre os candidatos válidos: ACTIVE antes de ACTIVE_REDUCED, score maior primeiro
-        active.sort((a: { health_estado: string; health_score: number; broker_priority: number },
-                     b: { health_estado: string; health_score: number; broker_priority: number }) => {
+        // Critério: ACTIVE → health score → exec score real → broker_priority
+        active.sort((a: { health_estado: string; health_score: number; exec_score?: number | null; broker_priority: number },
+                     b: { health_estado: string; health_score: number; exec_score?: number | null; broker_priority: number }) => {
           const ea = a.health_estado === 'ACTIVE' ? 0 : 1
           const eb = b.health_estado === 'ACTIVE' ? 0 : 1
           if (ea !== eb) return ea - eb
           if (b.health_score !== a.health_score) return b.health_score - a.health_score
+          const esA = a.exec_score ?? -1
+          const esB = b.exec_score ?? -1
+          if (esB !== esA) return esB - esA
           return (a.broker_priority ?? 99) - (b.broker_priority ?? 99)
         })
         const winner = active[0]

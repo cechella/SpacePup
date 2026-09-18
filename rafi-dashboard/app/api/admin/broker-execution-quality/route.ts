@@ -119,6 +119,19 @@ export async function GET(req: NextRequest) {
         }
         const avgExecMs = execCount > 0 ? Math.round(execTimeMs / execCount) : null
 
+        // Exec Score: win rate (30%) + profit factor (30%) + slippage invertido (25%) + exec time invertido (15%)
+        const winScore  = winRate
+        const pfScore   = Math.min(profitFactor / 3.0, 1) * 100
+        const slipFinal = avgSlippagePips !== null ? Math.round(avgSlippagePips * 10) / 10 : null
+        const slipScore = slipFinal !== null ? Math.max(0, 100 - (slipFinal / 3.0) * 100) : null
+        const execScore = avgExecMs    !== null ? Math.max(0, 100 - (avgExecMs / 5000) * 100) : null
+        let esTotal = 0; let esWeight = 0
+        esTotal += winScore * 0.30; esWeight += 0.30
+        esTotal += pfScore  * 0.30; esWeight += 0.30
+        if (slipScore !== null) { esTotal += slipScore * 0.25; esWeight += 0.25 }
+        if (execScore !== null) { esTotal += execScore * 0.15; esWeight += 0.15 }
+        const execScoreVal = esWeight > 0 ? Math.round(esTotal / esWeight) : null
+
         return {
           brokerId:       b.id,
           nome:           b.nome,
@@ -128,10 +141,11 @@ export async function GET(req: NextRequest) {
           profitFactor:   Math.round(profitFactor * 100) / 100,
           totalPnl:       Math.round(totalPnl * 100) / 100,
           avgPnl:         Math.round(avgPnl * 100) / 100,
-          avgSlippagePips: avgSlippagePips !== null ? Math.round(avgSlippagePips * 10) / 10 : null,
+          avgSlippagePips: slipFinal,
           avgExecMs,
           winners:        winners.length,
           losers:         losers.length,
+          execScore:      execScoreVal,
         }
       } catch {
         return { brokerId: b.id, nome: b.nome, noData: true, error: true }
@@ -142,6 +156,17 @@ export async function GET(req: NextRequest) {
   const data = results
     .map(r => r.status === 'fulfilled' ? r.value : null)
     .filter(Boolean)
+
+  // Grava exec_score de volta no Supabase para uso no ranking de roteamento
+  await Promise.allSettled(
+    (data as any[]).map(async (d: any) => {
+      if (!d || d.noData || d.execScore === null || d.execScore === undefined) return
+      await supa
+        .from('rafi_brokers')
+        .update({ exec_score: d.execScore, updated_at: new Date().toISOString() })
+        .eq('id', d.brokerId)
+    })
+  )
 
   return NextResponse.json({ brokers: data, days, updatedAt: new Date().toISOString() })
 }

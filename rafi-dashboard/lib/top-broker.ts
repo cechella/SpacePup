@@ -102,6 +102,7 @@ export async function getTopBroker(): Promise<{ accountId: string; brokerId: str
         id,
         metaapi_account_id,
         broker_priority,
+        exec_score,
         broker_health_state ( estado, circuit_breaker, health_score )
       `)
       .eq('enabled', true)
@@ -120,6 +121,7 @@ export async function getTopBroker(): Promise<{ accountId: string; brokerId: str
           estadoOrder: ESTADO_ORDER[h?.estado ?? 'STANDBY'] ?? 3,
           cbClosed:    (h?.circuit_breaker ?? 'CLOSED') === 'CLOSED',
           healthScore: h?.health_score ?? 0,
+          execScore:   b.exec_score    ?? -1,
           priority:    b.broker_priority ?? 99,
         }
       })
@@ -133,10 +135,11 @@ export async function getTopBroker(): Promise<{ accountId: string; brokerId: str
     const ranked = [...eligible].sort((a, b) => {
       const pnlA = pnlMap[a.brokerId] ?? 0
       const pnlB = pnlMap[b.brokerId] ?? 0
-      if (pnlB !== pnlA)            return pnlB - pnlA          // 1º maior lucro
+      if (pnlB !== pnlA)                   return pnlB - pnlA          // 1º maior lucro
       if (a.estadoOrder !== b.estadoOrder) return a.estadoOrder - b.estadoOrder // 2º estado
       if (b.healthScore  !== a.healthScore) return b.healthScore  - a.healthScore // 3º health
-      return a.priority - b.priority                              // 4º prioridade estática
+      if (b.execScore    !== a.execScore)   return b.execScore    - a.execScore   // 4º exec score real
+      return a.priority - b.priority                                              // 5º prioridade estática
     })
 
     const top = ranked[0]
@@ -176,6 +179,7 @@ export async function getActiveBrokers(): Promise<Array<{ accountId: string; bro
         nome,
         metaapi_account_id,
         broker_priority,
+        exec_score,
         broker_health_state ( estado, circuit_breaker, health_score )
       `)
       .eq('enabled', true)
@@ -195,6 +199,7 @@ export async function getActiveBrokers(): Promise<Array<{ accountId: string; bro
           estadoOrder: ESTADO_ORDER[h?.estado ?? 'STANDBY'] ?? 3,
           cbClosed:    (h?.circuit_breaker ?? 'CLOSED') === 'CLOSED',
           healthScore: h?.health_score ?? 0,
+          execScore:   b.exec_score    ?? -1,
           priority:    b.broker_priority ?? 99,
         }
       })
@@ -207,9 +212,10 @@ export async function getActiveBrokers(): Promise<Array<{ accountId: string; bro
     const ranked = [...eligible].sort((a, b) => {
       const pnlA = pnlMap[a.brokerId] ?? 0
       const pnlB = pnlMap[b.brokerId] ?? 0
-      if (pnlB !== pnlA)            return pnlB - pnlA
+      if (pnlB !== pnlA)                   return pnlB - pnlA
       if (a.estadoOrder !== b.estadoOrder) return a.estadoOrder - b.estadoOrder
       if (b.healthScore  !== a.healthScore) return b.healthScore  - a.healthScore
+      if (b.execScore    !== a.execScore)   return b.execScore    - a.execScore
       return a.priority - b.priority
     })
 
