@@ -638,11 +638,12 @@ def publicar_status_broker(
                     return False
 
         cliente.table('rafi_brokers').update({
-            'saldo':       round(saldo, 2),
-            'posicoes':    posicoes,
-            'pnl_hoje':    round(pnl_hoje, 2),
-            'status_text': status_text,
-            'updated_at':  datetime.utcnow().isoformat(),
+            'saldo':              round(saldo, 2),
+            'posicoes':           posicoes,
+            'pnl_hoje':           round(pnl_hoje, 2),
+            'status_text':        status_text,
+            'updated_at':         datetime.utcnow().isoformat(),
+            'bot_heartbeat_at':   datetime.utcnow().isoformat(),  # atualizado SOMENTE pelo bot
         }).eq('id', broker_id).execute()
         return True
     except Exception as e:

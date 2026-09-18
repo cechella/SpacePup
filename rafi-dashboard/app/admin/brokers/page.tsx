@@ -32,6 +32,7 @@ interface Broker {
   pnl_hoje:            number
   status_text:         string
   updated_at:          string
+  bot_heartbeat_at?:   string | null
   mt5_login?:          number | null
   mt5_servidor?:       string | null
   mt5_simbolo?:        string | null
@@ -1456,10 +1457,10 @@ function BrokerCard({ broker, faixas, live, onToggle, onToggleBot, toggling, tog
             {/* Bot status — só aparece quando habilitada */}
             {active && (() => {
               const st = broker.status_text ?? ''
-              // Considera stale (OFFLINE) se updated_at > 3 min sem heartbeat do bot
-              const secsOld = broker.updated_at
-                ? (Date.now() - new Date(broker.updated_at).getTime()) / 1000
-                : Infinity
+              // Usa bot_heartbeat_at (atualizado SOMENTE pelo bot) para detectar staleness
+              // Fallback para updated_at se a coluna ainda não existir no Supabase
+              const hbAt = broker.bot_heartbeat_at ?? broker.updated_at
+              const secsOld = hbAt ? (Date.now() - new Date(hbAt).getTime()) / 1000 : Infinity
               const botOnline = st !== '' && st !== 'DESLIGADA' && secsOld < 180
               return (
                 <div
