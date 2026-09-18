@@ -540,7 +540,7 @@ export default function BrokersPage() {
       </div>
 
       {/* 1. Ranking dinâmico — primeira informação visível */}
-      <BrokerRanking ranking={ranking} loading={rankLoading} />
+      <BrokerRanking ranking={ranking} loading={rankLoading} execQuality={execQuality} />
 
       {/* 2. Analytics de ping e latência */}
       <BrokerPingPanel
@@ -1497,7 +1497,34 @@ function Metric({ label, value, color }: { label: string; value: string; color?:
 }
 
 // ── Painel de ranking dinâmico das corretoras ────────────────────────────────
-function BrokerRanking({ ranking, loading }: { ranking: RankedBroker[]; loading: boolean }) {
+function calcExecScore(eq: ExecQuality | undefined): number | null {
+  if (!eq || eq.noData) return null
+  const win  = eq.winRate        ?? null
+  const pf   = eq.profitFactor   ?? null
+  const slip = eq.avgSlippagePips ?? null
+  const exec = eq.avgExecMs       ?? null
+
+  // Cada componente normalizado para 0–100
+  const winScore  = win  !== null ? win  : null
+  const pfScore   = pf   !== null ? Math.min(pf / 3.0, 1) * 100 : null
+  const slipScore = slip !== null ? Math.max(0, 100 - (slip / 3.0) * 100) : null
+  const execScore = exec !== null ? Math.max(0, 100 - (exec / 5000) * 100) : null
+
+  // Pesos: win 30%, pf 30%, slip 25%, exec 15%
+  let total = 0; let weight = 0
+  if (winScore  !== null) { total += winScore  * 0.30; weight += 0.30 }
+  if (pfScore   !== null) { total += pfScore   * 0.30; weight += 0.30 }
+  if (slipScore !== null) { total += slipScore * 0.25; weight += 0.25 }
+  if (execScore !== null) { total += execScore * 0.15; weight += 0.15 }
+
+  return weight > 0 ? Math.round(total / weight) : null
+}
+
+function BrokerRanking({ ranking, loading, execQuality }: {
+  ranking:     RankedBroker[]
+  loading:     boolean
+  execQuality: ExecQuality[]
+}) {
   const RANK_COLORS = ['#f59e0b', '#94a3b8', '#b45309']
 
   const estadoCor = (estado: string) => {
@@ -1507,6 +1534,14 @@ function BrokerRanking({ ranking, loading }: { ranking: RankedBroker[]; loading:
     return C.re
   }
 
+  // Mapeia execQuality por brokerId para acesso rápido
+  const eqMap: Record<string, ExecQuality> = {}
+  for (const eq of execQuality) eqMap[eq.brokerId] = eq
+
+  // Calcula scores de execução para realçar o melhor
+  const scores = ranking.map(b => ({ id: b.id, score: calcExecScore(eqMap[b.id]) }))
+  const bestExecScore = scores.reduce((best, s) => (s.score !== null && (best === null || s.score > best) ? s.score : best), null as number | null)
+
   return (
     <div style={{ background: C.s1, border: `1px solid ${C.bd}`, borderRadius: 10, overflow: 'hidden', marginTop: 8 }}>
       <div style={{ background: C.s2, borderBottom: `1px solid ${C.bd}`, padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1515,7 +1550,7 @@ function BrokerRanking({ ranking, loading }: { ranking: RankedBroker[]; loading:
         </div>
         {loading
           ? <span style={{ fontSize: 9, color: C.t3 }}>carregando...</span>
-          : <span style={{ fontSize: 9, color: C.t2 }}>atualiza a cada 30s · critérios: estado → health score → prioridade</span>
+          : <span style={{ fontSize: 9, color: C.t2 }}>atualiza a cada 30s · critérios: estado → health score → prioridade · exec score: win rate + PF + slippage + velocidade</span>
         }
       </div>
 
@@ -1526,8 +1561,11 @@ function BrokerRanking({ ranking, loading }: { ranking: RankedBroker[]; loading:
           </div>
         )}
         {ranking.map((b) => {
-          const rankColor = RANK_COLORS[b.rank - 1] ?? C.t2
-          const isTop = b.rank === 1
+          const rankColor  = RANK_COLORS[b.rank - 1] ?? C.t2
+          const isTop      = b.rank === 1
+          const eq         = eqMap[b.id]
+          const execScore  = calcExecScore(eq)
+          const isBestExec = execScore !== null && execScore === bestExecScore
 
           return (
             <div key={b.id} style={{
@@ -1575,6 +1613,57 @@ function BrokerRanking({ ranking, loading }: { ranking: RankedBroker[]; loading:
                 </div>
               </div>
 
+              {/* Exec Score — qualidade de execução real */}
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ fontSize: 10, color: C.t2 }}>Exec Score</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {isBestExec && (
+                      <span style={{ background: '#002a15', border: `1px solid ${C.gr}`, color: C.gr, borderRadius: 3, padding: '1px 5px', fontSize: 8, fontWeight: 700 }}>
+                        ★ MELHOR
+                      </span>
+                    )}
+                    <span style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: execScore !== null ? (execScore >= 65 ? C.gr : execScore >= 40 ? C.am : C.re) : C.t3 }}>
+                      {execScore !== null ? execScore : '—'}
+                    </span>
+                  </span>
+                </div>
+                <div style={{ height: 4, background: C.bd, borderRadius: 3, overflow: 'hidden' }}>
+                  {execScore !== null && (
+                    <div style={{
+                      height: '100%',
+                      width:  `${execScore}%`,
+                      background: execScore >= 65 ? C.gr : execScore >= 40 ? C.am : C.re,
+                      borderRadius: 3,
+                    }} />
+                  )}
+                </div>
+                {/* Detalhes de execução */}
+                {eq && !eq.noData && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 2, marginTop: 6, fontSize: 9, color: C.t3, textAlign: 'center' }}>
+                    <div>
+                      <div style={{ color: C.t2, marginBottom: 1 }}>Win%</div>
+                      <div style={{ color: C.tx, fontVariantNumeric: 'tabular-nums' }}>{eq.winRate ?? '—'}</div>
+                    </div>
+                    <div>
+                      <div style={{ color: C.t2, marginBottom: 1 }}>PF</div>
+                      <div style={{ color: C.tx, fontVariantNumeric: 'tabular-nums' }}>{eq.profitFactor ?? '—'}</div>
+                    </div>
+                    <div>
+                      <div style={{ color: C.t2, marginBottom: 1 }}>Slip</div>
+                      <div style={{ color: C.tx, fontVariantNumeric: 'tabular-nums' }}>{eq.avgSlippagePips != null ? `${eq.avgSlippagePips}p` : '—'}</div>
+                    </div>
+                    <div>
+                      <div style={{ color: C.t2, marginBottom: 1 }}>Exec</div>
+                      <div style={{ color: C.tx, fontVariantNumeric: 'tabular-nums' }}>{eq.avgExecMs != null ? `${eq.avgExecMs}ms` : '—'}</div>
+                    </div>
+                  </div>
+                )}
+                {(!eq || eq.noData) && (
+                  <div style={{ fontSize: 9, color: C.t3, marginTop: 4, textAlign: 'center' }}>sem histórico de trades</div>
+                )}
+              </div>
+
               {/* Métricas */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginBottom: 10, fontSize: 10, color: C.t2 }}>
                 <div>CB: <span style={{ color: b.circuitBreaker === 'CLOSED' ? C.gr : C.re }}>
@@ -1591,7 +1680,15 @@ function BrokerRanking({ ranking, loading }: { ranking: RankedBroker[]; loading:
                 <div style={{ fontSize: 9, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>
                   Por que #{b.rank}?
                 </div>
-                <div style={{ fontSize: 10, color: C.t2, lineHeight: 1.5 }}>{b.reason}</div>
+                <div style={{ fontSize: 10, color: C.t2, lineHeight: 1.5 }}>
+                  {b.reason}
+                  {execScore !== null && (
+                    <span style={{ color: execScore >= 65 ? C.gr : execScore >= 40 ? C.am : C.re }}>
+                      {' '}· Exec Score {execScore}/100
+                      {isBestExec ? ' — melhor execução entre as corretoras.' : ''}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           )
