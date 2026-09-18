@@ -96,13 +96,13 @@ export async function getTopBrokerAccountId(): Promise<string> {
  * Retorna TODAS as corretoras elegíveis (estado < QUARANTINED + CB CLOSED),
  * ordenadas pelo ranking. Usada para replicar ordens a todas as ativas.
  */
-export async function getActiveBrokers(): Promise<Array<{ accountId: string; brokerId: string; symbol: string }>> {
+export async function getActiveBrokers(): Promise<Array<{ accountId: string; brokerId: string; nome: string; symbol: string }>> {
   const ENV_ID = process.env.METAAPI_ACCOUNT_ID ?? ''
 
   try {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    if (!url || !key) return [{ accountId: ENV_ID, brokerId: '', symbol: 'EURUSD' }]
+    if (!url || !key) return [{ accountId: ENV_ID, brokerId: '', nome: 'Corretora', symbol: 'EURUSD' }]
 
     const supa = createClient(url, key, { auth: { persistSession: false } })
 
@@ -110,6 +110,7 @@ export async function getActiveBrokers(): Promise<Array<{ accountId: string; bro
       .from('rafi_brokers')
       .select(`
         id,
+        nome,
         metaapi_account_id,
         broker_priority,
         broker_health_state ( estado, circuit_breaker, health_score )
@@ -117,7 +118,7 @@ export async function getActiveBrokers(): Promise<Array<{ accountId: string; bro
       .eq('enabled', true)
       .not('metaapi_account_id', 'is', null)
 
-    if (error || !data?.length) return [{ accountId: ENV_ID, brokerId: '', symbol: 'EURUSD' }]
+    if (error || !data?.length) return [{ accountId: ENV_ID, brokerId: '', nome: 'Corretora', symbol: 'EURUSD' }]
 
     const ranked = (data as any[])
       .map(b => {
@@ -127,6 +128,7 @@ export async function getActiveBrokers(): Promise<Array<{ accountId: string; bro
         return {
           accountId:   b.metaapi_account_id as string,
           brokerId:    b.id as string,
+          nome:        b.nome as string,
           estadoOrder: ESTADO_ORDER[h?.estado ?? 'STANDBY'] ?? 3,
           cbClosed:    (h?.circuit_breaker ?? 'CLOSED') === 'CLOSED',
           healthScore: h?.health_score ?? 0,
@@ -140,14 +142,15 @@ export async function getActiveBrokers(): Promise<Array<{ accountId: string; bro
         a.priority - b.priority
       )
 
-    if (!ranked.length) return [{ accountId: ENV_ID, brokerId: '', symbol: 'EURUSD' }]
+    if (!ranked.length) return [{ accountId: ENV_ID, brokerId: '', nome: 'Corretora', symbol: 'EURUSD' }]
 
     return ranked.map(b => ({
       accountId: b.accountId,
       brokerId:  b.brokerId,
+      nome:      b.nome,
       symbol:    SYMBOL_MAP[b.brokerId] ?? 'EURUSD',
     }))
   } catch {
-    return [{ accountId: ENV_ID, brokerId: '', symbol: 'EURUSD' }]
+    return [{ accountId: ENV_ID, brokerId: '', nome: 'Corretora', symbol: 'EURUSD' }]
   }
 }

@@ -83,6 +83,29 @@ interface RankedBroker {
   reason:         string
 }
 
+interface LivePosition {
+  id:           string
+  symbol:       string
+  type:         string
+  volume:       number
+  openPrice:    number
+  currentPrice: number
+  profit:       number
+  stopLoss:     number
+  takeProfit:   number
+  openTime:     string
+}
+
+interface BrokerLiveData {
+  rank:       number
+  brokerId:   string
+  nome:       string
+  symbol:     string
+  positions:  LivePosition[]
+  totalPnl:   number
+  error?:     number | string
+}
+
 // ── Logo por corretora ───────────────────────────────────────────────────
 const LOGOS: Record<string, { label: string; cor: string; bg: string; bd: string }> = {
   xm:             { label: 'XM',  cor: C.am, bg: '#1f1508', bd: '#3d2a10' },
@@ -127,6 +150,11 @@ export default function BrokersPage() {
   const [faixas,      setFaixas]      = useState<FaixaLote[]>([])
   const [ranking,     setRanking]     = useState<RankedBroker[]>([])
   const [rankLoading, setRankLoading] = useState(true)
+
+  // Performance em tempo real — posições abertas de todas as corretoras
+  const [livePerf,        setLivePerf]        = useState<BrokerLiveData[]>([])
+  const [livePerfLoading, setLivePerfLoading] = useState(false)
+  const [livePerfAt,      setLivePerfAt]      = useState('')
 
   // Modal de credenciais
   const [credBroker, setCredBroker] = useState<Broker | null>(null)
@@ -203,6 +231,24 @@ export default function BrokersPage() {
     }
     fetchRanking()
     const iv = setInterval(fetchRanking, 30_000)
+    return () => clearInterval(iv)
+  }, [])
+
+  // Busca posições abertas de TODAS as corretoras a cada 5s
+  useEffect(() => {
+    const fetchPerf = async () => {
+      setLivePerfLoading(true)
+      try {
+        const res = await fetch('/api/metaapi/all-positions')
+        const json = await res.json()
+        if (json.brokers) {
+          setLivePerf(json.brokers)
+          setLivePerfAt(new Date().toLocaleTimeString('pt-BR'))
+        }
+      } catch { /* silencioso */ } finally { setLivePerfLoading(false) }
+    }
+    fetchPerf()
+    const iv = setInterval(fetchPerf, 5_000)
     return () => clearInterval(iv)
   }, [])
 
@@ -362,6 +408,9 @@ export default function BrokersPage() {
 
       {/* Ranking dinâmico das corretoras */}
       <BrokerRanking ranking={ranking} loading={rankLoading} />
+
+      {/* Performance em tempo real */}
+      <LivePerformance data={livePerf} loading={livePerfLoading} updatedAt={livePerfAt} />
 
       {/* Modal de credenciais MT5 */}
       {credBroker && (
@@ -717,6 +766,168 @@ function BrokerRanking({ ranking, loading }: { ranking: RankedBroker[]; loading:
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+// ── Painel de performance em tempo real ─────────────────────────────────────
+function LivePerformance({ data, loading, updatedAt }: { data: BrokerLiveData[]; loading: boolean; updatedAt: string }) {
+  const totalPositions = data.reduce((s, b) => s + b.positions.length, 0)
+  const hasPositions   = totalPositions > 0
+
+  // Para cada símbolo aberto, calcula quem tem o melhor fill (menor openPrice em BUY, maior em SELL)
+  const bestFill: Record<string, string> = {}
+  if (hasPositions) {
+    const bySymbol: Record<string, { brokerId: string; openPrice: number; type: string }[]> = {}
+    for (const b of data) {
+      for (const p of b.positions) {
+        if (!bySymbol[p.symbol]) bySymbol[p.symbol] = []
+        bySymbol[p.symbol].push({ brokerId: b.brokerId, openPrice: p.openPrice, type: p.type })
+      }
+    }
+    for (const [sym, entries] of Object.entries(bySymbol)) {
+      if (entries.length < 2) continue
+      const isBuy = entries[0].type === 'buy'
+      const winner = entries.reduce((best, cur) =>
+        isBuy ? (cur.openPrice < best.openPrice ? cur : best)
+               : (cur.openPrice > best.openPrice ? cur : best)
+      )
+      bestFill[sym] = winner.brokerId
+    }
+  }
+
+  // Ranking por P&L total (maior = melhor)
+  const sorted = [...data].sort((a, b) => b.totalPnl - a.totalPnl)
+  const topPnlId = sorted[0]?.brokerId
+
+  return (
+    <div style={{ background: C.s1, border: `1px solid ${C.bd}`, borderRadius: 10, overflow: 'hidden', marginTop: 12 }}>
+      <div style={{ background: C.s2, borderBottom: `1px solid ${C.bd}`, padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.tx }}>
+          Performance em Tempo Real · Posições Abertas
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {loading && <span style={{ fontSize: 9, color: C.cy }}>● atualizando...</span>}
+          {updatedAt && <span style={{ fontSize: 9, color: C.t3 }}>atualizado {updatedAt}</span>}
+          {!hasPositions && !loading && (
+            <span style={{ fontSize: 9, color: C.t3 }}>Nenhuma posição aberta</span>
+          )}
+        </div>
+      </div>
+
+      <div style={{ padding: 16 }}>
+        {!hasPositions && !loading ? (
+          <div style={{ textAlign: 'center', color: C.t3, fontSize: 12, padding: '24px 0' }}>
+            Sem posições abertas em nenhuma corretora
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+            {data.map((b) => {
+              const isTopPnl    = b.brokerId === topPnlId && hasPositions && b.positions.length > 0
+              const pnlPositive = b.totalPnl >= 0
+              const hasBestFill = b.positions.some(p => bestFill[p.symbol] === b.brokerId)
+
+              return (
+                <div key={b.brokerId} style={{
+                  background:   C.s2,
+                  border:       `1px solid ${isTopPnl ? C.gr : C.bd}`,
+                  borderTop:    `3px solid ${isTopPnl ? C.gr : C.bd}`,
+                  borderRadius: 8,
+                  padding:      14,
+                }}>
+                  {/* Cabeçalho */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.tx, flex: 1 }}>{b.nome}</div>
+                    {isTopPnl && b.positions.length > 0 && (
+                      <span style={{ background: '#0d2010', border: `1px solid ${C.gr}`, color: C.gr, borderRadius: 4, padding: '2px 6px', fontSize: 9, fontWeight: 700 }}>
+                        ★ MELHOR P&L
+                      </span>
+                    )}
+                    {hasBestFill && (
+                      <span style={{ background: '#0a1a20', border: `1px solid ${C.cy}`, color: C.cy, borderRadius: 4, padding: '2px 6px', fontSize: 9, fontWeight: 700 }}>
+                        ⚡ MELHOR FILL
+                      </span>
+                    )}
+                  </div>
+
+                  {/* P&L total */}
+                  {b.positions.length > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, background: C.bg, borderRadius: 6, padding: '8px 10px' }}>
+                      <span style={{ fontSize: 10, color: C.t2 }}>P&L Total</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: pnlPositive ? C.gr : C.re }}>
+                        {pnlPositive ? '+' : ''}{b.totalPnl.toFixed(2)} USD
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Sem posições */}
+                  {b.positions.length === 0 && (
+                    <div style={{ textAlign: 'center', color: C.t3, fontSize: 11, padding: '12px 0' }}>
+                      {b.error ? `Erro ${b.error}` : 'Sem posições'}
+                    </div>
+                  )}
+
+                  {/* Posições individuais */}
+                  {b.positions.map((p) => {
+                    const posPnlPos = p.profit >= 0
+                    const isBestFillPos = bestFill[p.symbol] === b.brokerId
+                    const pips = Math.abs(p.currentPrice - p.openPrice) * 10000
+
+                    return (
+                      <div key={p.id} style={{ borderTop: `1px solid ${C.bd}`, paddingTop: 10, marginTop: 8 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 10, color: C.cy, fontFamily: 'monospace', fontWeight: 700 }}>{p.symbol}</span>
+                            <span style={{
+                              fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3,
+                              background: p.type === 'buy' ? '#0d2010' : '#200d0d',
+                              color:      p.type === 'buy' ? C.gr : C.re,
+                              border:     `1px solid ${p.type === 'buy' ? C.gr : C.re}`,
+                            }}>
+                              {p.type === 'buy' ? '▲ BUY' : '▼ SELL'}
+                            </span>
+                            <span style={{ fontSize: 9, color: C.t2 }}>{p.volume}L</span>
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: posPnlPos ? C.gr : C.re }}>
+                            {posPnlPos ? '+' : ''}{p.profit.toFixed(2)}
+                          </span>
+                        </div>
+
+                        {/* Preços */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, fontSize: 10 }}>
+                          <div>
+                            <div style={{ color: C.t3, fontSize: 9, marginBottom: 2 }}>ENTRADA</div>
+                            <div style={{ color: C.tx, fontFamily: 'monospace', fontWeight: 700 }}>
+                              {p.openPrice.toFixed(5)}
+                              {isBestFillPos && <span style={{ color: C.cy, fontSize: 8, marginLeft: 3 }}>★</span>}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ color: C.t3, fontSize: 9, marginBottom: 2 }}>ATUAL</div>
+                            <div style={{ color: C.tx, fontFamily: 'monospace' }}>{p.currentPrice.toFixed(5)}</div>
+                          </div>
+                          <div>
+                            <div style={{ color: C.t3, fontSize: 9, marginBottom: 2 }}>PIPS</div>
+                            <div style={{ color: posPnlPos ? C.gr : C.re, fontFamily: 'monospace', fontWeight: 600 }}>
+                              {posPnlPos ? '+' : '-'}{pips.toFixed(1)}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* SL / TP */}
+                        <div style={{ display: 'flex', gap: 10, fontSize: 9, color: C.t3, marginTop: 6 }}>
+                          <span>SL: <span style={{ color: C.re, fontFamily: 'monospace' }}>{p.stopLoss?.toFixed(5) ?? '—'}</span></span>
+                          <span>TP: <span style={{ color: C.gr, fontFamily: 'monospace' }}>{p.takeProfit?.toFixed(5) ?? '—'}</span></span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )
