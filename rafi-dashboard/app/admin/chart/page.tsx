@@ -6,8 +6,9 @@ import { generateDemoData, type Timeframe } from '@/lib/demo-data'
 import { calcRAFI, calcSRLevels, calcBollingerBands, autoScanBreakouts } from '@/lib/indicators'
 import { parseCSV, detectTimeframe, fmtDate, type LoadResult } from '@/lib/csv-loader'
 import { TradePanel, type ManualTrade } from '@/components/trade-panel'
-import { SessionSidebar } from '@/components/session-sidebar'
+import { SessionSidebar, type TargetMetrics } from '@/components/session-sidebar'
 import { CheckinModal, type CheckinResult } from '@/components/checkin-modal'
+import { MetasOverlay } from '@/components/metas-overlay'
 import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
 import { getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
@@ -162,6 +163,11 @@ export default function ChartPage() {
   // Check-in de estado mental do dia
   const [checkin,     setCheckin]     = useState<CheckinResult | null>(null)
   const [showCheckin, setShowCheckin] = useState(false)
+  // Overlays de meta atingida
+  const [showDailyOverlay,  setShowDailyOverlay]  = useState(false)
+  const [showWeeklyOverlay, setShowWeeklyOverlay] = useState(false)
+  const prevDailyMetRef  = useRef(false)
+  const prevWeeklyMetRef = useRef(false)
   // Roteamento multi-corretora: broker vencedor atual do ranking
   const [routeBroker, setRouteBroker] = useState<{
     id: string; nome: string; estado: string; health_score: number; circuit_breaker: string
@@ -224,6 +230,81 @@ export default function ChartPage() {
 
     return { stopsToday, consecutiveLosses, weeklyDrawdownPct }
   }, [metaHistory, metaAccount])
+
+  const DAILY_TARGET  = 7.0
+  const WEEKLY_TARGET = 25.0
+
+  // Calcula progresso de metas diária e semanal a partir do histórico MetaAPI
+  const targetMetrics = useMemo((): TargetMetrics => {
+    const today = new Date().toISOString().slice(0, 10)
+
+    // Início da semana (segunda-feira)
+    const d = new Date()
+    const jsDay = d.getUTCDay()
+    const daysFromMon = jsDay === 0 ? 6 : jsDay - 1
+    const mon = new Date(d)
+    mon.setUTCDate(d.getUTCDate() - daysFromMon)
+    const weekStart = mon.toISOString().slice(0, 10)
+
+    const todayPnl = metaHistory
+      .filter(t => (t.time?.slice(0, 10) ?? '') === today)
+      .reduce((s, t) => s + (t.profit ?? 0), 0)
+
+    const weekPnl = metaHistory
+      .filter(t => {
+        const dd = t.time?.slice(0, 10) ?? ''
+        return dd >= weekStart && dd <= today
+      })
+      .reduce((s, t) => s + (t.profit ?? 0), 0)
+
+    const bal          = metaAccount?.balance ?? 100
+    const startBal     = Math.max(bal - todayPnl, 1)
+    const weekStartBal = Math.max(bal - weekPnl,  1)
+    const dailyPct     = (todayPnl / startBal) * 100
+    const weeklyPct    = (weekPnl  / weekStartBal) * 100
+
+    // Quantidade de dias desta semana que bateram a meta (chaves localStorage)
+    let daysHit = 0
+    if (typeof window !== 'undefined') {
+      for (let i = 0; i < 4; i++) {
+        const di = new Date(mon)
+        di.setUTCDate(mon.getUTCDate() + i)
+        const dk = di.toISOString().slice(0, 10)
+        if (localStorage.getItem(`rafi-daily-target-met-${dk}`) === 'true') daysHit++
+      }
+    }
+
+    const dailyMet  = dailyPct  >= DAILY_TARGET
+    const weeklyMet = weeklyPct >= WEEKLY_TARGET
+
+    // Persiste flag de meta diária
+    if (dailyMet && typeof window !== 'undefined') {
+      localStorage.setItem(`rafi-daily-target-met-${today}`, 'true')
+    }
+
+    return {
+      dailyPct, dailyPnl: todayPnl,
+      weeklyPct, weeklyPnl: weekPnl,
+      dailyMet, weeklyMet,
+      locked: dailyMet || weeklyMet,
+      DAILY_TARGET, WEEKLY_TARGET,
+    }
+  }, [metaHistory, metaAccount])
+
+  // Dispara overlay quando a meta é atingida pela primeira vez nesta sessão
+  useEffect(() => {
+    if (targetMetrics.dailyMet && !prevDailyMetRef.current) {
+      setShowDailyOverlay(true)
+    }
+    prevDailyMetRef.current = targetMetrics.dailyMet
+  }, [targetMetrics.dailyMet])
+
+  useEffect(() => {
+    if (targetMetrics.weeklyMet && !prevWeeklyMetRef.current) {
+      setShowWeeklyOverlay(true)
+    }
+    prevWeeklyMetRef.current = targetMetrics.weeklyMet
+  }, [targetMetrics.weeklyMet])
 
   // Inicializa altura do gráfico e detecta desktop
   useEffect(() => {
@@ -1013,6 +1094,34 @@ export default function ChartPage() {
       {/* ── Check-in de estado mental ── */}
       {showCheckin && <CheckinModal onComplete={handleCheckinComplete} />}
 
+      {/* ── Overlay: meta diária atingida ── */}
+      {showDailyOverlay && (
+        <MetasOverlay
+          type="daily"
+          dailyPct={targetMetrics.dailyPct}
+          dailyPnl={targetMetrics.dailyPnl}
+          weeklyPct={targetMetrics.weeklyPct}
+          weeklyPnl={targetMetrics.weeklyPnl}
+          daysHit={0}
+          currency={metaAccount?.currency ?? 'USD'}
+          onClose={() => setShowDailyOverlay(false)}
+        />
+      )}
+
+      {/* ── Overlay: meta semanal atingida ── */}
+      {showWeeklyOverlay && (
+        <MetasOverlay
+          type="weekly"
+          dailyPct={targetMetrics.dailyPct}
+          dailyPnl={targetMetrics.dailyPnl}
+          weeklyPct={targetMetrics.weeklyPct}
+          weeklyPnl={targetMetrics.weeklyPnl}
+          daysHit={0}
+          currency={metaAccount?.currency ?? 'USD'}
+          onClose={() => setShowWeeklyOverlay(false)}
+        />
+      )}
+
       {/* ── Mobile: backdrop da gaveta ── */}
       <div
         className={cn(
@@ -1298,6 +1407,61 @@ export default function ChartPage() {
             )}>{routeBroker.estado.replace('_', ' ')}</span>
             {routeBroker.circuit_breaker !== 'CLOSED' && (
               <span className="text-[9px] text-[#ef4444] font-semibold">· CB {routeBroker.circuit_breaker}</span>
+            )}
+          </div>
+        )}
+
+        {/* Banner de progresso de metas — exibido quando MetaAPI está conectado */}
+        {metaConnected && (
+          <div className="hidden md:flex items-center gap-2.5 px-3 py-1.5 bg-[#0b101a] rounded-lg border border-[#1c3050] shrink-0 text-[10px]">
+            {/* Meta diária */}
+            <span
+              className="font-bold shrink-0 tabular-nums"
+              style={{ color: targetMetrics.dailyMet ? '#00e676' : '#7a96b8', minWidth: 60 }}
+            >
+              {targetMetrics.dailyMet ? '✓' : '◎'} Dia {targetMetrics.dailyPct >= 0 ? '+' : ''}{targetMetrics.dailyPct.toFixed(1)}%/{DAILY_TARGET}%
+            </span>
+            <div className="w-24 h-1.5 bg-[#131f2e] rounded-full overflow-hidden shrink-0">
+              <div
+                className="h-full rounded-full transition-all duration-700"
+                style={{
+                  width: `${Math.min((targetMetrics.dailyPct / DAILY_TARGET) * 100, 100)}%`,
+                  background: targetMetrics.dailyMet
+                    ? 'linear-gradient(90deg,#4499ff,#00e676)'
+                    : targetMetrics.dailyPct >= DAILY_TARGET * 0.7
+                    ? 'linear-gradient(90deg,#4499ff,#f59e0b)'
+                    : '#4499ff',
+                }}
+              />
+            </div>
+            <span className="text-[#1c3050]">|</span>
+            {/* Meta semanal */}
+            <span
+              className="font-bold shrink-0 tabular-nums"
+              style={{ color: targetMetrics.weeklyMet ? '#ffcc44' : '#7a96b8', minWidth: 70 }}
+            >
+              {targetMetrics.weeklyMet ? '🏆' : '◎'} Semana {targetMetrics.weeklyPct >= 0 ? '+' : ''}{targetMetrics.weeklyPct.toFixed(1)}%/{WEEKLY_TARGET}%
+            </span>
+            <div className="w-24 h-1.5 bg-[#131f2e] rounded-full overflow-hidden shrink-0">
+              <div
+                className="h-full rounded-full transition-all duration-700"
+                style={{
+                  width: `${Math.min((targetMetrics.weeklyPct / WEEKLY_TARGET) * 100, 100)}%`,
+                  background: targetMetrics.weeklyMet
+                    ? 'linear-gradient(90deg,#4499ff,#ffcc44)'
+                    : targetMetrics.weeklyPct >= WEEKLY_TARGET * 0.7
+                    ? 'linear-gradient(90deg,#4499ff,#f59e0b)'
+                    : '#4499ff',
+                }}
+              />
+            </div>
+            {targetMetrics.locked && (
+              <>
+                <span className="text-[#1c3050]">|</span>
+                <span className="text-[8px] font-bold text-[#ef4444] bg-[#ef4444]/10 border border-[#ef4444]/30 px-1.5 py-0.5 rounded">
+                  🔒 OPS BLOQUEADAS
+                </span>
+              </>
             )}
           </div>
         )}
@@ -2130,6 +2294,7 @@ export default function ChartPage() {
         rafiValue={currentRafiValue}
         bbExpanding={currentBbExpanding}
         checkin={checkin}
+        targets={metaConnected ? targetMetrics : null}
       />
 
       {/* ── Barra de abas mobile ──────────────────────────────────────── */}
@@ -2172,6 +2337,7 @@ export default function ChartPage() {
           externalEntry={clickedEntry}
           freeMargin={metaAccount?.freeMargin ?? null}
           livePrice={livePrice}
+          locked={metaConnected ? targetMetrics.locked : false}
         />
       </div>
 

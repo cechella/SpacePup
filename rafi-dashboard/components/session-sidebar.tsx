@@ -4,7 +4,19 @@ import { useState, useEffect } from 'react'
 import { TradePanel, type ManualTrade } from '@/components/trade-panel'
 import { type CheckinResult } from '@/components/checkin-modal'
 import { cn } from '@/lib/utils'
-import { Clock, Brain, ShieldCheck, Trophy } from 'lucide-react'
+import { Clock, Brain, ShieldCheck, Trophy, Target } from 'lucide-react'
+
+export interface TargetMetrics {
+  dailyPct:    number   // % lucro hoje
+  dailyPnl:   number   // $ lucro hoje
+  weeklyPct:  number   // % lucro esta semana
+  weeklyPnl:  number   // $ lucro esta semana
+  dailyMet:   boolean
+  weeklyMet:  boolean
+  locked:     boolean
+  DAILY_TARGET:  number  // 7.0
+  WEEKLY_TARGET: number  // 25.0
+}
 
 // Janelas de sessão em minutos desde meia-noite UTC
 // NY FX começa às 12:00 UTC (8am EDT), não às 13:30 (NYSE open)
@@ -192,6 +204,16 @@ function computeCopilot(
   }
 }
 
+// Retorna YYYY-MM-DD da segunda-feira desta semana + i dias (para chaves localStorage)
+function getMondayPlusDays(i: number): string {
+  const d = new Date()
+  const jsDay = d.getUTCDay()
+  const daysFromMon = jsDay === 0 ? 6 : jsDay - 1
+  const mon = new Date(d)
+  mon.setUTCDate(d.getUTCDate() - daysFromMon + i)
+  return mon.toISOString().slice(0, 10)
+}
+
 const MILESTONES = [100, 1_000, 10_000, 100_000, 1_000_000]
 function journeyProgress(capital: number): { pct: number; current: number; next: number } {
   const cur  = [...MILESTONES].reverse().find(m => capital >= m) ?? 100
@@ -220,6 +242,7 @@ interface Props {
   rafiValue:        number | null
   bbExpanding:      boolean | null
   checkin:          CheckinResult | null
+  targets:          TargetMetrics | null
 }
 
 export function SessionSidebar({
@@ -231,6 +254,7 @@ export function SessionSidebar({
   rafiValue,
   bbExpanding,
   checkin,
+  targets,
 }: Props) {
   // Tick a cada 30s para atualizar countdowns
   const [, setTick] = useState(0)
@@ -541,6 +565,118 @@ export function SessionSidebar({
         </div>
       </div>
 
+      {/* ── METAS ────────────────────────────────────── */}
+      {targets && (
+        <div className="rounded-xl border border-[#1c3050] bg-[#0f1824] p-3">
+          <div className="flex items-center gap-1.5 mb-2.5">
+            <Target size={11} className="text-[#7a96b8]" />
+            <span className="text-[9px] font-bold text-[#7a96b8] uppercase tracking-widest">Metas</span>
+            {targets.locked ? (
+              <span className="ml-auto text-[8px] font-bold px-1.5 py-0.5 rounded-full border text-[#ef4444] border-[#ef4444]/40 bg-[#ef4444]/10">
+                🔒 BLOQUEADO
+              </span>
+            ) : targets.weeklyMet ? (
+              <span className="ml-auto text-[8px] font-bold px-1.5 py-0.5 rounded-full border text-[#ffcc44] border-[#ffcc44]/40 bg-[#ffcc44]/10">
+                🏆 SEMANA OK
+              </span>
+            ) : targets.dailyMet ? (
+              <span className="ml-auto text-[8px] font-bold px-1.5 py-0.5 rounded-full border text-[#00e676] border-[#00e676]/40 bg-[#00e676]/10">
+                ✓ DIA OK
+              </span>
+            ) : null}
+          </div>
+
+          {/* Meta diária */}
+          <div className="mb-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[8px] text-[#334455] uppercase tracking-widest">Diária · {targets.DAILY_TARGET}%</span>
+              <span
+                className="text-[10px] font-mono font-bold"
+                style={{ color: targets.dailyMet ? '#00e676' : targets.dailyPct >= targets.DAILY_TARGET * 0.7 ? '#f59e0b' : '#4499ff' }}
+              >
+                {targets.dailyPct >= 0 ? '+' : ''}{targets.dailyPct.toFixed(1)}%
+              </span>
+            </div>
+            <div className="h-1.5 bg-[#131f2e] rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-700"
+                style={{
+                  width: `${Math.min((targets.dailyPct / targets.DAILY_TARGET) * 100, 100)}%`,
+                  background: targets.dailyMet
+                    ? 'linear-gradient(90deg,#4499ff,#00e676)'
+                    : targets.dailyPct >= targets.DAILY_TARGET * 0.7
+                    ? 'linear-gradient(90deg,#4499ff,#f59e0b)'
+                    : '#4499ff',
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Meta semanal */}
+          <div className="mb-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[8px] text-[#334455] uppercase tracking-widest">Semanal · {targets.WEEKLY_TARGET}%</span>
+              <span
+                className="text-[10px] font-mono font-bold"
+                style={{ color: targets.weeklyMet ? '#ffcc44' : targets.weeklyPct >= targets.WEEKLY_TARGET * 0.7 ? '#f59e0b' : '#4499ff' }}
+              >
+                {targets.weeklyPct >= 0 ? '+' : ''}{targets.weeklyPct.toFixed(1)}%
+              </span>
+            </div>
+            <div className="h-1.5 bg-[#131f2e] rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-700"
+                style={{
+                  width: `${Math.min((targets.weeklyPct / targets.WEEKLY_TARGET) * 100, 100)}%`,
+                  background: targets.weeklyMet
+                    ? 'linear-gradient(90deg,#4499ff,#ffcc44)'
+                    : targets.weeklyPct >= targets.WEEKLY_TARGET * 0.7
+                    ? 'linear-gradient(90deg,#4499ff,#f59e0b)'
+                    : '#4499ff',
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Grid de dias SEG–QUI */}
+          <div className="grid grid-cols-4 gap-1">
+            {(['SEG','TER','QUA','QUI'] as const).map((day, i) => {
+              const jsDay = new Date().getUTCDay()  // 1=Seg…4=Qui
+              const thisDay = i + 1
+              const isPast    = thisDay < jsDay
+              const isToday   = thisDay === jsDay
+              const dayMetKey = `rafi-daily-target-met-${getMondayPlusDays(i)}`
+              const dayMet    = typeof window !== 'undefined' && localStorage.getItem(dayMetKey) === 'true'
+              return (
+                <div
+                  key={day}
+                  className={cn(
+                    'rounded-lg py-1 text-center border transition-all',
+                    dayMet
+                      ? 'bg-[#00e676]/10 border-[#00e676]/30'
+                      : isToday
+                      ? 'bg-[#4499ff]/10 border-[#4499ff]/40'
+                      : isPast
+                      ? 'bg-[#131f2e] border-[#1c3050]'
+                      : 'bg-[#0d1117] border-[#1c3050]',
+                  )}
+                >
+                  <div className={cn(
+                    'text-[7px] font-bold uppercase tracking-widest',
+                    dayMet ? 'text-[#00e676]' : isToday ? 'text-[#4499ff]' : 'text-[#334455]',
+                  )}>
+                    {day}
+                  </div>
+                  <div className="text-[9px] mt-0.5">
+                    {dayMet ? '✅' : isToday ? '🔄' : isPast ? '○' : '·'}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ── JORNADA $100 → $1M ───────────────────────── */}
       <div className="rounded-xl border border-[#1c3050] bg-[#0f1824] p-3">
         <div className="flex items-center gap-1.5 mb-2.5">
@@ -618,6 +754,7 @@ export function SessionSidebar({
           externalEntry={externalEntry}
           freeMargin={freeMargin}
           livePrice={livePrice}
+          locked={targets?.locked ?? false}
         />
       </div>
     </div>

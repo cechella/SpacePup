@@ -47,6 +47,7 @@ interface Props {
   externalEntry?:  number | null
   freeMargin?:     number | null  // margem livre da conta (MetaAPI, atualizado a cada 5s)
   livePrice?:      number | null  // preço ao vivo via SSE para cálculo de margem em tempo real
+  locked?:         boolean        // meta diária ou semanal atingida — bloqueia novas ordens
 }
 
 const LOT_PRESETS = [0.01, 0.10, 0.50, 1.00]
@@ -91,7 +92,7 @@ function exportCSV(trades: ManualTrade[]) {
 
 export function TradePanel({
   trades, onAdd, onRemove, onUpdate, lastPrice = 0, lastCandleTime, externalEntry,
-  freeMargin, livePrice,
+  freeMargin, livePrice, locked = false,
 }: Props) {
   const [direction, setDirection] = useState<'buy' | 'sell'>('buy')
   const [entry,     setEntry]     = useState('')
@@ -158,6 +159,14 @@ export function TradePanel({
   return (
     <div className="flex flex-col h-full bg-[#161b22] border-l border-[#30363d]">
 
+      {/* Banner de bloqueio por meta atingida */}
+      {locked && (
+        <div className="px-3 py-2 bg-[#ef4444]/10 border-b border-[#ef4444]/30 flex items-center gap-2">
+          <span className="text-[10px]">🔒</span>
+          <span className="text-[10px] font-bold text-[#ef4444]">Meta atingida — operações bloqueadas</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="px-4 py-3 border-b border-[#30363d] flex items-center justify-between shrink-0">
         <span className="text-xs font-semibold text-[#f0f6fc]">Ordem OCO · Treino</span>
@@ -174,10 +183,13 @@ export function TradePanel({
           {(['buy', 'sell'] as const).map(d => (
             <button
               key={d}
-              onClick={() => setDirection(d)}
+              disabled={locked}
+              onClick={() => !locked && setDirection(d)}
               className={cn(
                 'flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold border transition-all',
-                direction === d
+                locked
+                  ? 'bg-[#0d1117] border-[#30363d] text-[#334455] cursor-not-allowed opacity-50'
+                  : direction === d
                   ? d === 'buy'
                     ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
                     : 'bg-red-500/20 border-red-500/40 text-red-400'
