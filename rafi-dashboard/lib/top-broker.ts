@@ -14,14 +14,67 @@ const SYMBOL_MAP: Record<string, string> = {
   tickmill:    'EURUSD',
 }
 
+const MA_BASE  = process.env.METAAPI_BASE_URL ?? 'https://mt-client-api-v1.london.agiliumtrade.ai'
+const MA_TOKEN = process.env.METAAPI_TOKEN ?? ''
+
 // Cache em memória — evita query no Supabase a cada poll de preço (5s)
 let cache: { accountId: string; brokerId: string; symbol: string; ts: number } | null = null
 const CACHE_TTL_MS = 30_000 // 30 segundos
 
+// Cache de P&L — reaproveitado por getTopBroker e getActiveBrokers
+let pnlCache: { map: Record<string, number>; ts: number } | null = null
+const PNL_CACHE_TTL_MS = 30_000
+
+/**
+ * Busca P&L do dia (UTC) para cada broker em paralelo via MetaAPI.
+ * Resultado cacheado por 30 s para não sobrecarregar a API.
+ */
+async function fetchPnlMap(
+  brokers: Array<{ accountId: string; brokerId: string }>,
+): Promise<Record<string, number>> {
+  if (pnlCache && Date.now() - pnlCache.ts < PNL_CACHE_TTL_MS) return pnlCache.map
+  if (!MA_TOKEN) return {}
+
+  const today = new Date()
+  today.setUTCHours(0, 0, 0, 0)
+  const from = today.toISOString()
+  const to   = new Date().toISOString()
+  const map: Record<string, number> = {}
+
+  await Promise.allSettled(
+    brokers.map(async b => {
+      try {
+        const res = await fetch(
+          `${MA_BASE}/users/current/accounts/${b.accountId}/history-deals/time/${from}/${to}`,
+          { headers: { 'auth-token': MA_TOKEN }, signal: AbortSignal.timeout(5_000), cache: 'no-store' },
+        )
+        if (res.ok) {
+          const deals: any[] = await res.json()
+          map[b.brokerId] = Array.isArray(deals)
+            ? deals
+                .filter(d =>
+                  d.entryType === 'DEAL_ENTRY_OUT' &&
+                  (d.type === 'DEAL_TYPE_BUY' || d.type === 'DEAL_TYPE_SELL'),
+                )
+                .reduce((sum: number, d: any) => sum + (d.profit ?? 0), 0)
+            : 0
+        } else {
+          map[b.brokerId] = 0
+        }
+      } catch {
+        map[b.brokerId] = 0
+      }
+    }),
+  )
+
+  pnlCache = { map, ts: Date.now() }
+  return map
+}
+
 /**
  * Retorna { accountId, brokerId, symbol } da corretora #1 no ranking dinâmico:
- * 1º Estado: ACTIVE > ACTIVE_REDUCED > STANDBY (QUARANTINED excluído)
- * 2º Circuit Breaker CLOSED
+ * 1º P&L do dia — maior lucro absoluto ganha
+ * 2º Estado: ACTIVE > ACTIVE_REDUCED > STANDBY (QUARANTINED excluído)
  * 3º Health Score maior
  * 4º broker_priority menor
  *
@@ -55,7 +108,7 @@ export async function getTopBroker(): Promise<{ accountId: string; brokerId: str
 
     if (error || !data?.length) return { accountId: ENV_ID, brokerId: '', symbol: 'EURUSD' }
 
-    const ranked = (data as any[])
+    const eligible = (data as any[])
       .map(b => {
         const h = Array.isArray(b.broker_health_state)
           ? b.broker_health_state[0]
@@ -70,11 +123,20 @@ export async function getTopBroker(): Promise<{ accountId: string; brokerId: str
         }
       })
       .filter(b => b.estadoOrder < 99 && b.cbClosed)
-      .sort((a, b) =>
-        a.estadoOrder !== b.estadoOrder ? a.estadoOrder - b.estadoOrder :
-        b.healthScore  !== a.healthScore ? b.healthScore  - a.healthScore :
-        a.priority - b.priority
-      )
+
+    if (!eligible.length) return { accountId: ENV_ID, brokerId: '', symbol: 'EURUSD' }
+
+    // P&L do dia como critério primário de ranking
+    const pnlMap = await fetchPnlMap(eligible)
+
+    const ranked = [...eligible].sort((a, b) => {
+      const pnlA = pnlMap[a.brokerId] ?? 0
+      const pnlB = pnlMap[b.brokerId] ?? 0
+      if (pnlB !== pnlA)            return pnlB - pnlA          // 1º maior lucro
+      if (a.estadoOrder !== b.estadoOrder) return a.estadoOrder - b.estadoOrder // 2º estado
+      if (b.healthScore  !== a.healthScore) return b.healthScore  - a.healthScore // 3º health
+      return a.priority - b.priority                              // 4º prioridade estática
+    })
 
     const top = ranked[0]
     if (!top) return { accountId: ENV_ID, brokerId: '', symbol: 'EURUSD' }
@@ -120,7 +182,7 @@ export async function getActiveBrokers(): Promise<Array<{ accountId: string; bro
 
     if (error || !data?.length) return [{ accountId: ENV_ID, brokerId: '', nome: 'Corretora', symbol: 'EURUSD' }]
 
-    const ranked = (data as any[])
+    const eligible = (data as any[])
       .map(b => {
         const h = Array.isArray(b.broker_health_state)
           ? b.broker_health_state[0]
@@ -136,13 +198,19 @@ export async function getActiveBrokers(): Promise<Array<{ accountId: string; bro
         }
       })
       .filter(b => b.estadoOrder < 99 && b.cbClosed)
-      .sort((a, b) =>
-        a.estadoOrder !== b.estadoOrder ? a.estadoOrder - b.estadoOrder :
-        b.healthScore  !== a.healthScore ? b.healthScore  - a.healthScore :
-        a.priority - b.priority
-      )
 
-    if (!ranked.length) return [{ accountId: ENV_ID, brokerId: '', nome: 'Corretora', symbol: 'EURUSD' }]
+    if (!eligible.length) return [{ accountId: ENV_ID, brokerId: '', nome: 'Corretora', symbol: 'EURUSD' }]
+
+    const pnlMap = await fetchPnlMap(eligible)
+
+    const ranked = [...eligible].sort((a, b) => {
+      const pnlA = pnlMap[a.brokerId] ?? 0
+      const pnlB = pnlMap[b.brokerId] ?? 0
+      if (pnlB !== pnlA)            return pnlB - pnlA
+      if (a.estadoOrder !== b.estadoOrder) return a.estadoOrder - b.estadoOrder
+      if (b.healthScore  !== a.healthScore) return b.healthScore  - a.healthScore
+      return a.priority - b.priority
+    })
 
     return ranked.map(b => ({
       accountId: b.accountId,

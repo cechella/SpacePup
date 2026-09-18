@@ -142,9 +142,13 @@ export default function ChartPage() {
   const [metaHistory, setMetaHistory] = useState<Array<{
     id: string; symbol: string; type: string; direction: 'buy' | 'sell'
     volume: number; price: number; profit: number; time: string; comment: string
+    entryPrice?: number | null; positionId?: string | null
   }>>([])
-  const [historyPeriod,  setHistoryPeriod]  = useState<'today' | '7d' | '30d' | '3m'>('7d')
-  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyPeriod,      setHistoryPeriod]      = useState<'today' | '7d' | '30d' | '3m'>('7d')
+  const [historyLoading,     setHistoryLoading]     = useState(false)
+  const [historyBroker,      setHistoryBroker]      = useState<string>('')  // '' = top broker automático
+  const [historyBrokerOpen,  setHistoryBrokerOpen]  = useState(false)
+  const [enabledBrokers,     setEnabledBrokers]     = useState<Array<{ id: string; nome: string }>>([]) // corretoras disponíveis para escolha
   // Preço ao vivo: atualiza o último candle tick a tick
   const [livePrice, setLivePrice] = useState<number | null>(null)
   // Ref direto para RAF no gráfico — sem passar pelo scheduler do React
@@ -560,11 +564,13 @@ export default function ChartPage() {
     } catch {}
   }, [])
 
-  // Histórico: busca trades fechados da Pepperstone pelo período selecionado
-  const fetchHistory = useCallback(async (period = '7d') => {
+  // Histórico: busca trades fechados pelo período e corretora selecionados
+  const fetchHistory = useCallback(async (period = '7d', broker = '') => {
     setHistoryLoading(true)
     try {
-      const res = await fetch(`/api/metaapi/history?period=${period}`)
+      const params = new URLSearchParams({ period })
+      if (broker) params.set('broker', broker)
+      const res = await fetch(`/api/metaapi/history?${params}`)
       if (res.ok) {
         const data = await res.json()
         if (!data.error) setMetaHistory(data.history ?? [])
@@ -690,6 +696,12 @@ export default function ChartPage() {
           estadosAceitos.has(b.health_estado ?? '') &&
           cbAceitos.has(b.circuit_breaker ?? 'CLOSED')
         )
+        // Alimenta o seletor do histórico com todas as corretoras habilitadas
+        setEnabledBrokers(
+          brokers
+            .filter((b: any) => b.enabled && b.metaapi_account_id)
+            .map((b: any) => ({ id: b.id, nome: b.nome ?? b.id }))
+        )
         if (active.length === 0) { setRouteBroker(null); return }
         // Critério de desempate entre os candidatos válidos: ACTIVE antes de ACTIVE_REDUCED, score maior primeiro
         active.sort((a: { health_estado: string; health_score: number; broker_priority: number },
@@ -715,11 +727,11 @@ export default function ChartPage() {
     return () => clearInterval(iv)
   }, [])
 
-  // Histórico: carrega ao conectar ou ao mudar período; limpa ao desconectar
+  // Histórico: carrega ao conectar ou ao mudar período/corretora; limpa ao desconectar
   useEffect(() => {
     if (!metaConnected) { setMetaHistory([]); return }
-    fetchHistory(historyPeriod)
-  }, [metaConnected, historyPeriod, fetchHistory])
+    fetchHistory(historyPeriod, historyBroker)
+  }, [metaConnected, historyPeriod, historyBroker, fetchHistory])
 
   // Features 1, 2, 5: poll saldo + posições a cada 5s quando MetaAPI ativo
   useEffect(() => {
@@ -2107,7 +2119,39 @@ export default function ChartPage() {
               <span className="text-[11px] font-bold text-[#f0f6fc] flex items-center gap-1.5">
                 <History size={11} className="text-[#26c6da]" />
                 Relatório de Operações
-                <span className="text-[9px] font-normal text-[#484f58] ml-1">· {routeBroker?.nome ?? 'Corretora'}</span>
+                {/* Seletor de corretora — clique para trocar */}
+                <div className="relative">
+                  <button
+                    onClick={() => setHistoryBrokerOpen(o => !o)}
+                    className="flex items-center gap-0.5 text-[9px] font-normal text-[#484f58] hover:text-[#26c6da] transition-colors ml-1 group"
+                  >
+                    · {historyBroker
+                        ? (enabledBrokers.find(b => b.id === historyBroker)?.nome ?? historyBroker)
+                        : (routeBroker?.nome ?? 'Corretora')}
+                    <svg width="7" height="7" viewBox="0 0 7 7" className="opacity-50 group-hover:opacity-100 mt-0.5">
+                      <path d="M1 2l2.5 2.5L6 2" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round"/>
+                    </svg>
+                  </button>
+                  {historyBrokerOpen && enabledBrokers.length > 0 && (
+                    <div className="absolute left-0 top-full mt-1 z-50 bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl overflow-hidden min-w-[130px]">
+                      <button
+                        onClick={() => { setHistoryBroker(''); setHistoryBrokerOpen(false) }}
+                        className={`w-full text-left px-3 py-2 text-[10px] hover:bg-[#21262d] transition-colors ${historyBroker === '' ? 'text-[#26c6da] font-semibold' : 'text-[#8b949e]'}`}
+                      >
+                        Auto (Top)
+                      </button>
+                      {enabledBrokers.map(b => (
+                        <button
+                          key={b.id}
+                          onClick={() => { setHistoryBroker(b.id); setHistoryBrokerOpen(false) }}
+                          className={`w-full text-left px-3 py-2 text-[10px] hover:bg-[#21262d] transition-colors capitalize ${historyBroker === b.id ? 'text-[#26c6da] font-semibold' : 'text-[#8b949e]'}`}
+                        >
+                          {b.nome}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </span>
               {/* Filtros de período */}
               <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]">
@@ -2181,7 +2225,7 @@ export default function ChartPage() {
                 <table className="w-full text-[10px] border-collapse">
                   <thead className="sticky top-0 z-10 bg-[#0d1117]">
                     <tr className="border-b border-[#30363d]">
-                      {['Resultado', 'Par', 'Direção', 'Lote', 'Preço Saída', 'Lucro (USD)', 'Data · Hora'].map(h => (
+                      {['Resultado', 'Par', 'Direção', 'Lote', 'Entrada', 'Saída', 'Lucro (USD)', 'Data · Hora'].map(h => (
                         <th key={h} className="px-3 py-2 text-left text-[8px] font-semibold text-[#484f58] uppercase tracking-widest whitespace-nowrap">
                           {h}
                         </th>
@@ -2222,6 +2266,8 @@ export default function ChartPage() {
                           </td>
                           {/* Lote */}
                           <td className="px-3 py-2 text-[#8b949e] font-mono">{deal.volume}</td>
+                          {/* Preço entrada */}
+                          <td className="px-3 py-2 font-mono text-[#8b949e] whitespace-nowrap">{deal.entryPrice?.toFixed(5) ?? '—'}</td>
                           {/* Preço saída */}
                           <td className="px-3 py-2 font-mono text-[#8b949e] whitespace-nowrap">{deal.price?.toFixed(5) ?? '—'}</td>
                           {/* Lucro */}
@@ -2239,7 +2285,7 @@ export default function ChartPage() {
                   {/* Rodapé com totais */}
                   <tfoot className="sticky bottom-0 bg-[#0d1117] border-t border-[#30363d]">
                     <tr>
-                      <td colSpan={5} className="px-3 py-2 text-[9px] text-[#484f58]">
+                      <td colSpan={6} className="px-3 py-2 text-[9px] text-[#484f58]">
                         {metaHistory.length} operações
                       </td>
                       <td className="px-3 py-2 font-mono font-bold text-[10px]" style={{
@@ -2458,8 +2504,42 @@ export default function ChartPage() {
       )}>
         <div className="w-10 h-1 bg-[#30363d] rounded-full mx-auto mt-3 mb-2 shrink-0" />
         <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between flex-wrap gap-2">
-          <span className="text-[12px] font-bold text-[#f0f6fc] flex items-center gap-1.5">
+          <span className="text-[12px] font-bold text-[#f0f6fc] flex items-center gap-1.5 flex-wrap">
             <History size={12} className="text-[#26c6da]" /> Relatório de Operações
+            {enabledBrokers.length > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => setHistoryBrokerOpen(o => !o)}
+                  className="flex items-center gap-0.5 text-[10px] font-normal text-[#484f58] hover:text-[#26c6da] transition-colors"
+                >
+                  · {historyBroker
+                      ? (enabledBrokers.find(b => b.id === historyBroker)?.nome ?? historyBroker)
+                      : (routeBroker?.nome ?? 'Auto')}
+                  <svg width="8" height="8" viewBox="0 0 8 8" className="opacity-50">
+                    <path d="M1 2.5l3 3 3-3" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round"/>
+                  </svg>
+                </button>
+                {historyBrokerOpen && (
+                  <div className="absolute left-0 top-full mt-1 z-50 bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl overflow-hidden min-w-[130px]">
+                    <button
+                      onClick={() => { setHistoryBroker(''); setHistoryBrokerOpen(false) }}
+                      className={`w-full text-left px-3 py-2.5 text-[11px] hover:bg-[#21262d] transition-colors ${historyBroker === '' ? 'text-[#26c6da] font-semibold' : 'text-[#8b949e]'}`}
+                    >
+                      Auto (Top)
+                    </button>
+                    {enabledBrokers.map(b => (
+                      <button
+                        key={b.id}
+                        onClick={() => { setHistoryBroker(b.id); setHistoryBrokerOpen(false) }}
+                        className={`w-full text-left px-3 py-2.5 text-[11px] hover:bg-[#21262d] transition-colors capitalize ${historyBroker === b.id ? 'text-[#26c6da] font-semibold' : 'text-[#8b949e]'}`}
+                      >
+                        {b.nome}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </span>
           <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]">
             {(['today', '7d', '30d', '3m'] as const).map(p => {
