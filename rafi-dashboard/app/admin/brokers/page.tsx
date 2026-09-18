@@ -172,9 +172,14 @@ export default function BrokersPage() {
   const [livePerfLoading, setLivePerfLoading] = useState(false)
   const [livePerfAt,      setLivePerfAt]      = useState('')
 
-  // Analytics de ping / latência por corretora
+  // Analytics de ping / latência por corretora (histórico do bot)
   const [analytics,      setAnalytics]      = useState<BrokerAnalytics[]>([])
   const [analyticsAt,    setAnalyticsAt]    = useState('')
+
+  // Pings ao vivo — medidos diretamente no servidor Next.js, sem bot
+  const [livePingMap,    setLivePingMap]    = useState<Record<string, { latencyMs: number | null; success: boolean }>>({})
+  const [livePingSpark,  setLivePingSpark]  = useState<Record<string, number[]>>({})  // sparkline acumulada
+  const [livePingAt,     setLivePingAt]     = useState('')
 
   // Modal de credenciais
   const [credBroker, setCredBroker] = useState<Broker | null>(null)
@@ -268,6 +273,33 @@ export default function BrokersPage() {
     }
     fetchAnalytics()
     const iv = setInterval(fetchAnalytics, 10_000)
+    return () => clearInterval(iv)
+  }, [])
+
+  // Pings ao vivo a cada 5s — sem depender do bot Python
+  useEffect(() => {
+    const fetchPing = async () => {
+      try {
+        const res  = await fetch('/api/admin/broker-ping')
+        const json = await res.json()
+        if (!json.pings) return
+        const map: Record<string, { latencyMs: number | null; success: boolean }> = {}
+        for (const p of json.pings) map[p.brokerId] = { latencyMs: p.latencyMs, success: p.success }
+        setLivePingMap(map)
+        setLivePingSpark(prev => {
+          const next = { ...prev }
+          for (const p of json.pings) {
+            if (p.latencyMs !== null) {
+              next[p.brokerId] = [...(prev[p.brokerId] ?? []).slice(-29), p.latencyMs]
+            }
+          }
+          return next
+        })
+        setLivePingAt(new Date().toLocaleTimeString('pt-BR'))
+      } catch { /* silencioso */ }
+    }
+    fetchPing()
+    const iv = setInterval(fetchPing, 5_000)
     return () => clearInterval(iv)
   }, [])
 
@@ -432,7 +464,13 @@ export default function BrokersPage() {
       <BrokerRanking ranking={ranking} loading={rankLoading} />
 
       {/* 2. Analytics de ping e latência */}
-      <BrokerPingPanel data={analytics} updatedAt={analyticsAt} />
+      <BrokerPingPanel
+        data={analytics}
+        updatedAt={analyticsAt}
+        livePingMap={livePingMap}
+        livePingSpark={livePingSpark}
+        livePingAt={livePingAt}
+      />
 
       {/* 3. Corretoras cadastradas */}
       <div style={{ marginTop: 28 }}>
@@ -577,15 +615,61 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
 }
 
 // ── Painel de analytics de ping e latência ───────────────────────────────────
-function BrokerPingPanel({ data, updatedAt }: { data: BrokerAnalytics[]; updatedAt: string }) {
-  if (!data.length) return null
+function BrokerPingPanel({
+  data,
+  updatedAt,
+  livePingMap   = {},
+  livePingSpark = {},
+  livePingAt    = '',
+}: {
+  data:          BrokerAnalytics[]
+  updatedAt:     string
+  livePingMap?:  Record<string, { latencyMs: number | null; success: boolean }>
+  livePingSpark?: Record<string, number[]>
+  livePingAt?:   string
+}) {
+  // Constrói lista de brokers: usa analytics histórico se disponível;
+  // caso contrário, usa as entradas do livePingMap
+  const liveIds   = Object.keys(livePingMap)
+  const histIds   = data.map(d => d.brokerId)
+  const allIds    = Array.from(new Set([...histIds, ...liveIds]))
 
-  // Ranking por p90 (menor = melhor); sem dados → último
-  const ranked = [...data].sort((a, b) => {
-    if (!a.totalEvents && !b.totalEvents) return 0
-    if (!a.totalEvents) return 1
-    if (!b.totalEvents) return -1
-    return a.p90 - b.p90
+  // Para brokers sem histórico (bot offline), cria um item sintético
+  const fullData: BrokerAnalytics[] = allIds.map(id => {
+    const hist = data.find(d => d.brokerId === id)
+    if (hist) return hist
+    const liveName = liveIds.includes(id) ? id : id
+    return {
+      brokerId:    id,
+      nome:        liveName,
+      lastLatency: null,
+      lastAt:      null,
+      sparkline:   [],
+      p90:         0,
+      avgLatency:  0,
+      uptimePct:   100,
+      totalEvents: 0,
+      failedEvents:0,
+      byType:      {},
+    }
+  })
+
+  if (!fullData.length) return null
+
+  // Ranking por ping ao vivo (menor = melhor); sem dados → último
+  const ranked = [...fullData].sort((a, b) => {
+    const la = livePingMap[a.brokerId]?.latencyMs ?? null
+    const lb = livePingMap[b.brokerId]?.latencyMs ?? null
+    if (la === null && lb === null) {
+      // Fallback: histórico p90
+      if (!a.totalEvents && !b.totalEvents) return 0
+      if (!a.totalEvents) return 1
+      if (!b.totalEvents) return -1
+      return a.p90 - b.p90
+    }
+    if (la === null) return 1
+    if (lb === null) return -1
+    return la - lb
   })
 
   const medals = ['🥇', '🥈', '🥉']
@@ -617,25 +701,43 @@ function BrokerPingPanel({ data, updatedAt }: { data: BrokerAnalytics[]; updated
 
       {/* Header */}
       <div style={{ background: C.s2, borderBottom: `1px solid ${C.bd}`, padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.tx }}>
-          Broker Ping · Latência em Tempo Real
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className="rafi-ping-dot" style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: C.gr }} />
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.tx }}>
+            Broker Ping · Latência em Tempo Real
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          {/* Ranking rápido no header */}
-          {ranked.map((b, i) => b.totalEvents > 0 && (
-            <span key={b.brokerId} style={{ fontSize: 10, color: latColor(b.p90) }}>
-              {medals[i]} {b.nome.split(' ')[0]} <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{b.p90}ms</span>
-            </span>
-          ))}
-          {updatedAt && <span style={{ fontSize: 9, color: C.t3 }}>atualizado {updatedAt}</span>}
+          {/* Ranking rápido no header — usa ping ao vivo */}
+          {ranked.map((b, i) => {
+            const lp = livePingMap[b.brokerId]
+            const ms = lp?.latencyMs ?? (b.totalEvents > 0 ? b.p90 : null)
+            if (ms === null) return null
+            return (
+              <span key={b.brokerId} style={{ fontSize: 10, color: latColor(ms) }}>
+                {medals[i]} {b.nome.split(' ')[0]} <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{ms}ms</span>
+              </span>
+            )
+          })}
+          {livePingAt && <span style={{ fontSize: 9, color: C.gr }}>● ao vivo {livePingAt}</span>}
+          {!livePingAt && updatedAt && <span style={{ fontSize: 9, color: C.t3 }}>hist. {updatedAt}</span>}
         </div>
       </div>
 
       {/* Cards */}
       <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
         {ranked.map((b, i) => {
-          const col   = latColor(b.lastLatency)
-          const noData = !b.totalEvents
+          const lp       = livePingMap[b.brokerId]
+          const livems   = lp?.latencyMs ?? null
+          const liveOk   = lp?.success ?? false
+          const spark    = livePingSpark[b.brokerId]?.length
+            ? livePingSpark[b.brokerId]
+            : b.sparkline
+          const dispMs   = livems ?? b.lastLatency
+          const col      = latColor(dispMs)
+          const hasLive  = livems !== null
+          const hasHist  = b.totalEvents > 0
+          const noData   = !hasLive && !hasHist
 
           return (
             <div key={b.brokerId} style={{
@@ -645,19 +747,31 @@ function BrokerPingPanel({ data, updatedAt }: { data: BrokerAnalytics[]; updated
               borderRadius: 8,
               padding:      14,
             }}>
-              {/* Cabeçalho: nome + medalha */}
+              {/* Cabeçalho: nome + medalha + badge AO VIVO */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: C.tx }}>{b.nome}</div>
-                <div style={{ fontSize: 16 }}>{medals[i] ?? ''}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {hasLive && liveOk && (
+                    <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.1em', color: C.gr, background: '#0d2010', border: `1px solid ${C.gr}44`, borderRadius: 3, padding: '1px 5px' }}>
+                      AO VIVO
+                    </span>
+                  )}
+                  {hasLive && !liveOk && (
+                    <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.1em', color: C.re, background: '#1a0008', border: `1px solid ${C.re}44`, borderRadius: 3, padding: '1px 5px' }}>
+                      TIMEOUT
+                    </span>
+                  )}
+                  <div style={{ fontSize: 16 }}>{medals[i] ?? ''}</div>
+                </div>
               </div>
 
               {/* Ping atual — número grande pulsante */}
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 10 }}>
                 <div style={{ fontSize: 34, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: noData ? C.t3 : col, lineHeight: 1 }}>
-                  {noData ? '—' : b.lastLatency ?? '—'}
+                  {noData ? '—' : (dispMs ?? '—')}
                 </div>
                 {!noData && <span style={{ fontSize: 11, color: C.t2 }}>ms</span>}
-                {!noData && (
+                {hasLive && liveOk && (
                   <span className="rafi-ping-dot" style={{
                     display: 'inline-block', width: 7, height: 7, borderRadius: '50%',
                     background: col, marginLeft: 4,
@@ -665,17 +779,17 @@ function BrokerPingPanel({ data, updatedAt }: { data: BrokerAnalytics[]; updated
                 )}
               </div>
 
-              {/* Sparkline */}
+              {/* Sparkline — acumulada dos pings ao vivo ou histórico */}
               <div style={{ marginBottom: 12, background: C.bg, borderRadius: 4, padding: '4px 0' }}>
-                <Sparkline values={b.sparkline} color={noData ? C.t3 : col} />
+                <Sparkline values={spark} color={noData ? C.t3 : col} />
               </div>
 
               {/* Stats: p90 | média | uptime */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 12 }}>
                 {[
-                  { label: 'p90',    value: noData ? '—' : `${b.p90}ms` },
-                  { label: 'Média',  value: noData ? '—' : `${b.avgLatency}ms` },
-                  { label: 'Uptime', value: noData ? '—' : `${b.uptimePct}%`, color: b.uptimePct >= 99 ? C.gr : b.uptimePct >= 95 ? C.am : C.re },
+                  { label: 'p90',    value: hasHist ? `${b.p90}ms` : (hasLive && livems ? `${livems}ms` : '—') },
+                  { label: 'Média',  value: hasHist ? `${b.avgLatency}ms` : (livePingSpark[b.brokerId]?.length ? `${Math.round(livePingSpark[b.brokerId].reduce((s,v) => s+v, 0) / livePingSpark[b.brokerId].length)}ms` : '—') },
+                  { label: 'Uptime', value: hasHist ? `${b.uptimePct}%` : (hasLive ? (liveOk ? '100%' : '—') : '—'), color: hasHist ? (b.uptimePct >= 99 ? C.gr : b.uptimePct >= 95 ? C.am : C.re) : (liveOk ? C.gr : C.t3) },
                 ].map(s => (
                   <div key={s.label} style={{ background: C.s3, borderRadius: 4, padding: '6px 8px', textAlign: 'center' }}>
                     <div style={{ fontSize: 9, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>{s.label}</div>
