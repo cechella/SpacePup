@@ -106,6 +106,21 @@ interface BrokerLiveData {
   error?:     number | string
 }
 
+interface ByTypeStats { avg: number; count: number }
+interface BrokerAnalytics {
+  brokerId:    string
+  nome:        string
+  lastLatency: number | null
+  lastAt:      string | null
+  sparkline:   number[]
+  p90:         number
+  avgLatency:  number
+  uptimePct:   number
+  totalEvents: number
+  failedEvents:number
+  byType:      { positions?: ByTypeStats; order?: ByTypeStats; close?: ByTypeStats; modify?: ByTypeStats }
+}
+
 // ── Logo por corretora ───────────────────────────────────────────────────
 const LOGOS: Record<string, { label: string; cor: string; bg: string; bd: string }> = {
   xm:             { label: 'XM',  cor: C.am, bg: '#1f1508', bd: '#3d2a10' },
@@ -155,6 +170,10 @@ export default function BrokersPage() {
   const [livePerf,        setLivePerf]        = useState<BrokerLiveData[]>([])
   const [livePerfLoading, setLivePerfLoading] = useState(false)
   const [livePerfAt,      setLivePerfAt]      = useState('')
+
+  // Analytics de ping / latência por corretora
+  const [analytics,      setAnalytics]      = useState<BrokerAnalytics[]>([])
+  const [analyticsAt,    setAnalyticsAt]    = useState('')
 
   // Modal de credenciais
   const [credBroker, setCredBroker] = useState<Broker | null>(null)
@@ -231,6 +250,23 @@ export default function BrokersPage() {
     }
     fetchRanking()
     const iv = setInterval(fetchRanking, 30_000)
+    return () => clearInterval(iv)
+  }, [])
+
+  // Analytics de latência a cada 10s
+  useEffect(() => {
+    const fetchAnalytics = async () => {
+      try {
+        const res  = await fetch('/api/admin/broker-analytics')
+        const json = await res.json()
+        if (json.brokers) {
+          setAnalytics(json.brokers)
+          setAnalyticsAt(new Date().toLocaleTimeString('pt-BR'))
+        }
+      } catch { /* silencioso */ }
+    }
+    fetchAnalytics()
+    const iv = setInterval(fetchAnalytics, 10_000)
     return () => clearInterval(iv)
   }, [])
 
@@ -420,6 +456,9 @@ export default function BrokersPage() {
       {/* Performance em tempo real */}
       <LivePerformance data={livePerf} loading={livePerfLoading} updatedAt={livePerfAt} />
 
+      {/* Analytics de ping e latência por corretora */}
+      <BrokerPingPanel data={analytics} updatedAt={analyticsAt} />
+
       {/* Legenda dos parâmetros */}
       <ParamLegend />
 
@@ -495,6 +534,179 @@ export default function BrokersPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Sparkline SVG inline ─────────────────────────────────────────────────────
+function Sparkline({ values, color }: { values: number[]; color: string }) {
+  if (values.length < 2) return (
+    <div style={{ height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <span style={{ fontSize: 9, color: C.t3 }}>aguardando dados...</span>
+    </div>
+  )
+  const W = 200
+  const H = 32
+  const max = Math.max(...values, 50)
+  const pts = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * W
+    const y = H - 2 - ((v / max) * (H - 6))
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+
+  // Área preenchida abaixo da linha
+  const first = values[0], last = values[values.length - 1]
+  const y0 = (H - 2 - ((first / max) * (H - 6))).toFixed(1)
+  const yN = (H - 2 - ((last  / max) * (H - 6))).toFixed(1)
+  const area = `0,${H} ${pts} ${W},${H}`
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 36, display: 'block' }} preserveAspectRatio="none">
+      <polygon points={area} fill={color} fillOpacity={0.08} />
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+      {/* Ponto mais recente (direita) */}
+      <circle cx={W} cy={yN} r="3" fill={color} />
+    </svg>
+  )
+}
+
+// ── Painel de analytics de ping e latência ───────────────────────────────────
+function BrokerPingPanel({ data, updatedAt }: { data: BrokerAnalytics[]; updatedAt: string }) {
+  if (!data.length) return null
+
+  // Ranking por p90 (menor = melhor); sem dados → último
+  const ranked = [...data].sort((a, b) => {
+    if (!a.totalEvents && !b.totalEvents) return 0
+    if (!a.totalEvents) return 1
+    if (!b.totalEvents) return -1
+    return a.p90 - b.p90
+  })
+
+  const medals = ['🥇', '🥈', '🥉']
+
+  function latColor(ms: number | null): string {
+    if (ms === null) return C.t2
+    if (ms < 300)   return C.gr
+    if (ms < 800)   return C.am
+    return C.re
+  }
+
+  const TYPE_LABELS: Record<string, string> = {
+    positions: 'PING',
+    order:     'ORDEM',
+    close:     'FECHAR',
+    modify:    'MODIFY',
+  }
+
+  return (
+    <div style={{ background: C.s1, border: `1px solid ${C.bd}`, borderRadius: 10, overflow: 'hidden', marginTop: 12 }}>
+      {/* Animação do ponto pulsante */}
+      <style>{`
+        @keyframes rafi-pulse {
+          0%,100% { opacity: 1; transform: scale(1); }
+          50%      { opacity: 0.4; transform: scale(0.7); }
+        }
+        .rafi-ping-dot { animation: rafi-pulse 1.4s ease-in-out infinite; }
+      `}</style>
+
+      {/* Header */}
+      <div style={{ background: C.s2, borderBottom: `1px solid ${C.bd}`, padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.tx }}>
+          Broker Ping · Latência em Tempo Real
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          {/* Ranking rápido no header */}
+          {ranked.map((b, i) => b.totalEvents > 0 && (
+            <span key={b.brokerId} style={{ fontSize: 10, color: latColor(b.p90) }}>
+              {medals[i]} {b.nome.split(' ')[0]} <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{b.p90}ms</span>
+            </span>
+          ))}
+          {updatedAt && <span style={{ fontSize: 9, color: C.t3 }}>atualizado {updatedAt}</span>}
+        </div>
+      </div>
+
+      {/* Cards */}
+      <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+        {ranked.map((b, i) => {
+          const col   = latColor(b.lastLatency)
+          const noData = !b.totalEvents
+
+          return (
+            <div key={b.brokerId} style={{
+              background:   C.s2,
+              border:       `1px solid ${noData ? C.bd : col + '66'}`,
+              borderTop:    `3px solid ${noData ? C.bd : col}`,
+              borderRadius: 8,
+              padding:      14,
+            }}>
+              {/* Cabeçalho: nome + medalha */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.tx }}>{b.nome}</div>
+                <div style={{ fontSize: 16 }}>{medals[i] ?? ''}</div>
+              </div>
+
+              {/* Ping atual — número grande pulsante */}
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 10 }}>
+                <div style={{ fontSize: 34, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: noData ? C.t3 : col, lineHeight: 1 }}>
+                  {noData ? '—' : b.lastLatency ?? '—'}
+                </div>
+                {!noData && <span style={{ fontSize: 11, color: C.t2 }}>ms</span>}
+                {!noData && (
+                  <span className="rafi-ping-dot" style={{
+                    display: 'inline-block', width: 7, height: 7, borderRadius: '50%',
+                    background: col, marginLeft: 4,
+                  }} />
+                )}
+              </div>
+
+              {/* Sparkline */}
+              <div style={{ marginBottom: 12, background: C.bg, borderRadius: 4, padding: '4px 0' }}>
+                <Sparkline values={b.sparkline} color={noData ? C.t3 : col} />
+              </div>
+
+              {/* Stats: p90 | média | uptime */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 12 }}>
+                {[
+                  { label: 'p90',    value: noData ? '—' : `${b.p90}ms` },
+                  { label: 'Média',  value: noData ? '—' : `${b.avgLatency}ms` },
+                  { label: 'Uptime', value: noData ? '—' : `${b.uptimePct}%`, color: b.uptimePct >= 99 ? C.gr : b.uptimePct >= 95 ? C.am : C.re },
+                ].map(s => (
+                  <div key={s.label} style={{ background: C.s3, borderRadius: 4, padding: '6px 8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 9, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>{s.label}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: s.color ?? C.tx }}>{s.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Breakdown por tipo */}
+              <div style={{ borderTop: `1px solid ${C.bd}`, paddingTop: 10 }}>
+                <div style={{ fontSize: 9, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 7 }}>
+                  Latência por operação
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
+                  {(Object.entries(TYPE_LABELS) as [string, string][]).map(([key, label]) => {
+                    const stat = (b.byType as any)[key] as ByTypeStats | undefined
+                    return (
+                      <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: C.bg, borderRadius: 4, padding: '5px 8px' }}>
+                        <span style={{ fontSize: 9, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{label}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: stat ? latColor(stat.avg) : C.t3 }}>
+                          {stat ? `${stat.avg}ms` : '—'}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Rodapé: eventos e falhas */}
+              <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', fontSize: 9, color: C.t3 }}>
+                <span>Eventos 24h: <span style={{ color: C.t2 }}>{b.totalEvents.toLocaleString('pt-BR')}</span></span>
+                <span>Falhas: <span style={{ color: b.failedEvents > 0 ? C.re : C.t2 }}>{b.failedEvents}</span></span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
