@@ -165,7 +165,7 @@ export default function ChartPage() {
     volume: number; price: number; profit: number; time: string; comment: string
     entryPrice?: number | null; positionId?: string | null
   }>>([])
-  const [historyPeriod,      setHistoryPeriod]      = useState<'today' | '7d' | '30d' | '3m'>('7d')
+  const [historyPeriod,      setHistoryPeriod]      = useState<'today' | '7d' | '30d' | '3m'>('today')
   const [historyLoading,     setHistoryLoading]     = useState(false)
   const [historyBroker,      setHistoryBroker]      = useState<string>('')  // '' = top broker automático
   const [enabledBrokers,     setEnabledBrokers]     = useState<Array<{ id: string; nome: string }>>([]) // corretoras disponíveis para escolha
