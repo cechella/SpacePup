@@ -182,6 +182,35 @@ export default function BrokersPage() {
   const [livePingSpark,  setLivePingSpark]  = useState<Record<string, number[]>>({})  // sparkline acumulada
   const [livePingAt,     setLivePingAt]     = useState('')
 
+  // Seleção em lote para ações de bot
+  const [selectedIds,  setSelectedIds]  = useState<Set<string>>(new Set())
+  const [batchWorking, setBatchWorking] = useState(false)
+
+  const toggleSelectBroker = (id: string) =>
+    setSelectedIds(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+
+  const selectAllBrokers = () =>
+    setSelectedIds(new Set(brokers.filter(b => b.enabled).map(b => b.id)))
+
+  const clearSelection = () => setSelectedIds(new Set())
+
+  const batchSetBot = async (ids: string[], value: boolean) => {
+    setBatchWorking(true)
+    try {
+      await Promise.all(ids.map(id =>
+        fetch('/api/brokers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, bot_enabled: value }),
+        })
+      ))
+      await fetchBrokers()
+      setSelectedIds(new Set())
+    } finally {
+      setBatchWorking(false)
+    }
+  }
+
   // Modal de credenciais
   const [credBroker, setCredBroker] = useState<Broker | null>(null)
   const [credForm,   setCredForm]   = useState<CredForm>({ mt5_login: '', mt5_senha: '', mt5_servidor: '', mt5_simbolo: '', mt5_path: '', metaapi_account_id: '' })
@@ -500,6 +529,55 @@ export default function BrokersPage() {
           <span style={{ color: C.am }}>● Bot automático</span> — processo Python no VPS: <code style={{ color: C.tx }}>py -m src.executor --broker &lt;id&gt;</code>
         </div>
 
+        {/* Barra de comando em lote */}
+        {!loading && brokers.filter(b => b.enabled).length > 0 && (
+          <div style={{ background: C.s1, border: `1px solid ${C.bd}`, borderRadius: 8, padding: '10px 14px', marginBottom: 14, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, opacity: batchWorking ? 0.6 : 1 }}>
+            <span style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.12em', color: C.t2, flexShrink: 0 }}>Controle de Bots</span>
+            {/* Ligar / Desligar todos */}
+            <button
+              onClick={() => batchSetBot(brokers.filter(b => b.enabled).map(b => b.id), true)}
+              disabled={batchWorking}
+              style={{ background: 'rgba(0,230,118,.08)', border: `1px solid rgba(0,230,118,.25)`, color: C.gr, padding: '5px 12px', borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+            >
+              ▶ Ligar Todos
+            </button>
+            <button
+              onClick={() => batchSetBot(brokers.filter(b => b.enabled).map(b => b.id), false)}
+              disabled={batchWorking}
+              style={{ background: 'rgba(255,71,87,.07)', border: `1px solid rgba(255,71,87,.25)`, color: C.re, padding: '5px 12px', borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+            >
+              ■ Desligar Todos
+            </button>
+            {/* Seleção */}
+            <div style={{ width: 1, height: 14, background: C.bd, margin: '0 2px' }} />
+            <button
+              onClick={selectedIds.size === 0 ? selectAllBrokers : clearSelection}
+              style={{ background: 'transparent', border: `1px solid ${C.bd}`, color: C.t2, padding: '5px 10px', borderRadius: 5, fontSize: 9, cursor: 'pointer', letterSpacing: '0.06em', textTransform: 'uppercase' }}
+            >
+              {selectedIds.size === 0 ? 'Selecionar Todas' : `${selectedIds.size} selecionada${selectedIds.size > 1 ? 's' : ''} · Limpar`}
+            </button>
+            {selectedIds.size > 0 && (
+              <>
+                <button
+                  onClick={() => batchSetBot(Array.from(selectedIds), true)}
+                  disabled={batchWorking}
+                  style={{ background: 'rgba(0,217,255,.08)', border: `1px solid rgba(0,217,255,.25)`, color: C.cy, padding: '5px 12px', borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  ▶ Ligar Selecionadas
+                </button>
+                <button
+                  onClick={() => batchSetBot(Array.from(selectedIds), false)}
+                  disabled={batchWorking}
+                  style={{ background: 'rgba(255,179,0,.07)', border: `1px solid rgba(255,179,0,.25)`, color: C.am, padding: '5px 12px', borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  ■ Desligar Selecionadas
+                </button>
+              </>
+            )}
+            {batchWorking && <span style={{ fontSize: 9, color: C.cy }}>● aplicando...</span>}
+          </div>
+        )}
+
         {loading ? (
           <div style={{ color: C.t2, fontSize: 12, textAlign: 'center', padding: 40 }}>Carregando corretoras...</div>
         ) : brokers.length === 0 ? (
@@ -509,7 +587,7 @@ export default function BrokersPage() {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 12 }}>
             {brokers.map((b) => (
-              <BrokerCard key={b.id} broker={b} faixas={faixas} live={liveData[b.id]} onToggle={toggle} onToggleBot={toggleBot} toggling={toggling === b.id} togglingBot={toggling === b.id + '_bot'} onCred={abrirCred} />
+              <BrokerCard key={b.id} broker={b} faixas={faixas} live={liveData[b.id]} onToggle={toggle} onToggleBot={toggleBot} toggling={toggling === b.id} togglingBot={toggling === b.id + '_bot'} onCred={abrirCred} selected={selectedIds.has(b.id)} onSelect={toggleSelectBroker} />
             ))}
           </div>
         )}
@@ -947,7 +1025,7 @@ function ParamLegend() {
 }
 
 // ── Card individual de corretora ──────────────────────────────────────────
-function BrokerCard({ broker, faixas, live, onToggle, onToggleBot, toggling, togglingBot, onCred }: {
+function BrokerCard({ broker, faixas, live, onToggle, onToggleBot, toggling, togglingBot, onCred, selected, onSelect }: {
   broker: Broker
   faixas: FaixaLote[]
   live?: LiveData
@@ -956,22 +1034,27 @@ function BrokerCard({ broker, faixas, live, onToggle, onToggleBot, toggling, tog
   toggling: boolean
   togglingBot: boolean
   onCred: (b: Broker) => void
+  selected?: boolean
+  onSelect?: (id: string) => void
 }) {
-  const logo   = getLogo(broker.id)
-  const active = broker.enabled
+  const logo    = getLogo(broker.id)
+  const active  = broker.enabled
   const displayBalance = live?.connected ? live.balance : (broker.saldo ?? 0)
   const displayPnl     = live?.connected ? live.todayPnl : (broker.pnl_hoje ?? 0)
   const pnlColor = displayPnl > 0 ? C.gr : displayPnl < 0 ? C.re : C.tx
 
   return (
-    <div style={{
-      background: C.s1,
-      border: `1px solid ${active ? C.gr : C.bd}`,
-      borderRadius: 10,
-      overflow: 'hidden',
-      transition: 'border-color .2s',
-    }}>
-      <div style={{ height: 3, background: active ? C.gr : C.bd }} />
+    <div
+      style={{
+        background: C.s1,
+        border: `1.5px solid ${selected ? C.cy : active ? C.gr : C.bd}`,
+        borderRadius: 10,
+        overflow: 'hidden',
+        transition: 'border-color .2s',
+        cursor: onSelect ? 'default' : undefined,
+      }}
+    >
+      <div style={{ height: 3, background: selected ? C.cy : active ? C.gr : C.bd, transition: 'background .2s' }} />
 
       <div style={{ padding: 16 }}>
         {/* Top row */}
@@ -992,6 +1075,24 @@ function BrokerCard({ broker, faixas, live, onToggle, onToggleBot, toggling, tog
               </div>
             </div>
           </div>
+
+          {/* Checkbox + Toggles */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            {onSelect && (
+              <button
+                onClick={() => onSelect(broker.id)}
+                title={selected ? 'Desmarcar' : 'Selecionar para ação em lote'}
+                style={{
+                  width: 18, height: 18, borderRadius: 4, marginTop: 2, flexShrink: 0,
+                  border: `1.5px solid ${selected ? C.cy : C.t3}`,
+                  background: selected ? 'rgba(0,217,255,.15)' : C.s2,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer',
+                }}
+              >
+                {selected && <span style={{ width: 8, height: 8, background: C.cy, borderRadius: 2, display: 'block' }} />}
+              </button>
+            )}
 
           {/* Toggles — Mesa e Bot separados */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
@@ -1040,6 +1141,7 @@ function BrokerCard({ broker, faixas, live, onToggle, onToggleBot, toggling, tog
               </button>
             </div>
           </div>
+          </div>{/* end checkbox+toggles wrapper */}
         </div>
 
         {/* Metrics */}
