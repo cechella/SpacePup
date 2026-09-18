@@ -107,6 +107,22 @@ interface BrokerLiveData {
   error?:     number | string
 }
 
+interface ExecQuality {
+  brokerId:        string
+  nome:            string
+  noData:          boolean
+  error?:          boolean
+  totalTrades?:    number
+  winRate?:        number
+  profitFactor?:   number
+  totalPnl?:       number
+  avgPnl?:         number
+  avgSlippagePips?: number | null
+  avgExecMs?:      number | null
+  winners?:        number
+  losers?:         number
+}
+
 interface ByTypeStats { avg: number; count: number }
 interface BrokerAnalytics {
   brokerId:    string
@@ -181,6 +197,11 @@ export default function BrokersPage() {
   const [livePingMap,    setLivePingMap]    = useState<Record<string, { latencyMs: number | null; success: boolean }>>({})
   const [livePingSpark,  setLivePingSpark]  = useState<Record<string, number[]>>({})  // sparkline acumulada
   const [livePingAt,     setLivePingAt]     = useState('')
+
+  // Qualidade de execução — slippage, win rate, tempo de execução
+  const [execQuality,    setExecQuality]    = useState<ExecQuality[]>([])
+  const [execQualityAt,  setExecQualityAt]  = useState('')
+  const [execQualityDays, setExecQualityDays] = useState<30 | 90>(30)
 
   // Seleção em lote para ações de bot
   const [selectedIds,  setSelectedIds]  = useState<Set<string>>(new Set())
@@ -305,6 +326,20 @@ export default function BrokersPage() {
     const iv = setInterval(fetchAnalytics, 10_000)
     return () => clearInterval(iv)
   }, [])
+
+  // Qualidade de execução — busca uma vez por dia (dados históricos)
+  const fetchExecQuality = useCallback(async (days: 30 | 90) => {
+    try {
+      const res  = await fetch(`/api/admin/broker-execution-quality?days=${days}`)
+      const json = await res.json()
+      if (json.brokers) {
+        setExecQuality(json.brokers)
+        setExecQualityAt(new Date().toLocaleTimeString('pt-BR'))
+      }
+    } catch { /* silencioso */ }
+  }, [])
+
+  useEffect(() => { fetchExecQuality(execQualityDays) }, [execQualityDays, fetchExecQuality])
 
   // Pings ao vivo a cada 5s — sem depender do bot Python
   useEffect(() => {
@@ -596,7 +631,16 @@ export default function BrokersPage() {
       {/* 4. Performance em tempo real */}
       <LivePerformance data={livePerf} loading={livePerfLoading} updatedAt={livePerfAt} />
 
-      {/* 5. Legenda dos parâmetros */}
+      {/* 5. Qualidade de execução — slippage, win rate, tempo de execução real */}
+      <ExecutionQualityPanel
+        data={execQuality}
+        updatedAt={execQualityAt}
+        days={execQualityDays}
+        onChangeDays={setExecQualityDays}
+        onRefresh={() => fetchExecQuality(execQualityDays)}
+      />
+
+      {/* 6. Legenda dos parâmetros */}
       <ParamLegend />
 
       {/* Modal de credenciais MT5 */}
@@ -925,6 +969,178 @@ function BrokerPingPanel({
 }
 
 // ── Legenda dos parâmetros ───────────────────────────────────────────────────
+// ── Qualidade de Execução por Corretora ──────────────────────────────────────
+function ExecutionQualityPanel({ data, updatedAt, days, onChangeDays, onRefresh }: {
+  data: ExecQuality[]
+  updatedAt: string
+  days: 30 | 90
+  onChangeDays: (d: 30 | 90) => void
+  onRefresh: () => void
+}) {
+  const withData = data.filter(b => !b.noData && (b.totalTrades ?? 0) > 0)
+  const noData   = data.filter(b => b.noData || (b.totalTrades ?? 0) === 0)
+
+  // Melhor em cada métrica
+  const bestWinRate    = withData.length ? Math.max(...withData.map(b => b.winRate ?? 0)) : 0
+  const bestPF         = withData.length ? Math.max(...withData.map(b => b.profitFactor ?? 0)) : 0
+  const bestSlippage   = withData.filter(b => b.avgSlippagePips != null).length
+    ? Math.min(...withData.filter(b => b.avgSlippagePips != null).map(b => b.avgSlippagePips as number)) : null
+  const bestExec       = withData.filter(b => b.avgExecMs != null).length
+    ? Math.min(...withData.filter(b => b.avgExecMs != null).map(b => b.avgExecMs as number)) : null
+
+  const MetricCell = ({ value, best, unit, lowerIsBetter = false }: {
+    value: number | null | undefined; best: number | null; unit: string; lowerIsBetter?: boolean
+  }) => {
+    if (value == null) return <td style={{ padding: '8px 10px', color: C.t3, fontSize: 11, textAlign: 'right' }}>—</td>
+    const isBest = best != null && (lowerIsBetter ? value <= best : value >= best)
+    return (
+      <td style={{ padding: '8px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{
+          fontSize: 12, fontWeight: isBest ? 700 : 400,
+          color: isBest ? C.gr : value > 0 ? C.tx : C.re,
+          background: isBest ? 'rgba(0,230,118,.1)' : 'transparent',
+          padding: isBest ? '2px 5px' : '0',
+          borderRadius: isBest ? 4 : 0,
+        }}>
+          {unit === 'ms' ? value : unit === '%' ? value : value.toFixed(unit === 'pips' ? 1 : 2)}{unit !== '' ? ` ${unit}` : ''}
+          {isBest && <span style={{ fontSize: 8, marginLeft: 3, color: C.gr }}>✓</span>}
+        </span>
+      </td>
+    )
+  }
+
+  return (
+    <div style={{ marginTop: 28 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.t2 }}>
+            Qualidade de Execução · Comparativo Real por Corretora
+          </div>
+          {updatedAt && <div style={{ fontSize: 9, color: C.t3, marginTop: 2 }}>atualizado {updatedAt} · dados via MetaAPI</div>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Seletor de período */}
+          <div style={{ display: 'flex', background: C.s2, borderRadius: 6, border: `1px solid ${C.bd}`, overflow: 'hidden' }}>
+            {([30, 90] as const).map(d => (
+              <button
+                key={d}
+                onClick={() => onChangeDays(d)}
+                style={{
+                  padding: '4px 10px', fontSize: 10, border: 'none', cursor: 'pointer',
+                  background: days === d ? C.cy : 'transparent',
+                  color:      days === d ? C.bg : C.t2,
+                  fontWeight: days === d ? 700 : 400,
+                }}
+              >{d}d</button>
+            ))}
+          </div>
+          <button
+            onClick={onRefresh}
+            style={{ background: 'transparent', border: `1px solid ${C.bd}`, color: C.t2, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 10 }}
+          >
+            ↻ Atualizar
+          </button>
+        </div>
+      </div>
+
+      <div style={{ background: C.s1, border: `1px solid ${C.bd}`, borderRadius: 10, overflow: 'hidden' }}>
+        {withData.length === 0 && noData.length === 0 ? (
+          <div style={{ padding: 32, textAlign: 'center', color: C.t2, fontSize: 12 }}>
+            Carregando dados de execução...
+          </div>
+        ) : withData.length === 0 ? (
+          <div style={{ padding: 32, textAlign: 'center', color: C.t2, fontSize: 12 }}>
+            Nenhum trade encontrado nos últimos {days} dias nas corretoras conectadas.
+            <br /><span style={{ fontSize: 10, color: C.t3 }}>Os dados aparecem conforme as operações forem realizadas.</span>
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead>
+                <tr style={{ background: C.s2, borderBottom: `1px solid ${C.bd}` }}>
+                  <th style={{ padding: '8px 14px', textAlign: 'left', fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.t2, fontWeight: 600 }}>Corretora</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.t2, fontWeight: 600 }}>Trades</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.t2, fontWeight: 600 }}>Win Rate</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.t2, fontWeight: 600 }}>Profit Factor</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.t2, fontWeight: 600 }}>P&L Total</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.t2, fontWeight: 600 }}>P&L / Trade</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.t2, fontWeight: 600 }}>Slippage</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.t2, fontWeight: 600 }}>Exec. Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {withData.map((b, i) => {
+                  const logo = getLogo(b.brokerId)
+                  return (
+                    <tr key={b.brokerId} style={{ borderBottom: `1px solid ${C.bd}`, background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.01)' }}>
+                      <td style={{ padding: '10px 14px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ width: 24, height: 24, borderRadius: 5, background: logo.bg, border: `1px solid ${logo.bd}`, color: logo.cor, fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            {logo.label}
+                          </div>
+                          <span style={{ color: C.tx, fontWeight: 500 }}>{b.nome}</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right', color: C.tx, fontVariantNumeric: 'tabular-nums' }}>
+                        <span style={{ fontSize: 12 }}>{b.totalTrades}</span>
+                        <span style={{ fontSize: 9, color: C.t3, marginLeft: 4 }}>{b.winners}W/{b.losers}L</span>
+                      </td>
+                      <MetricCell value={b.winRate}          best={bestWinRate}  unit="%" />
+                      <MetricCell value={b.profitFactor}     best={bestPF}       unit="" />
+                      <td style={{ padding: '8px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: (b.totalPnl ?? 0) >= 0 ? C.gr : C.re }}>
+                          {(b.totalPnl ?? 0) >= 0 ? '+' : ''}{(b.totalPnl ?? 0).toFixed(2)} USD
+                        </span>
+                      </td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                        <span style={{ fontSize: 11, color: (b.avgPnl ?? 0) >= 0 ? C.gr : C.re }}>
+                          {(b.avgPnl ?? 0) >= 0 ? '+' : ''}{(b.avgPnl ?? 0).toFixed(2)}
+                        </span>
+                      </td>
+                      <MetricCell value={b.avgSlippagePips}  best={bestSlippage} unit="pips" lowerIsBetter />
+                      <td style={{ padding: '8px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                        {b.avgExecMs != null ? (
+                          <span style={{
+                            fontSize: 12, fontWeight: b.avgExecMs === bestExec ? 700 : 400,
+                            color: b.avgExecMs === bestExec ? C.gr : b.avgExecMs < 500 ? C.tx : b.avgExecMs < 1000 ? C.am : C.re,
+                            background: b.avgExecMs === bestExec ? 'rgba(0,230,118,.1)' : 'transparent',
+                            padding: b.avgExecMs === bestExec ? '2px 5px' : '0', borderRadius: 4,
+                          }}>
+                            {b.avgExecMs}ms{b.avgExecMs === bestExec && <span style={{ fontSize: 8, marginLeft: 3 }}>✓</span>}
+                          </span>
+                        ) : <span style={{ color: C.t3 }}>—</span>}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Corretoras sem dados */}
+        {noData.length > 0 && (
+          <div style={{ padding: '8px 14px', borderTop: `1px solid ${C.bd}`, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            <span style={{ fontSize: 9, color: C.t3, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Sem trades ({days}d):</span>
+            {noData.map(b => (
+              <span key={b.brokerId} style={{ fontSize: 9, color: C.t3 }}>{b.nome}</span>
+            ))}
+          </div>
+        )}
+
+        {/* Legenda */}
+        <div style={{ padding: '8px 14px', borderTop: `1px solid ${C.bd}`, display: 'flex', flexWrap: 'wrap', gap: 14 }}>
+          <span style={{ fontSize: 9, color: C.t3 }}>✓ melhor da categoria</span>
+          <span style={{ fontSize: 9, color: C.t3 }}>Slippage = diferença preço pedido vs preenchido (pips)</span>
+          <span style={{ fontSize: 9, color: C.t3 }}>Exec. Time = ordem enviada → confirmada pela corretora</span>
+          <span style={{ fontSize: 9, color: C.t3 }}>Baseado em trades reais dos últimos {days} dias</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ParamLegend() {
   const items: { label: string; desc: string; detail?: string; color?: string }[] = [
     {
