@@ -115,25 +115,40 @@ export async function GET() {
     const pnlB = pnlMap[b.id] ?? null
     const pnlP = prev ? (pnlMap[prev.id] ?? null) : null
 
+    const fmtPnl  = (v: number | null) => v !== null ? `${v >= 0 ? '+' : ''}${v.toFixed(2)} USD` : '$0.00'
+    const pnlLine = `P&L ${fmtPnl(pnlB)}`
+    const ctx     = `Estado: ${b.estadoLabel} · Health: ${b.healthScore} · Priority: ${b.priority}`
+
     let reason = ''
     if (i === 0) {
-      if (pnlB !== null && pnlB !== 0) {
-        reason = `P&L ${pnlB >= 0 ? '+' : ''}${pnlB.toFixed(2)} USD — melhor resultado do dia`
+      // #1: mostra todos os critérios e qual foi decisivo
+      if (pnlB !== null && pnlB > 0) {
+        reason = `${pnlLine} ← critério decisivo (melhor do dia)\n${ctx}`
+      } else if (pnlB !== null && pnlB < 0) {
+        reason = `${pnlLine} (mesmo com P&L negativo, melhor entre as corretoras)\n${ctx}`
       } else {
-        reason = 'Melhor combinação de estado, health score e prioridade'
+        // sem P&L — o decisivo é estado/health/priority
+        const next = ranked[1]
+        if (next && b.estadoOrder < (ESTADO_ORDER[next.estado] ?? 3)) {
+          reason = `Estado: ${b.estadoLabel} ← decisivo (superior às demais)\n${ctx}`
+        } else if (next && b.healthScore > next.healthScore) {
+          reason = `Health Score: ${b.healthScore} ← decisivo (maior entre as corretoras)\n${ctx}`
+        } else {
+          reason = `Priority: ${b.priority} ← decisivo (menor número = maior prioridade)\n${ctx}`
+        }
       }
     } else if (!b.eligible) {
       reason = b.circuitBreaker !== 'CLOSED'
-        ? 'Circuit Breaker ABERTO — excluída do ranking'
-        : `Estado ${b.estadoLabel} — fora do ranking ativo`
+        ? `Circuit Breaker ABERTO — excluída do ranking\n${ctx}`
+        : `Estado ${b.estadoLabel} — fora do ranking ativo\n${ctx}`
     } else if (prev && pnlP !== null && pnlB !== null && pnlP > pnlB) {
-      reason = `P&L ${pnlP >= 0 ? '+' : ''}${pnlP.toFixed(2)} > ${pnlB >= 0 ? '+' : ''}${pnlB.toFixed(2)} USD (${prev.nome} lucrou mais hoje)`
+      reason = `${pnlLine} < ${fmtPnl(pnlP)} (${prev.nome} lucrou mais hoje) ← perdeu aqui\n${ctx}`
     } else if (prev && prev.estadoOrder < b.estadoOrder) {
-      reason = `Estado ${prev.estadoLabel} > ${b.estadoLabel} (${prev.nome} tem estado superior)`
+      reason = `${pnlLine} (P&L igual)\nEstado: ${b.estadoLabel} < ${prev.estadoLabel} (${prev.nome} tem estado superior) ← perdeu aqui\n${ctx}`
     } else if (prev && prev.healthScore > b.healthScore) {
-      reason = `Health Score ${prev.healthScore} > ${b.healthScore} (${prev.nome} tem score maior)`
+      reason = `${pnlLine} (P&L igual) · Estado: ${b.estadoLabel} (igual)\nHealth: ${b.healthScore} < ${prev.healthScore} (${prev.nome} tem score maior) ← perdeu aqui\n${ctx}`
     } else if (prev) {
-      reason = `Prioridade ${b.priority} > ${prev.priority} (${prev.nome} tem prioridade menor)`
+      reason = `${pnlLine} (P&L igual) · Estado: ${b.estadoLabel} · Health: ${b.healthScore} (igual)\nPriority: ${b.priority} > ${prev.priority} — ${prev.nome} tem prioridade menor ← perdeu aqui`
     }
 
     return { ...b, accountId: undefined, rank: i + 1, reason, pnlHoje: pnlB ?? 0 }

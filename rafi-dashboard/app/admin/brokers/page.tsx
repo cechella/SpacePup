@@ -1680,13 +1680,24 @@ function BrokerRanking({ ranking, loading, execQuality }: {
                 <div style={{ fontSize: 9, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>
                   Por que #{b.rank}?
                 </div>
-                <div style={{ fontSize: 10, color: C.t2, lineHeight: 1.5 }}>
-                  {b.reason}
+                <div style={{ fontSize: 10, color: C.t2, lineHeight: 1.6 }}>
+                  {b.reason.split('\n').map((line, li) => (
+                    <div key={li} style={{ color: line.includes('← ') ? C.tx : C.t2 }}>
+                      {line.includes('← ') ? (
+                        <>
+                          {line.replace(' ← perdeu aqui', '').replace(' ← critério decisivo', '').replace(' ← decisivo', '')}
+                          <span style={{ color: C.am, fontWeight: 700, marginLeft: 4 }}>
+                            {line.includes('← critério decisivo') ? '← decisivo' :
+                             line.includes('← decisivo') ? '← decisivo' : '← perde aqui'}
+                          </span>
+                        </>
+                      ) : line}
+                    </div>
+                  ))}
                   {execScore !== null && (
-                    <span style={{ color: execScore >= 65 ? C.gr : execScore >= 40 ? C.am : C.re }}>
-                      {' '}· Exec Score {execScore}/100
-                      {isBestExec ? ' — melhor execução entre as corretoras.' : ''}
-                    </span>
+                    <div style={{ color: execScore >= 65 ? C.gr : execScore >= 40 ? C.am : C.re, marginTop: 2 }}>
+                      Exec Score: {execScore}/100{isBestExec ? ' — melhor entre as corretoras' : ''}
+                    </div>
                   )}
                 </div>
               </div>
