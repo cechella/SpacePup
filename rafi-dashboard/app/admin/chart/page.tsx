@@ -198,10 +198,10 @@ export default function ChartPage() {
   const chartHRef = useRef(460)
   useEffect(() => { chartHRef.current = chartH }, [chartH])
   // Altura da toolbar interna (colapsável arrastando para cima)
-  const TOOLBAR_DEFAULT = 52
-  const [toolbarH,    setToolbarH]    = useState(TOOLBAR_DEFAULT)
-  const toolbarHRef = useRef(TOOLBAR_DEFAULT)
-  useEffect(() => { toolbarHRef.current = toolbarH }, [toolbarH])
+  // null = altura natural (auto); 0 = colapsada
+  const [toolbarH,    setToolbarH]    = useState<number | null>(null)
+  const toolbarHRef = useRef<number>(52)  // estimativa inicial para o drag
+  const toolbarElRef = useRef<HTMLDivElement | null>(null)  // mede altura real no DOM
   const prevPositionsRef = useRef<typeof metaPositions>([])
   // Check-in de estado mental do dia
   const [checkin,     setCheckin]     = useState<CheckinResult | null>(null)
@@ -388,21 +388,23 @@ export default function ChartPage() {
   const handleToolbarResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     const startY = e.clientY
-    const startH = toolbarHRef.current
+    // Mede a altura real atual da toolbar no DOM para o drag ser preciso
+    const naturalH = toolbarElRef.current?.getBoundingClientRect().height ?? toolbarHRef.current
+    toolbarHRef.current = naturalH
     document.body.style.cursor    = 'row-resize'
     document.body.style.userSelect = 'none'
     const onMove = (ev: MouseEvent) => {
       // arrastar ↑ = clientY diminui = delta negativo → toolbarH diminui (colapsa)
-      const newH = Math.max(0, Math.min(100, startH + ev.clientY - startY))
-      setToolbarH(newH < 16 ? 0 : newH) // snap para 0 quando quase colapsado
+      const newH = Math.max(0, Math.min(120, naturalH + ev.clientY - startY))
+      setToolbarH(newH < 16 ? 0 : newH)
     }
     const onUp = () => {
       document.body.style.cursor    = ''
       document.body.style.userSelect = ''
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup',   onUp)
-      // snap: se ficou no meio, colapsa ou restaura completamente
-      setToolbarH(prev => prev < TOOLBAR_DEFAULT / 2 ? 0 : TOOLBAR_DEFAULT)
+      // snap: se ficou no meio, colapsa (0) ou restaura (null = altura natural auto)
+      setToolbarH(prev => (prev !== null && prev < naturalH / 2) ? 0 : null)
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup',   onUp)
@@ -1646,11 +1648,13 @@ export default function ChartPage() {
 
           {/* Toolbar do gráfico — oculta em mobile; altura colapsável via drag handle */}
           <div
+            ref={toolbarElRef}
             className="hidden md:flex items-center justify-between bg-[#161b22] shrink-0 overflow-hidden"
             style={isDesktop ? {
-              height: toolbarH,
-              borderBottom: toolbarH > 0 ? '1px solid #30363d' : 'none',
-              padding: toolbarH > 0 ? '0 16px' : '0',
+              // null = altura natural (auto); 0 = colapsada; número = durante drag
+              height:       toolbarH === null ? undefined : toolbarH,
+              borderBottom: toolbarH === 0 ? 'none' : '1px solid #30363d',
+              padding:      toolbarH === 0 ? '0' : '8px 16px',
             } : { padding: '8px 16px', borderBottom: '1px solid #30363d' }}
           >
             <div className="flex items-center gap-3 text-[10px]">
@@ -2018,7 +2022,7 @@ export default function ChartPage() {
             <div
               className="hidden md:flex items-center justify-center h-2 shrink-0 cursor-row-resize group select-none bg-[#0d1117]"
               onMouseDown={handleToolbarResizeStart}
-              onDoubleClick={() => setToolbarH(toolbarH === 0 ? TOOLBAR_DEFAULT : 0)}
+              onDoubleClick={() => setToolbarH(toolbarH === 0 ? null : 0)}
               title={toolbarH === 0 ? 'Arrastar ↓ ou duplo clique para exibir toolbar' : 'Arrastar ↑ para ocultar toolbar · Duplo clique para alternar'}
             >
               <div className="flex items-center gap-0.5 opacity-20 group-hover:opacity-100 transition-opacity">
