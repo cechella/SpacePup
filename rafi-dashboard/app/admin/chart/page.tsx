@@ -2192,13 +2192,15 @@ export default function ChartPage() {
                   <button
                     onClick={() => setHistoryBroker('')}
                     className={cn(
-                      'px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all whitespace-nowrap',
+                      'px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all whitespace-nowrap flex items-center gap-1',
                       historyBroker === ''
                         ? 'bg-[#26c6da] text-[#0d1117]'
                         : 'text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
                     )}
                   >
-                    Auto
+                    {historyBroker === '' && routeBroker?.nome
+                      ? <><span>🏆</span><span>#1 {routeBroker.nome}</span></>
+                      : 'Auto'}
                   </button>
                   {enabledBrokers.map(b => (
                     <button
@@ -2250,21 +2252,21 @@ export default function ChartPage() {
             </div>
 
             {/* Badge da corretora ativa no relatório */}
-            {(() => {
-              const activeName = historyBroker
-                ? enabledBrokers.find(b => b.id === historyBroker)?.nome
-                : routeBroker?.nome
-              if (!activeName) return null
-              return (
-                <div className="px-4 pt-2.5 pb-1 flex items-center gap-1.5">
-                  {!historyBroker && <span className="text-[11px]">🏆</span>}
-                  <span className="text-[10px] font-semibold text-[#26c6da]">{activeName}</span>
-                  {!historyBroker && (
-                    <span className="text-[9px] text-[#484f58]">· #1 do ranking</span>
-                  )}
-                </div>
-              )
-            })()}
+            <div className="px-4 pt-2.5 pb-1 flex items-center gap-1.5">
+              {historyBroker ? (
+                <span className="text-[10px] font-semibold text-[#8b949e]">
+                  {enabledBrokers.find(b => b.id === historyBroker)?.nome ?? historyBroker}
+                </span>
+              ) : (
+                <>
+                  <span className="text-[11px]">🏆</span>
+                  <span className="text-[10px] font-semibold text-[#26c6da]">
+                    {routeBroker?.nome ?? '…'}
+                  </span>
+                  <span className="text-[9px] text-[#484f58]">· #1 do ranking</span>
+                </>
+              )}
+            </div>
 
             {/* Resumo estatístico — 5 KPIs */}
             {metaHistory.length > 0 && (() => {
@@ -2603,13 +2605,15 @@ export default function ChartPage() {
                 <button
                   onClick={() => setHistoryBroker('')}
                   className={cn(
-                    'px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all whitespace-nowrap',
+                    'px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all whitespace-nowrap flex items-center gap-1',
                     historyBroker === ''
                       ? 'bg-[#26c6da] text-[#0d1117]'
                       : 'text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
                   )}
                 >
-                  Auto
+                  {historyBroker === '' && routeBroker?.nome
+                    ? <><span>🏆</span><span>#1 {routeBroker.nome}</span></>
+                    : 'Auto'}
                 </button>
                 {enabledBrokers.map(b => (
                   <button
@@ -2654,19 +2658,21 @@ export default function ChartPage() {
         ) : (
           <>
             {/* Badge corretora ativa (mobile) */}
-            {(() => {
-              const activeName = historyBroker
-                ? enabledBrokers.find(b => b.id === historyBroker)?.nome
-                : routeBroker?.nome
-              if (!activeName) return null
-              return (
-                <div className="px-4 pt-2.5 pb-1 flex items-center gap-1.5">
-                  {!historyBroker && <span className="text-[11px]">🏆</span>}
-                  <span className="text-[10px] font-semibold text-[#26c6da]">{activeName}</span>
-                  {!historyBroker && <span className="text-[9px] text-[#484f58]">· #1 do ranking</span>}
-                </div>
-              )
-            })()}
+            <div className="px-4 pt-2.5 pb-1 flex items-center gap-1.5">
+              {historyBroker ? (
+                <span className="text-[10px] font-semibold text-[#8b949e]">
+                  {enabledBrokers.find(b => b.id === historyBroker)?.nome ?? historyBroker}
+                </span>
+              ) : (
+                <>
+                  <span className="text-[11px]">🏆</span>
+                  <span className="text-[10px] font-semibold text-[#26c6da]">
+                    {routeBroker?.nome ?? '…'}
+                  </span>
+                  <span className="text-[9px] text-[#484f58]">· #1 do ranking</span>
+                </>
+              )}
+            </div>
 
             {/* KPIs compactos */}
             {(() => {
