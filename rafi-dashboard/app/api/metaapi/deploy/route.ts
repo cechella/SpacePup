@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 
-// Liga (deploy) as contas MetaAPI — chamado pelo cron das 13h UTC ou botão manual
+// Liga (deploy) as 3 contas MetaAPI — chamado pelo botão manual do dashboard
 export const runtime = 'nodejs'
 
 const TOKEN = process.env.METAAPI_TOKEN!
@@ -12,28 +12,21 @@ const ACCOUNT_IDS = [
   '33f4d189-2923-41ad-b67d-4787a340966e', // TICKMILL Raw
 ]
 
-export async function POST(req: NextRequest) {
-  // Proteção simples para chamadas de cron do Vercel
-  const authHeader = req.headers.get('authorization')
-  if (authHeader && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+export async function POST() {
   const results = await Promise.allSettled(
     ACCOUNT_IDS.map(id =>
       fetch(`${BASE}/users/current/accounts/${id}/deploy`, {
         method: 'POST',
         headers: { 'auth-token': TOKEN },
-      }).then(r => ({ id, status: r.status }))
+      }).then(r => ({ id, httpStatus: r.status, ok: r.status < 300 }))
     )
   )
 
   const summary = results.map((r, i) =>
     r.status === 'fulfilled'
-      ? { id: ACCOUNT_IDS[i], ok: r.value.status < 300, httpStatus: r.value.status }
+      ? r.value
       : { id: ACCOUNT_IDS[i], ok: false, erro: String((r as PromiseRejectedResult).reason) }
   )
 
-  console.log('[metaapi/deploy]', JSON.stringify(summary))
   return NextResponse.json({ action: 'deploy', results: summary })
 }
