@@ -379,6 +379,29 @@ export default function ChartPage() {
     document.addEventListener('mouseup',   onUp)
   }, [])
 
+  // Arrasto da borda SUPERIOR do gráfico — direção invertida: arrastar ↑ aumenta chartH
+  const handleTopResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const startY = e.clientY
+    const startH = chartHRef.current
+    document.body.style.cursor    = 'row-resize'
+    document.body.style.userSelect = 'none'
+    const onMove = (ev: MouseEvent) => {
+      // arrastar para cima = ev.clientY < startY = delta negativo → chartH aumenta
+      const newH = Math.max(200, Math.min(window.innerHeight - 200, startH - (ev.clientY - startY)))
+      setChartH(newH)
+    }
+    const onUp = () => {
+      document.body.style.cursor    = ''
+      document.body.style.userSelect = ''
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup',   onUp)
+      try { localStorage.setItem('mesa_chart_h', String(chartHRef.current)) } catch {}
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup',   onUp)
+  }, [])
+
   // Salva um LoadResult no histórico de CSVs (localStorage, máx MAX_CSV_HISTORY)
   const saveToHistory = useCallback((result: LoadResult) => {
     const entry: CsvHistoryEntry = {
@@ -1606,6 +1629,22 @@ export default function ChartPage() {
                 </span>
               </>
             )}
+          </div>
+        )}
+
+        {/* Handle de resize superior — desktop only (arrastar ↑ = gráfico cresce) */}
+        {isDesktop && (
+          <div
+            className="hidden md:flex items-center justify-center h-2 shrink-0 cursor-row-resize group select-none"
+            onMouseDown={handleTopResizeStart}
+            onDoubleClick={() => { setChartH(460); try { localStorage.removeItem('mesa_chart_h') } catch {} }}
+            title="Arraste ↑ para ampliar · Duplo clique para restaurar"
+          >
+            <div className="flex items-center gap-0.5 opacity-30 group-hover:opacity-100 transition-opacity">
+              <span className="w-6 h-[2px] rounded-full bg-[#484f58] group-hover:bg-[#3b82f6] transition-colors" />
+              <span className="w-1.5 h-[2px] rounded-full bg-[#484f58] group-hover:bg-[#3b82f6] transition-colors" />
+              <span className="w-6 h-[2px] rounded-full bg-[#484f58] group-hover:bg-[#3b82f6] transition-colors" />
+            </div>
           </div>
         )}
 
