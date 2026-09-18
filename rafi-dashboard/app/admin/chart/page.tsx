@@ -494,11 +494,13 @@ export default function ChartPage() {
 
   // Feature 2: fecha posição individual via MetaAPI
   const handleClosePosition = useCallback(async (positionId: string) => {
+    // Busca símbolo e volume da posição para replicar o fechamento nas demais corretoras
+    const pos = metaPositionsRef.current.find(p => p.id === positionId)
     try {
       const res = await fetch('/api/metaapi/positions', {
         method:  'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ positionId }),
+        body:    JSON.stringify({ positionId, symbol: pos?.symbol, volume: pos?.volume }),
       })
       if (res.ok) {
         setMetaPositions(prev => prev.filter(p => p.id !== positionId))
@@ -506,11 +508,14 @@ export default function ChartPage() {
     } catch {}
   }, [])
 
-  // Modifica SL/TP de uma posição aberta via MetaAPI
+  // Modifica SL/TP de uma posição aberta via MetaAPI — replica para todas as corretoras ativas
   const handleModifyPosition = useCallback(async (positionId: string, sl: string, tp: string) => {
     const stopLoss   = parseFloat(sl)
     const takeProfit = parseFloat(tp)
     if (isNaN(stopLoss) || isNaN(takeProfit)) return
+
+    // Busca símbolo e volume para localizar a posição nas corretoras secundárias
+    const pos = metaPositionsRef.current.find(p => p.id === positionId)
 
     // Atualização otimista imediata — linha fica no lugar arrastado sem esperar API
     const snapshot = metaPositionsRef.current
@@ -522,11 +527,13 @@ export default function ChartPage() {
       const res = await fetch('/api/metaapi/positions/modify', {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ positionId, stopLoss, takeProfit }),
+        body:    JSON.stringify({ positionId, symbol: pos?.symbol, volume: pos?.volume, stopLoss, takeProfit }),
       })
       const data = await res.json()
       if (res.ok && data.ok) {
-        setOrderToast({ ok: true, msg: `SL/TP atualizados com sucesso` })
+        const count = (data.replication as Array<{ok:boolean}>)?.filter(r => r.ok).length ?? 1
+        const sufixo = count > 1 ? ` em ${count} corretoras` : ''
+        setOrderToast({ ok: true, msg: `SL/TP atualizados${sufixo} ✓` })
       } else {
         // Reverte para o valor anterior se a API rejeitou
         setMetaPositions(snapshot)

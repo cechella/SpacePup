@@ -1,16 +1,18 @@
 import { NextResponse } from 'next/server'
-import { getTopBrokerAccountId } from '@/lib/top-broker'
+import { getTopBroker, getActiveBrokers } from '@/lib/top-broker'
 
 const BASE  = process.env.METAAPI_BASE_URL ?? 'https://mt-client-api-v1.london.agiliumtrade.ai'
 const TOKEN = process.env.METAAPI_TOKEN!
 
 export const runtime = 'nodejs'
 
+function baseSymbol(s: string) { return s.replace(/z$/i, '').toUpperCase() }
+
 export async function GET() {
-  const ACCOUNT = await getTopBrokerAccountId()
+  const { accountId } = await getTopBroker()
   try {
     const res = await fetch(
-      `${BASE}/users/current/accounts/${ACCOUNT}/positions`,
+      `${BASE}/users/current/accounts/${accountId}/positions`,
       { headers: { 'auth-token': TOKEN }, signal: AbortSignal.timeout(8_000) }
     )
 
@@ -41,27 +43,54 @@ export async function GET() {
 }
 
 export async function DELETE(req: Request) {
-  const ACCOUNT = await getTopBrokerAccountId()
   try {
-    const { positionId } = await req.json()
+    const { positionId, symbol, volume } = await req.json()
     if (!positionId) return NextResponse.json({ error: 'positionId obrigatório' }, { status: 400 })
 
-    const res = await fetch(
-      `${BASE}/users/current/accounts/${ACCOUNT}/trade`,
-      {
-        method:  'POST',
-        headers: { 'auth-token': TOKEN, 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ actionType: 'POSITION_CLOSE_ID', positionId, comment: 'manual-close' }),
-        signal:  AbortSignal.timeout(8_000),
-      }
+    const brokers = await getActiveBrokers()
+
+    const results = await Promise.allSettled(
+      brokers.map(async (b, idx) => {
+        let pidToClose = positionId
+
+        // Corretoras secundárias: localiza a posição correspondente por símbolo + volume
+        if (idx > 0 && symbol) {
+          const posRes = await fetch(
+            `${BASE}/users/current/accounts/${b.accountId}/positions`,
+            { headers: { 'auth-token': TOKEN }, signal: AbortSignal.timeout(8_000) }
+          )
+          if (posRes.ok) {
+            const raw = await posRes.json()
+            const positions: any[] = Array.isArray(raw) ? raw : []
+            const match = positions.find((p: any) =>
+              baseSymbol(p.symbol) === baseSymbol(symbol) &&
+              (volume === undefined || Math.abs(p.volume - volume) < 0.001)
+            )
+            if (!match) return { brokerId: b.brokerId, nome: b.nome, ok: false, detail: 'Posição não encontrada' }
+            pidToClose = match.id
+          }
+        }
+
+        const res = await fetch(
+          `${BASE}/users/current/accounts/${b.accountId}/trade`,
+          {
+            method:  'POST',
+            headers: { 'auth-token': TOKEN, 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ actionType: 'POSITION_CLOSE_ID', positionId: pidToClose, comment: 'manual-close' }),
+            signal:  AbortSignal.timeout(8_000),
+          }
+        )
+        const text = await res.text()
+        return { brokerId: b.brokerId, nome: b.nome, ok: res.ok, detail: text }
+      })
     )
 
-    if (!res.ok) {
-      const text = await res.text()
-      return NextResponse.json({ error: text }, { status: res.status })
-    }
+    const parsed = results.map(r =>
+      r.status === 'fulfilled' ? r.value : { brokerId: '?', nome: '?', ok: false, detail: String((r as PromiseRejectedResult).reason) }
+    )
 
-    return NextResponse.json({ ok: true })
+    const anyOk = parsed.some(r => r.ok)
+    return NextResponse.json({ ok: anyOk, replication: parsed })
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
