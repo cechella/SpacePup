@@ -168,7 +168,6 @@ export default function ChartPage() {
   const [historyPeriod,      setHistoryPeriod]      = useState<'today' | '7d' | '30d' | '3m'>('7d')
   const [historyLoading,     setHistoryLoading]     = useState(false)
   const [historyBroker,      setHistoryBroker]      = useState<string>('')  // '' = top broker automático
-  const [historyBrokerOpen,  setHistoryBrokerOpen]  = useState(false)
   const [enabledBrokers,     setEnabledBrokers]     = useState<Array<{ id: string; nome: string }>>([]) // corretoras disponíveis para escolha
   // Posições abertas de TODAS as corretoras ativas (cross-broker live panel)
   const [allBrokerPositions, setAllBrokerPositions] = useState<Array<{
@@ -2192,46 +2191,45 @@ export default function ChartPage() {
           <div className="hidden md:block shrink-0 rounded-xl border border-[#30363d] bg-[#0b1219] overflow-hidden">
 
             {/* Cabeçalho */}
-            <div className="px-4 py-2.5 border-b border-[#30363d] flex items-center justify-between flex-wrap gap-2">
-              <span className="text-[11px] font-bold text-[#f0f6fc] flex items-center gap-1.5">
+            <div className="px-4 py-2.5 border-b border-[#30363d] flex items-center justify-between gap-3">
+              <span className="text-[11px] font-bold text-[#f0f6fc] flex items-center gap-1.5 shrink-0">
                 <History size={11} className="text-[#26c6da]" />
                 Relatório de Operações
-                {/* Seletor de corretora — clique para trocar */}
-                <div className="relative">
-                  <button
-                    onClick={() => setHistoryBrokerOpen(o => !o)}
-                    className="flex items-center gap-0.5 text-[9px] font-normal text-[#484f58] hover:text-[#26c6da] transition-colors ml-1 group"
-                  >
-                    · {historyBroker
-                        ? (enabledBrokers.find(b => b.id === historyBroker)?.nome ?? historyBroker)
-                        : (routeBroker?.nome ?? 'Corretora')}
-                    <svg width="7" height="7" viewBox="0 0 7 7" className="opacity-50 group-hover:opacity-100 mt-0.5">
-                      <path d="M1 2l2.5 2.5L6 2" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round"/>
-                    </svg>
-                  </button>
-                  {historyBrokerOpen && enabledBrokers.length > 0 && (
-                    <div className="absolute left-0 top-full mt-1 z-50 bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl overflow-hidden min-w-[130px]">
-                      <button
-                        onClick={() => { setHistoryBroker(''); setHistoryBrokerOpen(false) }}
-                        className={`w-full text-left px-3 py-2 text-[10px] hover:bg-[#21262d] transition-colors ${historyBroker === '' ? 'text-[#26c6da] font-semibold' : 'text-[#8b949e]'}`}
-                      >
-                        Auto (Top)
-                      </button>
-                      {enabledBrokers.map(b => (
-                        <button
-                          key={b.id}
-                          onClick={() => { setHistoryBroker(b.id); setHistoryBrokerOpen(false) }}
-                          className={`w-full text-left px-3 py-2 text-[10px] hover:bg-[#21262d] transition-colors capitalize ${historyBroker === b.id ? 'text-[#26c6da] font-semibold' : 'text-[#8b949e]'}`}
-                        >
-                          {b.nome}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
               </span>
+
+              {/* Seletor de corretora — botões pill com scroll horizontal */}
+              <div className="flex-1 overflow-x-auto min-w-0">
+                <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d] w-fit">
+                  <button
+                    onClick={() => setHistoryBroker('')}
+                    className={cn(
+                      'px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all whitespace-nowrap',
+                      historyBroker === ''
+                        ? 'bg-[#26c6da] text-[#0d1117]'
+                        : 'text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
+                    )}
+                  >
+                    Auto
+                  </button>
+                  {enabledBrokers.map(b => (
+                    <button
+                      key={b.id}
+                      onClick={() => setHistoryBroker(b.id)}
+                      className={cn(
+                        'px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all whitespace-nowrap',
+                        historyBroker === b.id
+                          ? 'bg-[#26c6da] text-[#0d1117]'
+                          : 'text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
+                      )}
+                    >
+                      {b.nome}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Filtros de período */}
-              <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]">
+              <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d] shrink-0">
                 {(['today', '7d', '30d', '3m'] as const).map(p => {
                   const labels = { today: 'Hoje', '7d': '7 dias', '30d': '30 dias', '3m': '3 meses' }
                   const active = historyPeriod === p
@@ -2253,13 +2251,13 @@ export default function ChartPage() {
                 })}
               </div>
               {historyLoading && (
-                <div className="flex items-center gap-1.5 text-[9px] text-[#26c6da] animate-pulse">
+                <div className="flex items-center gap-1.5 text-[9px] text-[#26c6da] animate-pulse shrink-0">
                   <svg className="animate-spin" width="10" height="10" viewBox="0 0 10 10">
                     <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeDasharray="20 6" />
                   </svg>
                   Carregando…
                 </div>
-              )}
+              )
             </div>
 
             {/* Resumo estatístico — 5 KPIs */}
@@ -2589,45 +2587,42 @@ export default function ChartPage() {
         mobileTab === 'history' ? 'translate-y-0' : 'translate-y-full pointer-events-none',
       )}>
         <div className="w-10 h-1 bg-[#30363d] rounded-full mx-auto mt-3 mb-2 shrink-0" />
-        <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between flex-wrap gap-2">
-          <span className="text-[12px] font-bold text-[#f0f6fc] flex items-center gap-1.5 flex-wrap">
-            <History size={12} className="text-[#26c6da]" /> Relatório de Operações
-            {enabledBrokers.length > 0 && (
-              <div className="relative">
-                <button
-                  onClick={() => setHistoryBrokerOpen(o => !o)}
-                  className="flex items-center gap-0.5 text-[10px] font-normal text-[#484f58] hover:text-[#26c6da] transition-colors"
-                >
-                  · {historyBroker
-                      ? (enabledBrokers.find(b => b.id === historyBroker)?.nome ?? historyBroker)
-                      : (routeBroker?.nome ?? 'Auto')}
-                  <svg width="8" height="8" viewBox="0 0 8 8" className="opacity-50">
-                    <path d="M1 2.5l3 3 3-3" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round"/>
-                  </svg>
-                </button>
-                {historyBrokerOpen && (
-                  <div className="absolute left-0 top-full mt-1 z-50 bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl overflow-hidden min-w-[130px]">
-                    <button
-                      onClick={() => { setHistoryBroker(''); setHistoryBrokerOpen(false) }}
-                      className={`w-full text-left px-3 py-2.5 text-[11px] hover:bg-[#21262d] transition-colors ${historyBroker === '' ? 'text-[#26c6da] font-semibold' : 'text-[#8b949e]'}`}
-                    >
-                      Auto (Top)
-                    </button>
-                    {enabledBrokers.map(b => (
-                      <button
-                        key={b.id}
-                        onClick={() => { setHistoryBroker(b.id); setHistoryBrokerOpen(false) }}
-                        className={`w-full text-left px-3 py-2.5 text-[11px] hover:bg-[#21262d] transition-colors capitalize ${historyBroker === b.id ? 'text-[#26c6da] font-semibold' : 'text-[#8b949e]'}`}
-                      >
-                        {b.nome}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+        <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between gap-3">
+          <span className="text-[12px] font-bold text-[#f0f6fc] flex items-center gap-1.5 shrink-0">
+            <History size={12} className="text-[#26c6da]" /> Relatório
           </span>
-          <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d]">
+          {enabledBrokers.length > 0 && (
+            <div className="flex-1 overflow-x-auto min-w-0">
+              <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d] w-fit">
+                <button
+                  onClick={() => setHistoryBroker('')}
+                  className={cn(
+                    'px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all whitespace-nowrap',
+                    historyBroker === ''
+                      ? 'bg-[#26c6da] text-[#0d1117]'
+                      : 'text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
+                  )}
+                >
+                  Auto
+                </button>
+                {enabledBrokers.map(b => (
+                  <button
+                    key={b.id}
+                    onClick={() => setHistoryBroker(b.id)}
+                    className={cn(
+                      'px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all whitespace-nowrap',
+                      historyBroker === b.id
+                        ? 'bg-[#26c6da] text-[#0d1117]'
+                        : 'text-[#484f58] hover:text-[#8b949e] hover:bg-[#21262d]',
+                    )}
+                  >
+                    {b.nome}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-0.5 border border-[#30363d] shrink-0">
             {(['today', '7d', '30d', '3m'] as const).map(p => {
               const labels = { today: 'Hoje', '7d': '7d', '30d': '30d', '3m': '3m' }
               return (
