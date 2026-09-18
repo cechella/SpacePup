@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Globe, RefreshCw, Settings, Eye, EyeOff, Lock } from 'lucide-react'
+import { Globe, RefreshCw, Settings, Eye, EyeOff, Lock, Power } from 'lucide-react'
 
 // ── Paleta ──────────────────────────────────────────────────────────────────
 const C = {
@@ -106,6 +106,8 @@ export default function BrokersPage() {
   const [lastUpdate, setLastUpdate] = useState('')
   const [liveData, setLiveData] = useState<Record<string, LiveData>>({})
   const [liveLoading, setLiveLoading] = useState(false)
+  const [mapiStatus, setMapiStatus]   = useState<'idle' | 'loading'>('idle')
+  const [mapiActive, setMapiActive]   = useState<boolean | null>(null)
 
   // Dados dinâmicos do Supabase
   const [faixas,   setFaixas]   = useState<FaixaLote[]>([])
@@ -149,6 +151,9 @@ export default function BrokersPage() {
 
     setLiveData(results)
     setLiveLoading(false)
+    // Considera ativo se ao menos 1 conta respondeu com saldo
+    const anyConnected = Object.values(results).some(r => r.connected)
+    setMapiActive(anyConnected)
   }, [])
 
   const fetchBrokers = useCallback(async () => {
@@ -220,6 +225,19 @@ export default function BrokersPage() {
     }
   }
 
+  const toggleMetaApi = async () => {
+    const acao = mapiActive ? 'undeploy' : 'deploy'
+    setMapiStatus('loading')
+    try {
+      await fetch(`/api/metaapi/${acao}`, { method: 'POST' })
+      setMapiActive(!mapiActive)
+      // Rebusca saldos após toggle
+      await fetchBrokers()
+    } finally {
+      setMapiStatus('idle')
+    }
+  }
+
   const toggle = async (broker: Broker) => {
     setToggling(broker.id)
     try {
@@ -259,6 +277,34 @@ export default function BrokersPage() {
           {lastUpdate && (
             <span style={{ color: C.t3, fontSize: 10 }}>atualizado {lastUpdate}</span>
           )}
+          <button
+            onClick={toggleMetaApi}
+            disabled={mapiStatus === 'loading'}
+            title={mapiActive === false ? 'Ligar MetaAPI (deploy contas)' : 'Desligar MetaAPI (undeploy contas)'}
+            style={{
+              background:    mapiActive ? '#0d2010' : C.s1,
+              border:        `1px solid ${mapiActive ? C.gr : C.bd}`,
+              color:         mapiActive ? C.gr : C.t2,
+              padding:       '6px 10px',
+              borderRadius:  6,
+              cursor:        mapiStatus === 'loading' ? 'wait' : 'pointer',
+              display:       'flex',
+              alignItems:    'center',
+              gap:           5,
+              fontSize:      11,
+              opacity:       mapiStatus === 'loading' ? 0.6 : 1,
+              transition:    'all .2s',
+            }}
+          >
+            <Power size={11} />
+            {mapiStatus === 'loading'
+              ? 'aguarde...'
+              : mapiActive
+                ? 'MetaAPI ON'
+                : mapiActive === false
+                  ? 'MetaAPI OFF'
+                  : 'MetaAPI'}
+          </button>
           <button
             onClick={fetchBrokers}
             style={{ background: 'transparent', border: `1px solid ${C.bd}`, color: C.t2, padding: '6px 10px', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontSize: 11 }}
