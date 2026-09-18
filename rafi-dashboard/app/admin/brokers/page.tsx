@@ -123,10 +123,11 @@ interface BrokerAnalytics {
 
 // ── Logo por corretora ───────────────────────────────────────────────────
 const LOGOS: Record<string, { label: string; cor: string; bg: string; bd: string }> = {
-  xm:             { label: 'XM',  cor: C.am, bg: '#1f1508', bd: '#3d2a10' },
-  pepperstone:    { label: 'PP',  cor: C.bl, bg: '#0d1a28', bd: '#1a2a44' },
-  exness:         { label: 'EX',  cor: C.cy, bg: '#0a1a20', bd: '#1a3040' },
+  xm:             { label: 'XM',  cor: C.am,      bg: '#1f1508', bd: '#3d2a10' },
+  pepperstone:    { label: 'PP',  cor: C.bl,      bg: '#0d1a28', bd: '#1a2a44' },
+  exness:         { label: 'EX',  cor: C.cy,      bg: '#0a1a20', bd: '#1a3040' },
   tickmill:       { label: 'TK',  cor: '#f97316', bg: '#1a0f00', bd: '#3a1f00' },
+  icmarkets:      { label: 'IC',  cor: '#e11d48', bg: '#1a0008', bd: '#3a001a' },
   fusion_markets: { label: 'FM',  cor: '#a855f7', bg: '#150d27', bd: '#2d1a4a' },
   forex_com:      { label: 'FX',  cor: '#22c55e', bg: '#0a1f12', bd: '#1a3d22' },
 }
@@ -427,42 +428,44 @@ export default function BrokersPage() {
         </div>
       </div>
 
-      {/* Notice */}
-      <div style={{ background: C.s1, border: `1px solid ${C.bd}`, borderLeft: `3px solid ${C.bl}`, borderRadius: 6, padding: '10px 14px', fontSize: 12, color: C.t2, marginBottom: 20, lineHeight: 1.8 }}>
-        <strong style={{ color: C.bl }}>Como funciona:</strong> o toggle habilita a corretora para a <strong style={{ color: C.tx }}>Mesa de Operação</strong> (trade manual) e para o <strong style={{ color: C.tx }}>bot automático</strong>. São dois sistemas independentes:<br />
-        <span style={{ color: C.gr }}>● Mesa de Operação</span> — funciona assim que o toggle está ON + MetaAPI conectado. Não precisa de nada no VPS.<br />
-        <span style={{ color: C.am }}>● Bot automático</span> — precisa de um processo Python rodando no VPS para cada corretora:
-        {' '}<code style={{ color: C.tx }}>py -m src.executor --broker icmarkets</code>,
-        {' '}<code style={{ color: C.tx }}>--broker tickmill</code>,
-        {' '}<code style={{ color: C.tx }}>--broker exness</code>,
-        {' '}<code style={{ color: C.tx }}>--broker pepperstone</code>
-      </div>
-
-      {/* Broker cards */}
-      {loading ? (
-        <div style={{ color: C.t2, fontSize: 12, textAlign: 'center', padding: 40 }}>Carregando corretoras...</div>
-      ) : brokers.length === 0 ? (
-        <div style={{ color: C.t2, fontSize: 12, textAlign: 'center', padding: 40 }}>
-          Tabela rafi_brokers não encontrada. Execute o SQL de criação no Supabase.
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 12, marginBottom: 28 }}>
-          {brokers.map((b) => (
-            <BrokerCard key={b.id} broker={b} faixas={faixas} live={liveData[b.id]} onToggle={toggle} toggling={toggling === b.id} onCred={abrirCred} />
-          ))}
-        </div>
-      )}
-
-      {/* Ranking dinâmico das corretoras */}
+      {/* 1. Ranking dinâmico — primeira informação visível */}
       <BrokerRanking ranking={ranking} loading={rankLoading} />
 
-      {/* Performance em tempo real */}
-      <LivePerformance data={livePerf} loading={livePerfLoading} updatedAt={livePerfAt} />
-
-      {/* Analytics de ping e latência por corretora */}
+      {/* 2. Analytics de ping e latência */}
       <BrokerPingPanel data={analytics} updatedAt={analyticsAt} />
 
-      {/* Legenda dos parâmetros */}
+      {/* 3. Corretoras cadastradas */}
+      <div style={{ marginTop: 28 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.t2, marginBottom: 12 }}>
+          Corretoras Cadastradas
+        </div>
+
+        {/* Notice */}
+        <div style={{ background: C.s1, border: `1px solid ${C.bd}`, borderLeft: `3px solid ${C.bl}`, borderRadius: 6, padding: '10px 14px', fontSize: 12, color: C.t2, marginBottom: 16, lineHeight: 1.8 }}>
+          <strong style={{ color: C.bl }}>Como funciona:</strong> o toggle habilita para a <strong style={{ color: C.tx }}>Mesa de Operação</strong> (trade manual) e para o <strong style={{ color: C.tx }}>bot automático</strong>. São dois sistemas independentes:{'  '}
+          <span style={{ color: C.gr }}>● Mesa de Operação</span> — toggle ON + MetaAPI conectado, sem VPS.{'  '}
+          <span style={{ color: C.am }}>● Bot automático</span> — processo Python no VPS: <code style={{ color: C.tx }}>py -m src.executor --broker &lt;id&gt;</code>
+        </div>
+
+        {loading ? (
+          <div style={{ color: C.t2, fontSize: 12, textAlign: 'center', padding: 40 }}>Carregando corretoras...</div>
+        ) : brokers.length === 0 ? (
+          <div style={{ color: C.t2, fontSize: 12, textAlign: 'center', padding: 40 }}>
+            Tabela rafi_brokers não encontrada. Execute o SQL de criação no Supabase.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 12 }}>
+            {brokers.map((b) => (
+              <BrokerCard key={b.id} broker={b} faixas={faixas} live={liveData[b.id]} onToggle={toggle} toggling={toggling === b.id} onCred={abrirCred} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 4. Performance em tempo real */}
+      <LivePerformance data={livePerf} loading={livePerfLoading} updatedAt={livePerfAt} />
+
+      {/* 5. Legenda dos parâmetros */}
       <ParamLegend />
 
       {/* Modal de credenciais MT5 */}

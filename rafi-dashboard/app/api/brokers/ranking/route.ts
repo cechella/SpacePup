@@ -32,7 +32,6 @@ export async function GET() {
       broker_health_state ( estado, circuit_breaker, health_score )
     `)
     .eq('enabled', true)
-    .not('metaapi_account_id', 'is', null)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
