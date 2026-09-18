@@ -984,14 +984,15 @@ function BrokerCard({ broker, faixas, live, onToggle, toggling, onCred }: {
               const st = broker.status_text ?? ''
               const botOnline = st !== '' && st !== 'DESLIGADA'
               return (
-                <div style={{
-                  fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
-                  padding: '3px 7px', borderRadius: 4,
-                  background: botOnline ? 'rgba(255,179,0,.08)' : C.s3,
-                  color: botOnline ? C.am : C.t3,
-                  border: `1px solid ${botOnline ? 'rgba(255,179,0,.25)' : C.bd}`,
-                  title: botOnline ? '' : `Iniciar: py -m src.executor --broker ${broker.id}`,
-                }}>
+                <div
+                  title={botOnline ? undefined : `Iniciar no VPS: py -m src.executor --broker ${broker.id}`}
+                  style={{
+                    fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+                    padding: '3px 7px', borderRadius: 4,
+                    background: botOnline ? 'rgba(255,179,0,.08)' : C.s3,
+                    color: botOnline ? C.am : C.t3,
+                    border: `1px solid ${botOnline ? 'rgba(255,179,0,.25)' : C.bd}`,
+                  }}>
                   {botOnline ? `BOT: ${st}` : 'BOT: OFFLINE'}
                 </div>
               )
