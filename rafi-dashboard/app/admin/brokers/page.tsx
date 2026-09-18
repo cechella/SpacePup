@@ -414,14 +414,14 @@ export default function BrokersPage() {
         </div>
       )}
 
-      {/* Legenda dos parâmetros */}
-      <ParamLegend />
-
       {/* Ranking dinâmico das corretoras */}
       <BrokerRanking ranking={ranking} loading={rankLoading} />
 
       {/* Performance em tempo real */}
       <LivePerformance data={livePerf} loading={livePerfLoading} updatedAt={livePerfAt} />
+
+      {/* Legenda dos parâmetros */}
+      <ParamLegend />
 
       {/* Modal de credenciais MT5 */}
       {credBroker && (
