@@ -905,13 +905,43 @@ export default function ChartPage() {
     [liveBrokerPositions],
   )
 
+  // Ranking ao vivo: reordena corretoras pelo P&L líquido tick a tick
+  // Quando há posições abertas, quem está ganhando mais sobe para #1 instantaneamente
+  const liveRankedBrokers = useMemo(() => {
+    const hasPositions = liveBrokerPositions.some(b => b.positions.length > 0)
+    if (!hasPositions) return liveBrokerPositions
+    return [...liveBrokerPositions]
+      .sort((a, b) => (b.totalNetPnl ?? b.totalPnl) - (a.totalNetPnl ?? a.totalPnl))
+      .map((b, i) => ({ ...b, rank: i + 1 }))
+  }, [liveBrokerPositions])
+
+  // ID e nome do broker #1 ao vivo — primitivos para evitar re-renders desnecessários
+  const liveTopBrokerId   = useMemo(() =>
+    liveRankedBrokers.some(b => b.positions.length > 0) ? (liveRankedBrokers[0]?.brokerId ?? null) : null,
+    [liveRankedBrokers],
+  )
+  const liveTopBrokerNome = useMemo(() =>
+    liveRankedBrokers.some(b => b.positions.length > 0) ? (liveRankedBrokers[0]?.nome ?? null) : null,
+    [liveRankedBrokers],
+  )
+
   // Lista plana de posições com P&L ao vivo — usada pelos painéis cross-broker
   const flatBrokerPositions = useMemo(
-    () => liveBrokerPositions.flatMap(b =>
+    () => liveRankedBrokers.flatMap(b =>
       b.positions.map(p => ({ ...p, brokerId: b.brokerId, brokerNome: b.nome, rank: b.rank }))
     ),
-    [liveBrokerPositions],
+    [liveRankedBrokers],
   )
+
+  // Atualiza "ORDEM VAI PARA" em tempo real quando o broker #1 muda ao vivo
+  // Só dispara quando o ID do líder troca — não a cada tick de preço
+  useEffect(() => {
+    if (!liveTopBrokerId || !liveTopBrokerNome) return
+    setRouteBroker(prev => {
+      if (!prev || prev.id === liveTopBrokerId) return prev
+      return { ...prev, id: liveTopBrokerId, nome: liveTopBrokerNome }
+    })
+  }, [liveTopBrokerId, liveTopBrokerNome])
 
   // Equity ao vivo: saldo fixo + P&L calculado tick a tick via preço SSE
   // Evita o atraso do poll de 5s — exibe o capital total em tempo real
