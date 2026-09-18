@@ -730,12 +730,12 @@ export default function ChartPage() {
         const res = await fetch('/api/brokers')
         const { brokers } = await res.json()
         if (!Array.isArray(brokers) || brokers.length === 0) return
-        // Espelho exato do broker_ranking.py: só ACTIVE/ACTIVE_REDUCED com CB CLOSED/HALF_OPEN
-        const estadosAceitos = new Set(['ACTIVE', 'ACTIVE_REDUCED'])
+        // Inclui STANDBY para que o routeBroker seja definido mesmo sem bot rodando
+        const estadosAceitos = new Set(['ACTIVE', 'ACTIVE_REDUCED', 'STANDBY'])
         const cbAceitos      = new Set(['CLOSED', 'HALF_OPEN'])
         const active = brokers.filter((b: { enabled: boolean; health_estado?: string; circuit_breaker?: string }) =>
           b.enabled &&
-          estadosAceitos.has(b.health_estado ?? '') &&
+          estadosAceitos.has(b.health_estado ?? 'STANDBY') &&
           cbAceitos.has(b.circuit_breaker ?? 'CLOSED')
         )
         // Alimenta o seletor do histórico com todas as corretoras habilitadas
@@ -1451,7 +1451,9 @@ export default function ChartPage() {
         {/* Barra de roteamento multi-corretora */}
         {routeBroker && (
           <div className="hidden md:flex items-center gap-3 px-3 py-1.5 bg-[#0b1219] rounded-lg border border-[#30363d]/60 text-[10px] shrink-0">
-            <span className="text-[#484f58] font-semibold uppercase tracking-wider">Próxima ordem →</span>
+            <span className="text-[#484f58] font-semibold uppercase tracking-wider">
+              {routeBroker.estado === 'STANDBY' ? 'Ordem vai para' : 'Próxima ordem →'}
+            </span>
             <div className={cn(
               'flex items-center gap-1.5 px-2 py-0.5 rounded border font-bold text-[11px]',
               routeBroker.estado === 'ACTIVE'
