@@ -627,8 +627,12 @@ export default function ChartPage() {
               })),
               ...a,
             ].slice(0, 4))
-            // Atualiza histórico quando uma posição fecha (mantém período atual)
-            if (closed.length > 0) setTimeout(() => fetchHistory(historyPeriod), 3000)
+            // Atualiza histórico e refaz poll de posições quando uma fecha
+            // O segundo fetchLiveData confirma que a posição sumiu do broker antes do próximo ciclo de 5s
+            if (closed.length > 0) {
+              setTimeout(() => fetchLiveData(),          1_000)
+              setTimeout(() => fetchHistory(historyPeriod), 3_000)
+            }
           }
           prevPositionsRef.current = newPos
           return newPos
