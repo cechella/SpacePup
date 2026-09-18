@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getTopBrokerAccountId } from '@/lib/top-broker'
+import { getTopBroker } from '@/lib/top-broker'
 
 const BASE  = 'https://mt-market-data-client-api-v1.london.agiliumtrade.ai'
 const TOKEN = process.env.METAAPI_TOKEN!
@@ -14,12 +14,13 @@ export const runtime = 'nodejs'
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
-  const symbol    = searchParams.get('symbol')    || 'EURUSD'
   const timeframe = searchParams.get('timeframe') || 'M5'
   const limit     = parseInt(searchParams.get('limit') || '100', 10)
 
-  const tf      = TF_MAP[timeframe] ?? TF_MAP['M5']
-  const ACCOUNT = await getTopBrokerAccountId()
+  const tf             = TF_MAP[timeframe] ?? TF_MAP['M5']
+  const top            = await getTopBroker()
+  const ACCOUNT        = top.accountId
+  const symbol         = top.symbol  // EURUSDz para Exness, EURUSD para outros
 
   try {
     const url = `${BASE}/users/current/accounts/${ACCOUNT}/historical-market-data/symbols/${symbol}/timeframes/${tf.rest}/candles?limit=${limit}`

@@ -7,10 +7,10 @@ const TOKEN = process.env.METAAPI_TOKEN!
 export const runtime = 'nodejs'
 
 export async function POST(req: Request) {
-  const { accountId, brokerId } = await getTopBroker()
+  const { accountId, brokerId, symbol: brokerSymbol } = await getTopBroker()
   try {
     const body = await req.json()
-    const { symbol = 'EURUSD', actionType, volume, stopLoss, takeProfit, comment = 'RAFI-Dashboard' } = body
+    const { symbol = brokerSymbol, actionType, volume, stopLoss, takeProfit, comment = 'RAFI-Dashboard' } = body
 
     if (!actionType || !volume || !stopLoss) {
       return NextResponse.json({ error: 'actionType, volume e stopLoss são obrigatórios' }, { status: 400 })

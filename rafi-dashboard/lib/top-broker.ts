@@ -7,12 +7,19 @@ const ESTADO_ORDER: Record<string, number> = {
   QUARANTINED:    99,
 }
 
+// Símbolo EURUSD varia por corretora (Exness usa EURUSDz)
+const SYMBOL_MAP: Record<string, string> = {
+  exness:      'EURUSDz',
+  pepperstone: 'EURUSD',
+  tickmill:    'EURUSD',
+}
+
 // Cache em memória — evita query no Supabase a cada poll de preço (5s)
-let cache: { accountId: string; brokerId: string; ts: number } | null = null
+let cache: { accountId: string; brokerId: string; symbol: string; ts: number } | null = null
 const CACHE_TTL_MS = 30_000 // 30 segundos
 
 /**
- * Retorna { accountId, brokerId } da corretora #1 no ranking dinâmico:
+ * Retorna { accountId, brokerId, symbol } da corretora #1 no ranking dinâmico:
  * 1º Estado: ACTIVE > ACTIVE_REDUCED > STANDBY (QUARANTINED excluído)
  * 2º Circuit Breaker CLOSED
  * 3º Health Score maior
@@ -20,12 +27,12 @@ const CACHE_TTL_MS = 30_000 // 30 segundos
  *
  * Fallback: METAAPI_ACCOUNT_ID env var se Supabase indisponível
  */
-export async function getTopBroker(): Promise<{ accountId: string; brokerId: string }> {
+export async function getTopBroker(): Promise<{ accountId: string; brokerId: string; symbol: string }> {
   const ENV_ID = process.env.METAAPI_ACCOUNT_ID ?? ''
 
   // Cache válido
   if (cache && Date.now() - cache.ts < CACHE_TTL_MS) {
-    return { accountId: cache.accountId, brokerId: cache.brokerId }
+    return { accountId: cache.accountId, brokerId: cache.brokerId, symbol: cache.symbol }
   }
 
   try {
@@ -46,7 +53,7 @@ export async function getTopBroker(): Promise<{ accountId: string; brokerId: str
       .eq('enabled', true)
       .not('metaapi_account_id', 'is', null)
 
-    if (error || !data?.length) return { accountId: ENV_ID, brokerId: '' }
+    if (error || !data?.length) return { accountId: ENV_ID, brokerId: '', symbol: 'EURUSD' }
 
     const ranked = (data as any[])
       .map(b => {
@@ -70,12 +77,13 @@ export async function getTopBroker(): Promise<{ accountId: string; brokerId: str
       )
 
     const top = ranked[0]
-    if (!top) return { accountId: ENV_ID, brokerId: '' }
+    if (!top) return { accountId: ENV_ID, brokerId: '', symbol: 'EURUSD' }
 
-    cache = { accountId: top.accountId, brokerId: top.brokerId, ts: Date.now() }
-    return { accountId: top.accountId, brokerId: top.brokerId }
+    const symbol = SYMBOL_MAP[top.brokerId] ?? 'EURUSD'
+    cache = { accountId: top.accountId, brokerId: top.brokerId, symbol, ts: Date.now() }
+    return { accountId: top.accountId, brokerId: top.brokerId, symbol }
   } catch {
-    return { accountId: ENV_ID, brokerId: '' }
+    return { accountId: ENV_ID, brokerId: '', symbol: 'EURUSD' }
   }
 }
 

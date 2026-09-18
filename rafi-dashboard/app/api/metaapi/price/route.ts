@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getTopBrokerAccountId } from '@/lib/top-broker'
+import { getTopBroker } from '@/lib/top-broker'
 
 const BASE  = process.env.METAAPI_BASE_URL ?? 'https://mt-client-api-v1.london.agiliumtrade.ai'
 const TOKEN = process.env.METAAPI_TOKEN!
@@ -7,9 +7,9 @@ const TOKEN = process.env.METAAPI_TOKEN!
 export const runtime = 'nodejs'
 
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url)
-  const symbol  = searchParams.get('symbol') || 'EURUSD'
-  const ACCOUNT = await getTopBrokerAccountId()
+  const top     = await getTopBroker()
+  const ACCOUNT = top.accountId
+  const symbol  = top.symbol  // EURUSDz para Exness, EURUSD para outros
 
   try {
     const res = await fetch(
