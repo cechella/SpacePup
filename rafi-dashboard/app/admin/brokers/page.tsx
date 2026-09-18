@@ -406,6 +406,9 @@ export default function BrokersPage() {
         </div>
       )}
 
+      {/* Legenda dos parâmetros */}
+      <ParamLegend />
+
       {/* Ranking dinâmico das corretoras */}
       <BrokerRanking ranking={ranking} loading={rankLoading} />
 
@@ -484,6 +487,106 @@ export default function BrokersPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Legenda dos parâmetros ───────────────────────────────────────────────────
+function ParamLegend() {
+  const items: { label: string; desc: string; detail?: string; color?: string }[] = [
+    {
+      label: 'Saldo ●',
+      desc:  'Saldo atual da conta em dólares.',
+      detail: 'Quando o ponto ● aparece ao lado, o valor veio ao vivo da MetaAPI (conta conectada). Sem ●, é o último valor salvo no Supabase.',
+      color: C.cy,
+    },
+    {
+      label: 'P&L Hoje',
+      desc:  'Lucro ou perda acumulado nas operações FECHADAS no dia.',
+      detail: 'Não inclui posições abertas. Verde = lucro, vermelho = perda. Zera à meia-noite (servidor MetaAPI).',
+      color: C.gr,
+    },
+    {
+      label: 'Posições',
+      desc:  'Número de trades abertos neste momento nesta corretora.',
+    },
+    {
+      label: 'Health Score',
+      desc:  'Pontuação de saúde da corretora de 0 a 100.',
+      detail: 'Calculado pelo bot com base em: spread médio, latência de execução, taxa de rejeição de ordens e uptime. Quanto maior, melhor. ≥ 80 = verde, ≥ 65 = amarelo, < 65 = vermelho. Atualmente os valores são estáticos (definidos manualmente no Supabase) — cálculo dinâmico disponível na Fase 2.',
+      color: C.am,
+    },
+    {
+      label: 'CB (Circuit Breaker)',
+      desc:  'Interruptor automático de segurança.',
+      detail: 'FECHADO ✓ = corretora operacional, pode receber ordens. ABERTO ✗ = corretora bloqueada automaticamente após falhas consecutivas (ex.: 3 rejeições seguidas). O bot ignora corretoras com CB ABERTO na replicação.',
+    },
+    {
+      label: 'Estado',
+      desc:  'Status operacional da corretora no sistema de roteamento.',
+      detail: 'ACTIVE = plena operação (prioridade máxima). ACTIVE_REDUCED = operando com restrições (spread alto ou latência elevada). STANDBY = em espera, só recebe ordens se as ACTIVE falharem. QUARANTINED = excluída de todos os roteamentos por falhas graves.',
+    },
+    {
+      label: 'Símbolo',
+      desc:  'Par de moedas configurado nesta corretora.',
+      detail: 'Exness usa EURUSDz (sufixo "z" do servidor). Pepperstone e Tickmill usam EURUSD padrão. O sistema normaliza automaticamente na correspondência cruzada de posições.',
+      color: C.cy,
+    },
+    {
+      label: 'Lote',
+      desc:  'Tamanho de posição (lotes) calculado automaticamente pelo saldo atual.',
+      detail: 'Baseado na tabela de faixas cadastrada em Configurações. Ex.: $5.000 → 0.10 lote, $10.000 → 0.20 lote. Aparece no formato "0.10L" no card.',
+    },
+    {
+      label: 'Priority',
+      desc:  'Número de prioridade para desempate no ranking (menor = mais prioritário).',
+      detail: 'Usado quando duas corretoras têm o mesmo estado e health score. Ex.: Priority 1 bate Priority 2 se tudo mais for igual.',
+    },
+    {
+      label: '★ MELHOR P&L',
+      desc:  'Badge no painel de Performance: corretora com maior lucro total nas posições abertas.',
+      color: C.gr,
+    },
+    {
+      label: '⚡ MELHOR FILL',
+      desc:  'Badge no painel de Performance: corretora com melhor preço de entrada para o mesmo símbolo.',
+      detail: 'Em BUY: menor openPrice = entrou mais barato = melhor fill. Em SELL: maior openPrice = entrou mais caro = melhor fill. Spread diferente entre corretoras é normal — não significa manipulação.',
+      color: C.cy,
+    },
+  ]
+
+  return (
+    <div style={{ background: C.s1, border: `1px solid ${C.bd}`, borderRadius: 10, overflow: 'hidden', marginTop: 12, marginBottom: 8 }}>
+      <div style={{ background: C.s2, borderBottom: `1px solid ${C.bd}`, padding: '10px 16px' }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.tx }}>
+          Guia dos Parâmetros · O que cada número significa
+        </div>
+      </div>
+      <div style={{ padding: '14px 16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 8 }}>
+          {items.map((item) => (
+            <div key={item.label} style={{
+              background: C.s2,
+              border:     `1px solid ${C.bd}`,
+              borderLeft: `3px solid ${item.color ?? C.t3}`,
+              borderRadius: 6,
+              padding:    '10px 12px',
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: item.color ?? C.tx, marginBottom: 4, letterSpacing: '0.04em' }}>
+                {item.label}
+              </div>
+              <div style={{ fontSize: 11, color: C.tx, lineHeight: 1.5, marginBottom: item.detail ? 6 : 0 }}>
+                {item.desc}
+              </div>
+              {item.detail && (
+                <div style={{ fontSize: 10, color: C.t2, lineHeight: 1.6, borderTop: `1px solid ${C.bd}`, paddingTop: 6 }}>
+                  {item.detail}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
