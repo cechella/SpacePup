@@ -1,22 +1,17 @@
 import { NextResponse } from 'next/server'
+import { getTopBrokerAccountId } from '@/lib/top-broker'
 
-// REST API direta — sem SDK, sem WebSocket, sem connection.close().
-// O SDK com connection.close() matava a subscrição de preço (keepSubscription)
-// a cada operação, congelando o tick ao vivo por ~30s.
-const BASE    = process.env.METAAPI_BASE_URL ?? 'https://mt-client-api-v1.london.agiliumtrade.ai'
-const TOKEN   = process.env.METAAPI_TOKEN!
-const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
+const BASE  = process.env.METAAPI_BASE_URL ?? 'https://mt-client-api-v1.london.agiliumtrade.ai'
+const TOKEN = process.env.METAAPI_TOKEN!
 
-export const runtime = 'edge'
+export const runtime = 'nodejs'
 
 export async function GET() {
+  const ACCOUNT = await getTopBrokerAccountId()
   try {
     const res = await fetch(
       `${BASE}/users/current/accounts/${ACCOUNT}/positions`,
-      {
-        headers: { 'auth-token': TOKEN },
-        signal:  AbortSignal.timeout(8_000),
-      }
+      { headers: { 'auth-token': TOKEN }, signal: AbortSignal.timeout(8_000) }
     )
 
     if (!res.ok) {
@@ -46,6 +41,7 @@ export async function GET() {
 }
 
 export async function DELETE(req: Request) {
+  const ACCOUNT = await getTopBrokerAccountId()
   try {
     const { positionId } = await req.json()
     if (!positionId) return NextResponse.json({ error: 'positionId obrigatório' }, { status: 400 })

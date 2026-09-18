@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server'
+import { getTopBroker } from '@/lib/top-broker'
 
-const BASE    = process.env.METAAPI_BASE_URL ?? 'https://mt-client-api-v1.london.agiliumtrade.ai'
-const TOKEN   = process.env.METAAPI_TOKEN!
-const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
+const BASE  = process.env.METAAPI_BASE_URL ?? 'https://mt-client-api-v1.london.agiliumtrade.ai'
+const TOKEN = process.env.METAAPI_TOKEN!
 
-export const runtime = 'edge'
+export const runtime = 'nodejs'
 
 export async function POST(req: Request) {
+  const { accountId, brokerId } = await getTopBroker()
   try {
     const body = await req.json()
     const { symbol = 'EURUSD', actionType, volume, stopLoss, takeProfit, comment = 'RAFI-Dashboard' } = body
@@ -20,7 +21,7 @@ export async function POST(req: Request) {
     }
 
     const res = await fetch(
-      `${BASE}/users/current/accounts/${ACCOUNT}/trade`,
+      `${BASE}/users/current/accounts/${accountId}/trade`,
       {
         method:  'POST',
         headers: { 'auth-token': TOKEN, 'Content-Type': 'application/json' },
@@ -44,6 +45,7 @@ export async function POST(req: Request) {
       volume,
       stopLoss,
       takeProfit,
+      broker:     brokerId, // informa qual corretora executou
     })
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })

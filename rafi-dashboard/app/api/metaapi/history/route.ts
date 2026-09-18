@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server'
 import MetaApi from 'metaapi.cloud-sdk'
+import { getTopBrokerAccountId } from '@/lib/top-broker'
 
-const TOKEN   = process.env.METAAPI_TOKEN!
-const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
+const TOKEN = process.env.METAAPI_TOKEN!
 
 export const runtime     = 'nodejs'
 export const maxDuration = 60
 
-// Converte parâmetro de período para data de início
 function periodToFrom(period: string): Date {
   const now = new Date()
   switch (period) {
@@ -16,17 +15,18 @@ function periodToFrom(period: string): Date {
       d.setHours(0, 0, 0, 0)
       return d
     }
-    case '30d':  return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-    case '3m':   return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+    case '30d': return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+    case '3m':  return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
     case '7d':
-    default:     return new Date(now.getTime() -  7 * 24 * 60 * 60 * 1000)
+    default:    return new Date(now.getTime() -  7 * 24 * 60 * 60 * 1000)
   }
 }
 
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url)
-    const period = searchParams.get('period') ?? '7d'
+    const period  = searchParams.get('period') ?? '7d'
+    const ACCOUNT = await getTopBrokerAccountId()
 
     const api        = new MetaApi(TOKEN)
     const account    = await api.metatraderAccountApi.getAccount(ACCOUNT)
@@ -37,7 +37,6 @@ export async function GET(req: Request) {
     const now  = new Date()
     const from = periodToFrom(period)
     const raw  = await (connection as any).getDealsByTimeRange(from, now, 0, 100)
-    // getDealsByTimeRange retorna { deals: [...], synchronizing: bool }, não um array direto
     const deals = Array.isArray(raw) ? raw : ((raw as any).deals ?? [])
 
     await connection.close()
@@ -48,20 +47,17 @@ export async function GET(req: Request) {
         (d.type === 'DEAL_TYPE_BUY' || d.type === 'DEAL_TYPE_SELL'),
       )
       .map(d => ({
-        id:      d.id,
-        symbol:  d.symbol,
-        type:    d.type,
-        // DEAL_ENTRY_OUT: o tipo da deal de saída é OPOSTO à posição original.
-        // DEAL_TYPE_SELL ao fechar = posição original era BUY (vendeu para fechar a compra).
-        // DEAL_TYPE_BUY  ao fechar = posição original era SELL (comprou para fechar a venda).
+        id:        d.id,
+        symbol:    d.symbol,
+        type:      d.type,
         direction: d.type === 'DEAL_TYPE_SELL' ? 'buy' : 'sell',
-        volume:  d.volume,
-        price:   d.price,
-        profit:  d.profit ?? 0,
-        time:    d.time,
-        comment: d.comment ?? '',
+        volume:    d.volume,
+        price:     d.price,
+        profit:    d.profit ?? 0,
+        time:      d.time,
+        comment:   d.comment ?? '',
       }))
-      .reverse() // mais recente primeiro
+      .reverse()
 
     return NextResponse.json({ history, period })
   } catch (e: any) {

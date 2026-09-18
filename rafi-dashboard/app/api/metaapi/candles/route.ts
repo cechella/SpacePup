@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server'
+import { getTopBrokerAccountId } from '@/lib/top-broker'
 
-// SDK usa mt-market-data-client-api-v1 (não mt-client-api-v1) para candles históricos
-const BASE    = 'https://mt-market-data-client-api-v1.london.agiliumtrade.ai'
-const TOKEN   = process.env.METAAPI_TOKEN!
-const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
+const BASE  = 'https://mt-market-data-client-api-v1.london.agiliumtrade.ai'
+const TOKEN = process.env.METAAPI_TOKEN!
 
 const TF_MAP: Record<string, { rest: string; minutes: number }> = {
   M5:  { rest: '5m',  minutes: 5  },
@@ -11,7 +10,7 @@ const TF_MAP: Record<string, { rest: string; minutes: number }> = {
   H1:  { rest: '1h',  minutes: 60 },
 }
 
-export const runtime = 'edge'
+export const runtime = 'nodejs'
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
@@ -19,10 +18,9 @@ export async function GET(req: Request) {
   const timeframe = searchParams.get('timeframe') || 'M5'
   const limit     = parseInt(searchParams.get('limit') || '100', 10)
 
-  const tf = TF_MAP[timeframe] ?? TF_MAP['M5']
+  const tf      = TF_MAP[timeframe] ?? TF_MAP['M5']
+  const ACCOUNT = await getTopBrokerAccountId()
 
-  // Sem startTime → MetaAPI retorna os N candles mais recentes (igual ao SDK)
-  // Com startTime fixo em 25h atrás + limit=100, a API retornava os 100 MAIS ANTIGOS da janela
   try {
     const url = `${BASE}/users/current/accounts/${ACCOUNT}/historical-market-data/symbols/${symbol}/timeframes/${tf.rest}/candles?limit=${limit}`
 

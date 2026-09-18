@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server'
+import { getTopBrokerAccountId } from '@/lib/top-broker'
 
-const BASE    = process.env.METAAPI_BASE_URL ?? 'https://mt-client-api-v1.london.agiliumtrade.ai'
-const TOKEN   = process.env.METAAPI_TOKEN!
-const ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
+const BASE  = process.env.METAAPI_BASE_URL ?? 'https://mt-client-api-v1.london.agiliumtrade.ai'
+const TOKEN = process.env.METAAPI_TOKEN!
 
-export const runtime = 'edge'
+export const runtime = 'nodejs'
 
 export async function PATCH(req: Request) {
+  const ACCOUNT = await getTopBrokerAccountId()
   try {
     const { positionId, stopLoss, takeProfit } = await req.json()
 
