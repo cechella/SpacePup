@@ -90,12 +90,13 @@ def _resultado(trade: dict) -> str:
     return 'win' if pnl > 0 else 'loss'
 
 
-def trade_para_dashboard(trade: dict, capital_entrada: float) -> dict:
+def trade_para_dashboard(trade: dict, capital_entrada: float, capital_inicial: float = 0) -> dict:
     """
     Converte um dict de trade do backtest no formato ManualTrade do dashboard.
 
-    O lote é recalculado pela tabela agressiva baseado no capital NO MOMENTO
-    da entrada — o mesmo lote que o bot usaria se aplicasse esta estratégia.
+    Usa o lote real registrado pelo backtest (trade['lote']), que segue a tabela
+    FAIXAS_LOTE do risk_manager.py. Só usa SCALE_TIERS_PYTHON como fallback se
+    o trade não tiver o campo 'lote'.
     """
     sinal     = trade['sinal']
     direction = 'buy' if sinal == 'compra' else 'sell'
@@ -115,12 +116,18 @@ def trade_para_dashboard(trade: dict, capital_entrada: float) -> dict:
     ts_str = ts.strftime('%Y-%m-%d %H:%M') if hasattr(ts, 'strftime') else str(ts)[:16]
     label  = f"{'BUY' if direction == 'buy' else 'SELL'} {ts_str}"
 
-    # Lote: usa a tabela agressiva pelo capital no momento da entrada
-    lot = lote_agressivo(capital_entrada)
+    # Lote: usa o lote real do backtest (FAIXAS_LOTE do risk_manager.py).
+    # Fallback para SCALE_TIERS_PYTHON se o campo não existir (trades antigos).
+    lot_raw = trade.get('lote')
+    lot = float(lot_raw) if lot_raw is not None else lote_agressivo(capital_entrada)
 
     # Força RAFI (pode ser NaN para estratégias que não o calculam)
     forca_raw = trade.get('forca_entrada')
     rafi_val  = round(float(forca_raw), 3) if forca_raw is not None and forca_raw == forca_raw else 0.0
+
+    # P&L real calculado pelo backtest (pip a pip, preço de saída real)
+    pnl_raw = trade.get('pnl_usd')
+    pnl_usd = round(float(pnl_raw), 4) if pnl_raw is not None else None
 
     return {
         'id'        : str(uuid.uuid4()),
@@ -135,6 +142,8 @@ def trade_para_dashboard(trade: dict, capital_entrada: float) -> dict:
         'result'    : result,
         'rafi'      : rafi_val,
         'rafiDir'   : 'bull' if direction == 'buy' else 'bear',
+        'pnlUsd'       : pnl_usd,
+        'capitalInicial': round(capital_inicial, 2),
     }
 
 
@@ -160,6 +169,10 @@ def main() -> None:
                         help='Sobrescreve estrategia_modo do config.yaml (ex: rafi, rsi_rev)')
     parser.add_argument('--log',      default='INFO',
                         help='Nível de log: DEBUG, INFO, WARNING (padrão: INFO)')
+    parser.add_argument('--inicio',   default=None,
+                        help='Data inicial do backtest (YYYY-MM-DD). Ex: 2026-08-28')
+    parser.add_argument('--fim',      default=None,
+                        help='Data final do backtest (YYYY-MM-DD). Ex: 2026-09-04')
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -205,6 +218,16 @@ def main() -> None:
         logger.info(f"Carregando CSV: {args.m5}")
         bt = BacktestCSV.de_csv(config, args.m5, args.m5, capital=capital)
 
+    # ── Filtro de período (--inicio / --fim) ──────────────────────────────
+    if args.inicio or args.fim:
+        import pandas as pd
+        dt_inicio = pd.Timestamp(args.inicio, tz='UTC') if args.inicio else bt.df_m5.index.min()
+        dt_fim    = pd.Timestamp(args.fim,    tz='UTC') if args.fim    else bt.df_m5.index.max()
+        dt_fim    = dt_fim + pd.Timedelta(hours=23, minutes=59)
+        bt.df_m5  = bt.df_m5.loc[dt_inicio:dt_fim]
+        bt.df_m15 = bt.df_m15.loc[dt_inicio:dt_fim]
+        logger.info(f"Período filtrado: {dt_inicio.date()} → {dt_fim.date()} ({len(bt.df_m5):,} candles M5)")
+
     # ── Executar backtest ──────────────────────────────────────────────────
     logger.info(f"Executando backtest | Estratégia: {config.get('estrategia_modo', 'rafi')} | Capital: ${capital:.2f}")
     trades_raw = bt.executar()
@@ -222,7 +245,7 @@ def main() -> None:
     for trade in trades_raw:
         # Capital no momento da entrada (antes de fechar este trade)
         cap_entrada = float(trade.get('capital_entrada', capital_atual))
-        dt = trade_para_dashboard(trade, cap_entrada)
+        dt = trade_para_dashboard(trade, cap_entrada, capital_inicial=capital)
         dashboard_trades.append(dt)
         # Atualiza capital para o próximo trade
         capital_atual = float(trade.get('capital_apos', capital_atual))

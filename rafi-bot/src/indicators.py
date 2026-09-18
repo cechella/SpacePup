@@ -68,11 +68,17 @@ def calcular_indice_forca(df: pd.DataFrame, periodo: int = 14) -> pd.Series:
         # Sem dados de volume: componente neutro
         volume_rel = pd.Series(0.0, index=df.index)
 
+    # Proteção NaN: mercado flat (std≈0) ou candle sem range → componente = 0
+    # Sem isso, RAFI retorna nan em períodos de baixa volatilidade
+    momentum_safe  = momentum_norm.fillna(0.0)
+    amplitude_safe = amplitude_norm.fillna(0.0)
+    volume_safe    = volume_rel.fillna(0.0)
+
     # --- Composição final (pesos calibrados para escala RAFI original) ---
     # momentum.abs() + amplitude.abs() = RAFI sempre positivo (0 a +5)
     # > +2.50 significa movimento FORTE em qualquer direção (compra OU venda)
     # A direção é determinada pelo filtro de cor do candle e rompimento de S/R
-    indice = (1.5 * momentum_norm.abs() + 1.0 * amplitude_norm + 0.5 * volume_rel)
+    indice = (1.5 * momentum_safe.abs() + 1.0 * amplitude_safe + 0.5 * volume_safe)
 
     # Limitar ao range de leitura do RAFI original (aprox. -5 a +5)
     indice = indice.clip(-5.0, 5.0)
@@ -115,7 +121,7 @@ def calcular_bollinger(df: pd.DataFrame,
     """
     close = df['close']
     media    = close.rolling(periodo).mean()
-    std      = close.rolling(periodo).std()
+    std      = close.rolling(periodo).std(ddof=0)  # população (÷N), igual ao browser
     superior = media + desvios * std
     inferior = media - desvios * std
     largura  = superior - inferior  # largura absoluta das bandas

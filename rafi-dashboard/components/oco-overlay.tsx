@@ -59,7 +59,8 @@ function OCOLine({
           border:          `1px solid ${isDragging ? lineColor + '80' : lineColor + '45'}`,
           cursor:          isDragging ? 'ns-resize' : 'ns-resize',
           touchAction:     'none',
-          minWidth:        64,
+          minWidth:        72,
+          minHeight:       36,
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -117,12 +118,15 @@ interface Props {
   getX?:        (time: number)  => number | null
   getTime?:     (x: number)     => number | null
   containerRef: React.RefObject<HTMLDivElement>
+  freeMargin?:  number | null
+  livePrice?:   number | null
 }
 
 type DragField = 'entry' | 'sl' | 'tp'
 
 export function OCOOverlay({
   state, onChange, onExecute, onClose, getY, getPrice, getX, getTime, containerRef,
+  freeMargin, livePrice,
 }: Props) {
   const [dragging,   setDragging]   = useState<DragField | null>(null)
   const dragFieldRef = useRef<DragField | null>(null)
@@ -138,6 +142,48 @@ export function OCOOverlay({
   const [cardPos,  setCardPos]  = useState<{ x: number; y: number } | null>(null)
   const cardRef     = useRef<HTMLDivElement>(null)
   const cardDragRef = useRef<{ mx: number; my: number; cx: number; cy: number } | null>(null)
+
+  // Pinch-to-scale: lê escala salva no localStorage
+  const [cardScale, setCardScale] = useState<number>(() => {
+    try { return Math.min(1.6, Math.max(0.5, Number(localStorage.getItem('rafi-oco-scale')) || 1)) } catch { return 1 }
+  })
+  const cardScaleRef = useRef(cardScale)
+  useEffect(() => { cardScaleRef.current = cardScale }, [cardScale])
+
+  // Listeners touch não-passivos para pinch (React não permite passive:false em onTouchMove)
+  useEffect(() => {
+    const el = cardRef.current
+    if (!el) return
+
+    const dist = (t: TouchList) =>
+      Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY)
+
+    let pinch: { d: number; base: number } | null = null
+
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) pinch = { d: dist(e.touches), base: cardScaleRef.current }
+    }
+    const onMove = (e: TouchEvent) => {
+      if (!pinch || e.touches.length !== 2) return
+      e.preventDefault()
+      const next = Math.min(1.6, Math.max(0.5, pinch.base * (dist(e.touches) / pinch.d)))
+      setCardScale(next)
+    }
+    const onEnd = () => {
+      if (!pinch) return
+      pinch = null
+      try { localStorage.setItem('rafi-oco-scale', String(cardScaleRef.current)) } catch {}
+    }
+
+    el.addEventListener('touchstart', onStart, { passive: true })
+    el.addEventListener('touchmove',  onMove,  { passive: false })
+    el.addEventListener('touchend',   onEnd)
+    return () => {
+      el.removeEventListener('touchstart', onStart)
+      el.removeEventListener('touchmove',  onMove)
+      el.removeEventListener('touchend',   onEnd)
+    }
+  }, [])
 
   // Inline edit
   const [editing, setEditing] = useState<'tp' | 'sl' | 'lot' | null>(null)
@@ -272,6 +318,16 @@ export function OCOOverlay({
   const tpUSD  = +(tpPips * pv).toFixed(2)
   const rr     = slPips > 0 ? tpPips / slPips : 0
   const isBuy  = state.direction === 'buy'
+
+  // ── Calculadora de margem ao vivo ────────────────────────────────────────
+  const mktPrice     = (livePrice ?? state.entry) || 0
+  const levNum       = state.leverage || 100
+  const maxLot       = freeMargin != null && freeMargin > 0 && mktPrice > 0
+    ? Math.floor((freeMargin * levNum) / (100000 * mktPrice) * 100) / 100
+    : 0
+  const marginNeeded = mktPrice > 0 ? (state.lot * 100000 * mktPrice) / levNum : 0
+  const marginPct    = freeMargin != null && freeMargin > 0 ? Math.min((marginNeeded / freeMargin) * 100, 100) : 0
+  const marginOk     = freeMargin == null || marginNeeded <= freeMargin
 
   const ok     = (y: number | null): y is number => y !== null && y > 8 && y < 9999
   const okX    = (x: number | null): x is number => x !== null && x > 0 && x < 99999
@@ -474,8 +530,8 @@ export function OCOOverlay({
         ref={cardRef}
         className="absolute"
         style={cardPos
-          ? { left: cardPos.x, top: cardPos.y, pointerEvents: 'all' }
-          : { right: 88, top: cardTop, pointerEvents: 'all' }
+          ? { left: cardPos.x, top: cardPos.y, pointerEvents: 'all', transform: `scale(${cardScale})`, transformOrigin: 'top left' }
+          : { left: 8, top: cardTop, pointerEvents: 'all', transform: `scale(${cardScale})`, transformOrigin: 'top left' }
         }
       >
         <div
@@ -663,6 +719,47 @@ export function OCOOverlay({
                 {l === 1 ? '1L' : l === 0.5 ? '.5' : l === 0.1 ? '.10' : '.01'}
               </button>
             ))}
+          </div>
+
+          {/* Margem ao vivo — sempre visível; mostra -- quando MetaAPI ainda não conectou */}
+          <div style={{ padding: '6px 12px', borderBottom: '1px solid #30363d', background: '#0a0f14' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <span style={{ fontSize: 8, color: '#484f58', letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: 600 }}>Margem livre</span>
+              <span style={{ fontSize: 10, color: freeMargin != null ? '#f0f6fc' : '#484f58', fontFamily: 'monospace', fontWeight: 700 }}>
+                {freeMargin != null ? `$${freeMargin.toFixed(2)}` : '--'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <span style={{ fontSize: 8, color: '#484f58', letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: 600 }}>Lote máx</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 10, color: maxLot > 0 ? '#fbbf24' : '#484f58', fontFamily: 'monospace', fontWeight: 700 }}>
+                  {maxLot > 0 ? `${maxLot.toFixed(2)}L` : '--'}
+                </span>
+                {maxLot > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onChange({ ...state, lot: maxLot })}
+                    style={{ fontSize: 8, padding: '1px 5px', borderRadius: 3, border: '1px solid #3b82f680', color: '#3b82f6', background: 'transparent', cursor: 'pointer' }}
+                  >→ usar</button>
+                )}
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: marginPct > 0 ? 4 : 0 }}>
+              <span style={{ fontSize: 8, color: '#484f58', letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: 600 }}>Margem necessária</span>
+              <span style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: 700, color: marginNeeded > 0 ? (marginOk ? '#4ade80' : '#f87171') : '#484f58' }}>
+                {marginNeeded > 0 ? `$${marginNeeded.toFixed(2)}${!marginOk ? ' ⚠' : ''}` : '--'}
+              </span>
+            </div>
+            {marginPct > 0 && (
+              <div style={{ height: 4, borderRadius: 2, background: '#21262d', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', borderRadius: 2,
+                  width: `${marginPct}%`,
+                  background: marginPct <= 70 ? '#22c55e' : marginPct <= 90 ? '#f59e0b' : '#ef4444',
+                  transition: 'width 0.3s',
+                }} />
+              </div>
+            )}
           </div>
 
           {/* Toggle DIREÇÃO */}

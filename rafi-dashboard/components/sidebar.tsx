@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, LineChart, Users, Settings,
-  TrendingUp, LogOut, ChevronRight, BarChart2, Download, Brain, Activity,
+  TrendingUp, LogOut, ChevronRight, BarChart2, Download, Brain, Activity, Globe, Trash2,
 } from 'lucide-react'
 
 interface NavItem { label: string; href: string; icon: React.ElementType; badge?: string }
@@ -13,12 +13,15 @@ interface NavItem { label: string; href: string; icon: React.ElementType; badge?
 const adminNav: NavItem[] = [
   { label: 'Dashboard',    href: '/admin',           icon: LayoutDashboard              },
   { label: 'Monitor Bot',  href: '/admin/monitor',   icon: Activity, badge: 'LIVE'      },
-  { label: 'Gráfico RAFI', href: '/admin/chart',     icon: BarChart2                    },
+  { label: 'Mesa de Operação', href: '/admin/chart',  icon: BarChart2                    },
   { label: 'IA / Fase 2',  href: '/admin/fase2',     icon: Brain, badge: 'BETA'         },
+  { label: 'Backtest',     href: '/admin/backtest',  icon: BarChart2                    },
   { label: 'Exportar ML',  href: '/admin/export',    icon: Download                     },
   { label: 'Estratégia',   href: '/admin/strategy',  icon: TrendingUp                   },
   { label: 'Clientes',     href: '/admin/clients',   icon: Users                        },
+  { label: 'Corretoras',   href: '/admin/brokers',   icon: Globe                        },
   { label: 'Config',       href: '/admin/config',    icon: Settings                     },
+  { label: 'Reset DB',     href: '/admin/reset',     icon: Trash2, badge: 'DANGER'     },
 ]
 
 const clientNav: NavItem[] = [
@@ -73,6 +76,8 @@ export function Sidebar({ role }: Props) {
                     'text-[7px] px-1 py-px rounded font-bold tracking-wider border',
                     item.badge === 'LIVE'
                       ? 'bg-[#10b981]/20 text-[#10b981] border-[#10b981]/30'
+                      : item.badge === 'DANGER'
+                      ? 'bg-red-500/20 text-red-400 border-red-500/30'
                       : 'bg-[#3b82f6]/20 text-[#3b82f6] border-[#3b82f6]/30',
                   )}>
                     {item.badge}

@@ -65,16 +65,12 @@ export function calcRAFI(candles: CandleData[], period = 3): RAFIPoint[] {
     const mom   = Math.abs((c.close - prev.close) / prev.close) * 100
     const body  = Math.abs(c.close - c.open)
     const amp   = atr[i] > 0 ? body / atr[i] : 0
-    // magnitude pura: sem sinal negativo
-    const value = Math.min(5, mom * 25 + amp * 3)
+    // Magnitude com sinal: positivo para alta, negativo para baixa
+    const magnitude = Math.min(5, mom * 25 + amp * 3)
+    const value = dir === 'bull' ? magnitude : -magnitude
 
-    // Verde = alta forte, vermelho = baixa forte; saturado se >= 2.5
-    const color =
-      value >= 2.5
-        ? (dir === 'bull' ? '#22c55e' : '#ef4444')
-        : value > 0
-          ? (dir === 'bull' ? '#22c55e88' : '#ef444488')
-          : '#484f5866'
+    // Cor única âmbar para todas as barras (igual ao indicador original)
+    const color = '#f59e0b'
 
     result.push({ time: c.time, value, color, dir })
   }
@@ -289,12 +285,12 @@ export function applyRAFICandleColors(
     const prevTime = i > 0 ? candles[i - 1].time : undefined
     const prevPt   = prevTime !== undefined ? rafiMap.get(prevTime) : undefined
 
-    // Exaustão: força forte anterior com colapso brusco
-    const exhaustion = prevPt !== undefined && prevPt.value >= 2.5 && pt.value < 1.0
+    // Exaustão: força forte anterior com colapso brusco (qualquer direção)
+    const exhaustion = prevPt !== undefined && Math.abs(prevPt.value) >= 2.5 && Math.abs(pt.value) < 1.0
 
     const [color, wickColor] = exhaustion
       ? ['#f59e0b', '#d97706']                                   // amarelo — exaustão
-      : pt.value >= 2.5
+      : Math.abs(pt.value) >= 2.5
         ? pt.dir === 'bull'
           ? ['#22c55e', '#16a34a']   // verde — alta forte
           : ['#ef4444', '#dc2626']   // vermelho — baixa forte

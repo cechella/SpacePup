@@ -134,6 +134,40 @@ ALTER TABLE rafi_trades ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "rafi_trades_public_all" ON rafi_trades
   FOR ALL USING (true) WITH CHECK (true);
 
+-- ── Upload de dados históricos para o Supabase Storage ───────────────────────
+-- Registra cada solicitação de export CSV (disparada pelo admin dashboard).
+-- O bot na VM detecta status='pending', roda upload_dados_supabase.py e atualiza.
+CREATE TABLE IF NOT EXISTS rafi_uploads (
+  id            UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  arquivo       TEXT        NOT NULL,
+  broker        TEXT        NOT NULL DEFAULT 'pepperstone',
+  status        TEXT        NOT NULL DEFAULT 'pending'
+                            CHECK (status IN ('pending', 'running', 'done', 'error', 'cancelled')),
+  progress_pct  INT         NOT NULL DEFAULT 0 CHECK (progress_pct BETWEEN 0 AND 100),
+  storage_path  TEXT,            -- path dentro do bucket backtest-data após upload
+  tamanho_bytes BIGINT,          -- tamanho do CSV original (antes da compressão)
+  error_msg     TEXT,
+  created_at    TIMESTAMPTZ DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_rafi_uploads_status ON rafi_uploads(status, created_at DESC);
+
+ALTER TABLE rafi_uploads ENABLE ROW LEVEL SECURITY;
+
+-- Somente service_role escreve; anon pode ler (para o dashboard mostrar progresso)
+CREATE POLICY "rafi_uploads_read" ON rafi_uploads
+  FOR SELECT USING (true);
+
+CREATE POLICY "rafi_uploads_service_write" ON rafi_uploads
+  FOR ALL USING (auth.role() = 'service_role') WITH CHECK (auth.role() = 'service_role');
+
+-- ── Storage bucket: backtest-data ─────────────────────────────────────────────
+-- Crie manualmente no Supabase Dashboard → Storage → New Bucket:
+--   Nome: backtest-data
+--   Público: NÃO (acesso somente via service_role key)
+-- O arquivo ficará em: backtest-data/pepperstone_EURUSD_M5.csv.gz
+
 -- ── Dar role admin ao primeiro usuário ───────────────────────────────────────
 -- Execute manualmente após criar sua conta:
 -- UPDATE profiles SET role = 'admin' WHERE id = (SELECT id FROM auth.users LIMIT 1);
