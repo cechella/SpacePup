@@ -16,6 +16,7 @@ import { upsertTrade, fetchTrades, fetchCandles, countCandles } from '@/lib/trad
 import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine, History, ChevronDown, Trash2, Database, Menu } from 'lucide-react'
 import type { CandleData } from '@/lib/types'
 import { generateTradeSnapshot } from '@/lib/trade-snapshot'
+import { getSessionConfig } from '@/lib/session-config'
 
 const RAFIChart = dynamic(
   () => import('@/components/rafi-chart').then(m => m.RAFIChart),
@@ -60,7 +61,7 @@ function makeOCO(price: number, lot: number, time?: number): OCOState {
 function getOverlapContext(unixSec: number): {
   overlapPhase:  'early' | 'mid' | 'late' | null
   sessionMinute: number | null
-  dayOfWeek:     0 | 1 | 2 | 3 | null
+  dayOfWeek:     number | null
 } {
   const d      = new Date(unixSec * 1000)
   const utcMin = d.getUTCHours() * 60 + d.getUTCMinutes()
@@ -73,9 +74,10 @@ function getOverlapContext(unixSec: number): {
     overlapPhase = sesMin < 30 ? 'early' : sesMin < 90 ? 'mid' : 'late'
   }
 
-  // getUTCDay: 0=Dom 1=Seg … 5=Sex → Seg-Qui = 0-3
+  // getUTCDay: 0=Dom 1=Seg … 5=Sex → índice dentro dos dias operacionais configurados
   const jsDay = d.getUTCDay()
-  const dayOfWeek = (jsDay >= 1 && jsDay <= 4) ? (jsDay - 1) as 0|1|2|3 : null
+  const tradingDays = typeof window !== 'undefined' ? getSessionConfig().tradingDays : [1,2,3,4]
+  const dayOfWeek = tradingDays.includes(jsDay) ? (tradingDays.indexOf(jsDay) as number) : null
 
   return { overlapPhase, sessionMinute: overlapPhase !== null ? sesMin : null, dayOfWeek }
 }
@@ -195,7 +197,8 @@ export default function ChartPage() {
     if (done) return
 
     const jsDay = new Date().getUTCDay()
-    if (jsDay >= 1 && jsDay <= 4) setShowCheckin(true)  // seg=1 … qui=4
+    const activeDays = getSessionConfig().tradingDays
+    if (activeDays.includes(jsDay)) setShowCheckin(true)
   }, [])
 
   function handleCheckinComplete(result: CheckinResult) {
@@ -270,12 +273,15 @@ export default function ChartPage() {
     // Quantidade de dias desta semana que bateram a meta (chaves localStorage)
     let daysHit = 0
     if (typeof window !== 'undefined') {
-      for (let i = 0; i < 4; i++) {
+      const activeDays = getSessionConfig().tradingDays
+      activeDays.forEach(weekday => {
+        // Calcula o offset do dia na semana atual (segunda = 1)
+        const offset = weekday === 0 ? 6 : weekday - 1  // dom=6 offset, seg=0, ter=1...
         const di = new Date(mon)
-        di.setUTCDate(mon.getUTCDate() + i)
+        di.setUTCDate(mon.getUTCDate() + offset)
         const dk = di.toISOString().slice(0, 10)
         if (localStorage.getItem(`rafi-daily-target-met-${dk}`) === 'true') daysHit++
-      }
+      })
     }
 
     const dailyMet  = dailyPct  >= DAILY_TARGET
