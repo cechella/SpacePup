@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { Globe, RefreshCw, Settings, Eye, EyeOff, Lock, Power } from 'lucide-react'
 
 // ── Paleta ──────────────────────────────────────────────────────────────────
@@ -179,6 +179,7 @@ export default function BrokersPage() {
   const [liveLoading, setLiveLoading] = useState(false)
   const [mapiStatus, setMapiStatus]   = useState<'idle' | 'loading'>('idle')
   const [mapiActive, setMapiActive]   = useState<boolean | null>(null)
+  const mapiUserOverride              = React.useRef(false)  // true após toggle manual → polls não sobrescrevem
 
   // Dados dinâmicos do Supabase
   const [faixas,      setFaixas]      = useState<FaixaLote[]>([])
@@ -270,8 +271,8 @@ export default function BrokersPage() {
 
     setLiveData(results)
     setLiveLoading(false)
-    // Só atualiza o estado do botão na inicialização — nunca sobrescreve escolha manual do usuário
-    if (!skipMapiUpdate) {
+    // Só atualiza na inicialização — nunca sobrescreve escolha manual do usuário
+    if (!skipMapiUpdate && !mapiUserOverride.current) {
       const anyConnected = Object.values(results).some(r => r.connected)
       setMapiActive(anyConnected)
     }
@@ -440,15 +441,14 @@ export default function BrokersPage() {
   }
 
   const toggleMetaApi = async () => {
-    const acao    = mapiActive ? 'undeploy' : 'deploy'
+    const acao       = mapiActive ? 'undeploy' : 'deploy'
     const novoEstado = !mapiActive
+    mapiUserOverride.current = true   // impede polls de sobrescrever daqui em diante
     setMapiStatus('loading')
+    setMapiActive(novoEstado)         // feedback imediato
     try {
       await fetch(`/api/metaapi/${acao}`, { method: 'POST' })
-      // Estado do botão reflete a escolha do usuário, nunca inferido de poll
-      setMapiActive(novoEstado)
-      // Rebusca apenas dados Supabase (não sobrescreve estado do botão)
-      fetchBrokers(true)
+      fetchBrokers(true)              // rebusca apenas Supabase
     } finally {
       setMapiStatus('idle')
     }
@@ -507,34 +507,32 @@ export default function BrokersPage() {
           {lastUpdate && (
             <span style={{ color: C.t3, fontSize: 10 }}>atualizado {lastUpdate}</span>
           )}
-          <button
-            onClick={toggleMetaApi}
-            disabled={mapiStatus === 'loading'}
-            title={mapiActive === false ? 'Ligar MetaAPI (deploy contas)' : 'Desligar MetaAPI (undeploy contas)'}
-            style={{
-              background:    mapiActive ? '#0d2010' : C.s1,
-              border:        `1px solid ${mapiActive ? C.gr : C.bd}`,
-              color:         mapiActive ? C.gr : C.t2,
-              padding:       '6px 10px',
-              borderRadius:  6,
-              cursor:        mapiStatus === 'loading' ? 'wait' : 'pointer',
-              display:       'flex',
-              alignItems:    'center',
-              gap:           5,
-              fontSize:      11,
-              opacity:       mapiStatus === 'loading' ? 0.6 : 1,
-              transition:    'all .2s',
-            }}
+          <div
+            style={{ display: 'flex', alignItems: 'center', gap: 8,
+              opacity: mapiStatus === 'loading' ? 0.6 : 1, transition: 'opacity .2s' }}
+            title={mapiActive ? 'Desligar MetaAPI (undeploy todas as contas)' : 'Ligar MetaAPI (deploy todas as contas)'}
           >
-            <Power size={11} />
-            {mapiStatus === 'loading'
-              ? 'aguarde...'
-              : mapiActive
-                ? 'MetaAPI ON'
-                : mapiActive === false
-                  ? 'MetaAPI OFF'
-                  : 'MetaAPI'}
-          </button>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
+              color: mapiActive ? C.gr : C.t2 }}>
+              MetaAPI {mapiStatus === 'loading' ? '...' : mapiActive ? 'ON' : 'OFF'}
+            </span>
+            <button
+              onClick={mapiStatus === 'loading' ? undefined : toggleMetaApi}
+              disabled={mapiStatus === 'loading'}
+              style={{
+                width: 40, height: 22, borderRadius: 11, border: 'none',
+                cursor: mapiStatus === 'loading' ? 'wait' : 'pointer',
+                background: mapiActive ? C.gr : C.s3,
+                position: 'relative', transition: 'background .25s', flexShrink: 0,
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 3, width: 16, height: 16, borderRadius: '50%',
+                background: '#fff', transition: 'left .25s',
+                left: mapiActive ? 21 : 3,
+              }} />
+            </button>
+          </div>
           <button
             onClick={() => fetchBrokers()}
             style={{ background: 'transparent', border: `1px solid ${C.bd}`, color: C.t2, padding: '6px 10px', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontSize: 11 }}
