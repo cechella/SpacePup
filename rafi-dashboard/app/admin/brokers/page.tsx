@@ -536,7 +536,7 @@ export default function BrokersPage() {
                   : 'MetaAPI'}
           </button>
           <button
-            onClick={fetchBrokers}
+            onClick={() => fetchBrokers()}
             style={{ background: 'transparent', border: `1px solid ${C.bd}`, color: C.t2, padding: '6px 10px', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontSize: 11 }}
           >
             <RefreshCw size={11} /> Refresh
