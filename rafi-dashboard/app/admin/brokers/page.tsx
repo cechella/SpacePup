@@ -399,6 +399,14 @@ export default function BrokersPage() {
   }, [])
 
   useEffect(() => {
+    // Restaura escolha do usuário do localStorage ao navegar de volta para a página
+    try {
+      const saved = localStorage.getItem('rafi_mapi_active')
+      if (saved !== null) {
+        mapiUserOverride.current = true
+        setMapiActive(saved === 'true')
+      }
+    } catch {}
     fetchBrokers()
     const iv = setInterval(fetchBrokers, 5000)
     return () => clearInterval(iv)
@@ -444,6 +452,7 @@ export default function BrokersPage() {
     const acao       = mapiActive ? 'undeploy' : 'deploy'
     const novoEstado = !mapiActive
     mapiUserOverride.current = true   // impede polls de sobrescrever daqui em diante
+    try { localStorage.setItem('rafi_mapi_active', String(novoEstado)) } catch {}
     setMapiStatus('loading')
     setMapiActive(novoEstado)         // feedback imediato
     try {
