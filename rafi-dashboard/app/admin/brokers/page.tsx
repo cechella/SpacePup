@@ -240,7 +240,7 @@ export default function BrokersPage() {
   const [credOk,     setCredOk]     = useState(false)
   const [showSenha,  setShowSenha]  = useState(false)
 
-  const fetchLiveData = useCallback(async (brokerList: Broker[]) => {
+  const fetchLiveData = useCallback(async (brokerList: Broker[], skipMapiUpdate = false) => {
     setLiveLoading(true)
     const results: Record<string, LiveData> = {}
 
@@ -270,19 +270,21 @@ export default function BrokersPage() {
 
     setLiveData(results)
     setLiveLoading(false)
-    // Considera ativo se ao menos 1 conta respondeu com saldo
-    const anyConnected = Object.values(results).some(r => r.connected)
-    setMapiActive(anyConnected)
+    // Só atualiza o estado do botão na inicialização — nunca sobrescreve escolha manual do usuário
+    if (!skipMapiUpdate) {
+      const anyConnected = Object.values(results).some(r => r.connected)
+      setMapiActive(anyConnected)
+    }
   }, [])
 
-  const fetchBrokers = useCallback(async () => {
+  const fetchBrokers = useCallback(async (skipMapiUpdate = false) => {
     try {
       const res  = await fetch('/api/brokers')
       const json = await res.json()
       if (json.brokers) {
         setBrokers(json.brokers)
         setLastUpdate(new Date().toLocaleTimeString('pt-BR'))
-        fetchLiveData(json.brokers)
+        fetchLiveData(json.brokers, skipMapiUpdate)
       }
     } catch {
       // silencioso
@@ -438,13 +440,15 @@ export default function BrokersPage() {
   }
 
   const toggleMetaApi = async () => {
-    const acao = mapiActive ? 'undeploy' : 'deploy'
+    const acao    = mapiActive ? 'undeploy' : 'deploy'
+    const novoEstado = !mapiActive
     setMapiStatus('loading')
     try {
       await fetch(`/api/metaapi/${acao}`, { method: 'POST' })
-      setMapiActive(!mapiActive)
-      // Rebusca saldos após toggle
-      await fetchBrokers()
+      // Estado do botão reflete a escolha do usuário, nunca inferido de poll
+      setMapiActive(novoEstado)
+      // Rebusca apenas dados Supabase (não sobrescreve estado do botão)
+      fetchBrokers(true)
     } finally {
       setMapiStatus('idle')
     }

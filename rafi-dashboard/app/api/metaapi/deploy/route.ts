@@ -1,20 +1,31 @@
 import { NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 
-// Liga (deploy) as 3 contas MetaAPI — chamado pelo botão manual do dashboard
+// Liga (deploy) todas as contas MetaAPI habilitadas — IDs lidos do Supabase
 export const runtime = 'nodejs'
 
 const TOKEN = process.env.METAAPI_TOKEN!
 const BASE  = 'https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai'
 
-const ACCOUNT_IDS = [
-  '14a67aeb-66e6-4f59-8173-6bcdbf5b9699', // EXNESS ZERO
-  '183329ea-e5d4-4b25-b711-2f6798bff62a', // pepperstone-pp
-  '33f4d189-2923-41ad-b67d-4787a340966e', // TICKMILL Raw
-]
+async function getAccountIds(): Promise<string[]> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!url || !key) return []
+  const supa = createClient(url, key, { auth: { persistSession: false } })
+  const { data } = await supa
+    .from('rafi_brokers')
+    .select('metaapi_account_id')
+    .eq('enabled', true)
+    .not('metaapi_account_id', 'is', null)
+  return (data ?? []).map((r: any) => r.metaapi_account_id as string).filter(Boolean)
+}
 
 export async function POST() {
+  const ids = await getAccountIds()
+  if (!ids.length) return NextResponse.json({ action: 'deploy', results: [], warning: 'Nenhuma conta encontrada no Supabase' })
+
   const results = await Promise.allSettled(
-    ACCOUNT_IDS.map(id =>
+    ids.map(id =>
       fetch(`${BASE}/users/current/accounts/${id}/deploy`, {
         method: 'POST',
         headers: { 'auth-token': TOKEN },
@@ -25,7 +36,7 @@ export async function POST() {
   const summary = results.map((r, i) =>
     r.status === 'fulfilled'
       ? r.value
-      : { id: ACCOUNT_IDS[i], ok: false, erro: String((r as PromiseRejectedResult).reason) }
+      : { id: ids[i], ok: false, erro: String((r as PromiseRejectedResult).reason) }
   )
 
   return NextResponse.json({ action: 'deploy', results: summary })
