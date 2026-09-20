@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getTopBroker } from '@/lib/top-broker'
 
-const BASE  = 'https://mt-market-data-client-api-v1.london.agiliumtrade.ai'
+const BASE  = process.env.METAAPI_MARKET_DATA_URL ?? 'https://mt-market-data-client-api-v1.london.agiliumtrade.ai'
 const TOKEN = process.env.METAAPI_TOKEN!
 
 const TF_MAP: Record<string, { rest: string; minutes: number }> = {
