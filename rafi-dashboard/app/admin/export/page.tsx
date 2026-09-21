@@ -52,19 +52,25 @@ function exportMLCSV(rows: MLTrade[]) {
 }
 
 interface ManualTrade {
-  id:         string
-  direction:  'buy' | 'sell'
-  entry:      number
-  stopLoss:   number
-  takeProfit: number
-  label:      string
-  time:       number
-  lot:        number
-  leverage:   number
-  result?:    'win' | 'loss' | 'pending'
-  rafi?:      number
-  rafiDir?:   'bull' | 'bear'
-  bbWidth?:   number
+  id:              string
+  direction:       'buy' | 'sell'
+  entry:           number
+  stopLoss:        number
+  takeProfit:      number
+  label:           string
+  time:            number
+  lot:             number
+  leverage:        number
+  result?:         'win' | 'loss' | 'pending'
+  rafi?:           number
+  rafiDir?:        'bull' | 'bear'
+  bbWidth?:        number
+  pnlUsd?:         number
+  overlapPhase?:   string | null
+  checkinSono?:    string | null
+  checkinEnergia?: string | null
+  checkinMental?:  string | null
+  checkinHumor?:   string | null
 }
 
 function riskPips(e: number, s: number, dir: 'buy' | 'sell') {
@@ -247,19 +253,25 @@ export default function ExportPage() {
     try {
       const rows = await fetchTrades()
       setTrades(rows.map(r => ({
-        id:         r.id,
-        direction:  r.direction,
-        entry:      r.entry,
-        stopLoss:   r.stopLoss,
-        takeProfit: r.takeProfit,
-        label:      r.label,
-        time:       r.time,
-        lot:        r.lot,
-        leverage:   r.leverage,
-        result:     r.result,
-        rafi:       r.rafi,
-        rafiDir:    r.rafiDir,
-        bbWidth:    r.bbWidth,
+        id:              r.id,
+        direction:       r.direction,
+        entry:           r.entry,
+        stopLoss:        r.stopLoss,
+        takeProfit:      r.takeProfit,
+        label:           r.label,
+        time:            r.time,
+        lot:             r.lot,
+        leverage:        r.leverage,
+        result:          r.result,
+        rafi:            r.rafi,
+        rafiDir:         r.rafiDir,
+        bbWidth:         r.bbWidth,
+        pnlUsd:          r.pnlUsd,
+        overlapPhase:    r.overlapPhase ?? null,
+        checkinSono:     r.checkinSono ?? null,
+        checkinEnergia:  r.checkinEnergia ?? null,
+        checkinMental:   r.checkinMental ?? null,
+        checkinHumor:    r.checkinHumor ?? null,
       })))
     } catch (e) {
       console.error('Erro ao carregar trades:', e)
@@ -485,6 +497,10 @@ export default function ExportPage() {
                     <th className="px-3 py-2.5 text-right">R:R</th>
                     <th className="px-3 py-2.5 text-right">RAFI</th>
                     <th className="px-3 py-2.5 text-right">Lote</th>
+                    <th className="px-3 py-2.5 text-right">P&L</th>
+                    <th className="px-3 py-2.5 text-center">Sessão</th>
+                    <th className="px-3 py-2.5 text-center">Humor</th>
+                    <th className="px-3 py-2.5 text-center">Mental</th>
                     <th className="px-3 py-2.5 text-center">Resultado</th>
                   </tr>
                 </thead>
@@ -521,6 +537,24 @@ export default function ExportPage() {
                           {t.rafi?.toFixed(2) ?? '—'}
                         </td>
                         <td className="px-3 py-2 text-right text-[#8b949e]">{t.lot}</td>
+                        <td className={cn('px-3 py-2 text-right font-mono font-bold',
+                          t.pnlUsd != null && t.pnlUsd > 0 ? 'text-[#10b981]' : t.pnlUsd != null && t.pnlUsd < 0 ? 'text-[#ef4444]' : 'text-[#484f58]')}>
+                          {t.pnlUsd != null ? `${t.pnlUsd > 0 ? '+' : ''}$${t.pnlUsd.toFixed(2)}` : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-center text-[9px] text-[#f59e0b]">
+                          {t.overlapPhase ?? <span className="text-[#30363d]">—</span>}
+                        </td>
+                        <td className={cn('px-3 py-2 text-center text-[9px] font-semibold',
+                          t.checkinHumor === 'feliz'  ? 'text-[#10b981]' :
+                          t.checkinHumor === 'neutro' ? 'text-[#f59e0b]' :
+                          t.checkinHumor === 'triste' ? 'text-[#ef4444]' : 'text-[#484f58]')}>
+                          {t.checkinHumor ?? '—'}
+                        </td>
+                        <td className={cn('px-3 py-2 text-center text-[9px] font-semibold',
+                          t.checkinMental === 'focado' ? 'text-[#10b981]' :
+                          t.checkinMental === 'ruim'   ? 'text-[#ef4444]' : 'text-[#f59e0b]')}>
+                          {t.checkinMental ?? '—'}
+                        </td>
                         <td className="px-3 py-2 text-center">
                           {t.result === 'win'  && <span className="px-2 py-0.5 rounded text-[9px] bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/25">WIN</span>}
                           {t.result === 'loss' && <span className="px-2 py-0.5 rounded text-[9px] bg-[#ef4444]/15 text-[#ef4444] border border-[#ef4444]/25">LOSS</span>}
