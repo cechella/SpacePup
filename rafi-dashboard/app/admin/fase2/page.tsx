@@ -5,8 +5,7 @@ import Link from 'next/link'
 import {
   Brain, Zap, BarChart2, Download, ChevronRight,
   TrendingUp, TrendingDown, Activity, Target, Clock,
-  CheckCircle2, Circle, AlertTriangle, Sparkles, RefreshCw,
-  CheckCircle, XCircle, Lightbulb,
+  CheckCircle2, Circle, AlertTriangle, Lightbulb,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { fetchTrades } from '@/lib/trades-db'
@@ -24,8 +23,6 @@ interface ManualTrade {
   checkinMental?:  'focado'| 'ok' | 'ruim'   | null
   checkinHumor?:   'feliz' | 'neutro' | 'triste' | null
 }
-
-const STORAGE_KEY  = 'rafi-trade-log'
 
 // Aprendizado progressivo — sem cliff de 300 trades
 const ML_CONFIANCA = [
@@ -403,6 +400,15 @@ function FeatureRow({ t }: { t: ManualTrade }) {
       <td className="py-1.5 px-2 text-[#8b949e]">{sess}</td>
       <td className="py-1.5 px-2 text-[#484f58]">{hora}h {dia}</td>
       <td className="py-1.5 px-2 text-[#8b949e]">{rr}×</td>
+      <td className="py-1.5 px-2 text-[#8b949e]">{t.entry ? t.entry.toFixed(5) : '—'}</td>
+      <td className="py-1.5 px-2 font-bold">
+        {t.pnlUsd != null
+          ? <span style={{ color: t.pnlUsd >= 0 ? '#10b981' : '#ef4444' }}>
+              {t.pnlUsd >= 0 ? '+' : ''}{t.pnlUsd.toFixed(2)}
+            </span>
+          : <span className="text-[#484f58]">—</span>
+        }
+      </td>
       <td className="py-1.5 px-2">
         {bom === true  ? <span className="text-[8px] text-[#10b981]">🧠✓</span>
         : bom === false ? <span className="text-[8px] text-[#ef4444]">🧠✗</span>
@@ -420,7 +426,55 @@ function FeatureRow({ t }: { t: ManualTrade }) {
   )
 }
 
-// ── Feature importance mock ────────────────────────────────────────────────────
+// ── Feature importance calculada dos dados reais ──────────────────────────────
+function computeFeatureImportance(labeled: ManualTrade[]) {
+  if (labeled.length < 2) return null
+
+  function bucketWR(groups: ManualTrade[][]): number {
+    const wrs = groups
+      .map(g => { const w = g.filter(t => t.result === 'win').length; return g.length > 0 ? w / g.length : null })
+      .filter((v): v is number => v !== null)
+    return wrs.length >= 2 ? Math.max(...wrs) - Math.min(...wrs) : 0
+  }
+
+  const rafiScore = bucketWR([labeled.filter(t => (t.rafi ?? 0) >= 2.5), labeled.filter(t => (t.rafi ?? 0) < 2.5)])
+
+  const bbSorted = labeled.filter(t => t.bbWidth != null).sort((a, b) => (a.bbWidth ?? 0) - (b.bbWidth ?? 0))
+  const mid = Math.floor(bbSorted.length / 2)
+  const bbScore = mid > 0 ? bucketWR([bbSorted.slice(0, mid), bbSorted.slice(mid)]) : 0
+
+  const sessScore = bucketWR([
+    labeled.filter(t => sessionLabel(t.time) === 'Londres'),
+    labeled.filter(t => sessionLabel(t.time) === 'NY'),
+    labeled.filter(t => sessionLabel(t.time) === 'Overlap'),
+    labeled.filter(t => sessionLabel(t.time) === 'Ásia'),
+  ])
+
+  const horaScore = bucketWR([
+    labeled.filter(t => new Date(t.time * 1000).getUTCHours() < 6),
+    labeled.filter(t => { const h = new Date(t.time * 1000).getUTCHours(); return h >= 6 && h < 12 }),
+    labeled.filter(t => { const h = new Date(t.time * 1000).getUTCHours(); return h >= 12 && h < 18 }),
+    labeled.filter(t => new Date(t.time * 1000).getUTCHours() >= 18),
+  ])
+
+  const withCheckin = labeled.filter(t => t.checkinSono != null)
+  const mentalScore = withCheckin.length >= 2 ? bucketWR([withCheckin.filter(isBomEstado), withCheckin.filter(t => !isBomEstado(t))]) : 0
+
+  const dirScore = bucketWR([labeled.filter(t => t.direction === 'buy'), labeled.filter(t => t.direction === 'sell')])
+
+  const raw = [
+    { label: 'forca_rompimento', score: rafiScore + 0.01, color: '#10b981' },
+    { label: 'bb_width',         score: bbScore,          color: '#3b82f6' },
+    { label: 'sessao',           score: sessScore,         color: '#3b82f6' },
+    { label: 'hora_utc',         score: horaScore,         color: '#f59e0b' },
+    { label: 'estado_mental',    score: mentalScore,       color: '#aa55ff' },
+    { label: 'direcao',          score: dirScore,          color: '#8b949e' },
+  ]
+  const total = raw.reduce((s, r) => s + r.score, 0)
+  if (total === 0) return null
+  return raw.map(r => ({ ...r, pct: Math.max(3, Math.round(r.score / total * 100)) })).sort((a, b) => b.pct - a.pct)
+}
+
 function FeatImportance({ label, pct, color }: { label: string; pct: number; color: string }) {
   return (
     <div className="flex items-center gap-2">
@@ -436,47 +490,24 @@ function FeatImportance({ label, pct, color }: { label: string; pct: number; col
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function Fase2Page() {
-  const [trades, setTrades]           = useState<ManualTrade[]>([])
-  const [mounted, setMounted]         = useState(false)
-  const [trainStatus, setTrainStatus] = useState<'idle' | 'loading' | 'ok' | 'err'>('idle')
-  const [trainMsg, setTrainMsg]       = useState('')
-
-  async function handleTreinar() {
-    setTrainStatus('loading')
-    setTrainMsg('')
-    try {
-      const res  = await fetch('/api/ml/train', { method: 'POST' })
-      const body = await res.json()
-      if (!res.ok) throw new Error(body.error ?? 'Erro desconhecido')
-      setTrainStatus('ok')
-      setTrainMsg('Comando enviado ao bot — retreino iniciado em background')
-    } catch (e: any) {
-      setTrainStatus('err')
-      setTrainMsg(e.message ?? 'Falha ao enviar comando')
-    }
-  }
+  const [trades, setTrades] = useState<ManualTrade[]>([])
+  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
     setMounted(true)
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        if (Array.isArray(parsed)) setTrades(parsed)
-      }
-    } catch {}
     fetchTrades()
       .then(data => { if (data.length > 0) setTrades(data as ManualTrade[]) })
       .catch(() => {})
   }, [])
 
-  const labeled    = useMemo(() => trades.filter(t => t.result === 'win' || t.result === 'loss'), [trades])
-  const wins       = labeled.filter(t => t.result === 'win').length
-  const losses     = labeled.filter(t => t.result === 'loss').length
-  const winRate    = labeled.length > 0 ? Math.round(wins / labeled.length * 100) : null
-  const confianca  = getConfianca(labeled.length)
+  const labeled     = useMemo(() => trades.filter(t => t.result === 'win' || t.result === 'loss'), [trades])
+  const wins        = labeled.filter(t => t.result === 'win').length
+  const losses      = labeled.filter(t => t.result === 'loss').length
+  const winRate     = labeled.length > 0 ? Math.round(wins / labeled.length * 100) : null
+  const confianca   = getConfianca(labeled.length)
   const insights    = useMemo(() => computeInsights(labeled), [labeled])
   const discoveries = useMemo(() => computeDiscoveries(labeled, insights), [labeled, insights])
+  const featImportance = useMemo(() => computeFeatureImportance(labeled), [labeled])
   const all         = [...trades].reverse()
 
   if (!mounted) return null
@@ -795,61 +826,66 @@ export default function Fase2Page() {
             <div className="flex items-center gap-2 mb-3">
               <BarChart2 size={12} className="text-[#f59e0b]" />
               <span className="text-[10px] font-semibold text-[#f0f6fc]">Feature Importance</span>
-              <span className="ml-auto text-[8px] text-[#484f58]">estimativa teórica</span>
+              <span className="ml-auto text-[8px] text-[#484f58]">
+                {featImportance ? `calculado — ${labeled.length} trades` : 'referência inicial'}
+              </span>
             </div>
             <div className="space-y-2">
-              <FeatImportance label="forca_rompimento" pct={26} color="#10b981" />
-              <FeatImportance label="squeeze_ratio"    pct={18} color="#3b82f6" />
-              <FeatImportance label="expansao_bb"      pct={14} color="#3b82f6" />
-              <FeatImportance label="hora_utc"         pct={12} color="#f59e0b" />
-              <FeatImportance label="estado_mental"    pct={10} color="#aa55ff" />
-              <FeatImportance label="sessao"           pct={8}  color="#f59e0b" />
-              <FeatImportance label="direcao/outros"   pct={12} color="#8b949e" />
+              {(featImportance ?? [
+                { label: 'forca_rompimento', pct: 26, color: '#10b981' },
+                { label: 'bb_width',         pct: 18, color: '#3b82f6' },
+                { label: 'sessao',           pct: 16, color: '#3b82f6' },
+                { label: 'hora_utc',         pct: 14, color: '#f59e0b' },
+                { label: 'estado_mental',    pct: 14, color: '#aa55ff' },
+                { label: 'direcao',          pct: 12, color: '#8b949e' },
+              ]).map(f => <FeatImportance key={f.label} label={f.label} pct={f.pct} color={f.color} />)}
             </div>
           </div>
         </div>
       </div>
 
-      {/* ── Modo IA — treinar ────────────────────────────────────────────────── */}
-      <div className="bg-[#161b22] border border-[#3b82f6]/30 rounded-xl p-5 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#3b82f6]/20">
-            <Sparkles size={18} className="text-[#3b82f6]" />
-          </div>
+      {/* ── Retreino automático + Integração Co-Piloto ──────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        {/* Status retreino automático */}
+        <div className="bg-[#161b22] border border-[#10b981]/25 rounded-xl p-4 flex items-start gap-3">
+          <span className="w-2 h-2 rounded-full bg-[#10b981] animate-pulse shrink-0 mt-1" />
           <div>
-            <div className="text-sm font-semibold text-[#f0f6fc]">Treinar XGBoost</div>
-            <div className="text-[10px] text-[#484f58] mt-0.5">
-              {labeled.length >= 10
-                ? `${labeled.length} trades — já útil para treinar. Com 30+ fica mais confiável.`
-                : `A IA aprende com cada trade. Com ${labeled.length} dados já vale treinar.`}
+            <div className="text-sm font-semibold text-[#f0f6fc]">Retreino automático ativo</div>
+            <div className="text-[10px] text-[#484f58] mt-1 leading-relaxed">
+              Cada vez que você rotula W ou L na página de histórico,{' '}
+              <span className="font-mono text-[#3b82f6]">/api/ml/train</span>{' '}
+              dispara em background — sem nenhum clique. O modelo aprende desde o 1º trade.
+            </div>
+            <div className="mt-2 flex items-center gap-1.5">
+              <span className="text-[8px] font-mono bg-[#21262d] border border-[#30363d] text-[#8b949e] px-1.5 py-0.5 rounded">
+                {labeled.length} trades rotulados
+              </span>
+              <span className="text-[8px] text-[#484f58]">→ próximo retreino ao rotular o próximo</span>
             </div>
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1.5 shrink-0">
-          <button
-            onClick={handleTreinar}
-            disabled={trainStatus === 'loading' || labeled.length === 0}
-            className={cn(
-              'flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all',
-              trainStatus === 'loading' || labeled.length === 0
-                ? 'bg-[#21262d] border border-[#30363d] text-[#484f58] cursor-not-allowed'
-                : 'bg-[#3b82f6] text-white hover:bg-[#2563eb]',
-            )}
-          >
-            {trainStatus === 'loading'
-              ? <><RefreshCw size={12} className="animate-spin" /> Enviando…</>
-              : trainStatus === 'ok'
-                ? <><CheckCircle size={12} /> Comando enviado</>
-                : trainStatus === 'err'
-                  ? <><XCircle size={12} /> Erro — tentar novamente</>
-                  : <><Brain size={12} /> Treinar XGBoost ({labeled.length} trades)</>}
-          </button>
-          {trainMsg && (
-            <span className={cn(
-              'text-[9px] font-mono max-w-[240px] text-right',
-              trainStatus === 'ok' ? 'text-[#10b981]' : 'text-[#ef4444]',
-            )}>{trainMsg}</span>
-          )}
+
+        {/* Co-Piloto ↔ Fase 2 */}
+        <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Brain size={13} className="text-[#aa55ff]" />
+            <span className="text-sm font-semibold text-[#f0f6fc]">Co-Piloto IA ↔ Fase 2</span>
+          </div>
+          <div className="space-y-2 text-[9px] text-[#484f58] leading-relaxed">
+            <div className="flex items-start gap-2">
+              <span className="text-[#3b82f6] font-semibold shrink-0 w-20">Co-Piloto</span>
+              <span>Fase 1 — regras fixas: RAFI, BB, overlap, dia. Gera score 0–100 baseado na estratégia.</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-[#aa55ff] font-semibold shrink-0 w-20">IA / Fase 2</span>
+              <span>Aprende do SEU histórico real: quando as condições são ótimas para o seu perfil específico.</span>
+            </div>
+            <div className="flex items-start gap-2 pt-1 border-t border-[#30363d]">
+              <span className="text-[#10b981] font-semibold shrink-0 w-20">Juntos</span>
+              <span>Regras + IA alinhados = sinal mais forte. Com 10+ trades a IA complementa o Co-Piloto.</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -882,7 +918,7 @@ export default function Fase2Page() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-[#30363d] bg-[#0d1117]">
-                  {['Data/Hora', 'Dir', 'RAFI', 'BB Width', 'Sessão', 'Hora/Dia', 'R:R', '🧠', 'Label'].map(h => (
+                  {['Data/Hora', 'Dir', 'RAFI', 'BB Width', 'Sessão', 'Hora/Dia', 'R:R', 'Entrada', 'P&L', '🧠', 'Label'].map(h => (
                     <th key={h} className="py-2 px-2 text-left text-[8px] uppercase tracking-wider text-[#484f58] font-medium first:pl-3 last:pr-3">
                       {h}
                     </th>
