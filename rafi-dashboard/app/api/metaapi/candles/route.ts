@@ -59,6 +59,10 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ candles, symbol, timeframe })
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 })
+    const isTimeout = e.name === 'TimeoutError' || e.name === 'AbortError' || /timeout|aborted/i.test(e.message ?? '')
+    const msg = isTimeout
+      ? 'MT5 não respondeu no tempo limite — conta pode estar sendo ativada, aguarde 30s e tente novamente'
+      : e.message
+    return NextResponse.json({ error: msg }, { status: isTimeout ? 504 : 500 })
   }
 }

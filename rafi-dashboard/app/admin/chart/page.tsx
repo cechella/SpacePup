@@ -596,7 +596,11 @@ export default function ChartPage() {
       setMetaConnected(true)
       saveToHistory(result)
     } catch (err: any) {
-      setMetaError(err?.message ?? 'Erro MetaAPI')
+      const raw = err?.message ?? 'Erro MetaAPI'
+      const friendly = /timeout|aborted|não respondeu/i.test(raw)
+        ? 'MT5 ainda conectando — aguarde 30s e tente novamente'
+        : raw
+      setMetaError(friendly)
       setMetaConnected(false)
     } finally {
       if (metaTimerRef.current) clearInterval(metaTimerRef.current)
@@ -1761,6 +1765,30 @@ export default function ChartPage() {
 
               {/* Botão Carregar CSV + Histórico */}
               <div className="relative flex items-center gap-1" ref={historyPanelRef}>
+
+                {/* Toggle global MetaAPI — sempre visível independente do estado dos candles */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }} title={globalMapiActive ? 'MetaAPI ligado — clique para desligar' : 'MetaAPI desligado — clique para ligar'}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: globalMapiActive ? '#00e676' : '#5a7d96' }}>
+                    {globalMapiStatus === 'loading' ? '…' : globalMapiActive ? 'ON' : 'OFF'}
+                  </span>
+                  <button
+                    onClick={globalMapiStatus === 'loading' ? undefined : toggleGlobalMapi}
+                    disabled={globalMapiStatus === 'loading'}
+                    style={{
+                      width: 36, height: 20, borderRadius: 10, border: 'none',
+                      cursor: globalMapiStatus === 'loading' ? 'wait' : 'pointer',
+                      background: globalMapiActive ? '#00e676' : '#1a2d42',
+                      position: 'relative', transition: 'background .25s', flexShrink: 0,
+                      opacity: globalMapiStatus === 'loading' ? 0.6 : 1,
+                    }}>
+                    <span style={{
+                      position: 'absolute', top: 2, width: 16, height: 16, borderRadius: '50%',
+                      background: '#fff', transition: 'left .25s',
+                      left: globalMapiActive ? 18 : 2,
+                    }} />
+                  </button>
+                </div>
+
                 {csvData ? (
                   <span className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#22c55e]/10 border border-[#22c55e]/30 text-[#22c55e] text-[10px] font-semibold">
                     <FolderOpen size={10} />
@@ -1791,28 +1819,6 @@ export default function ChartPage() {
                         {sbLoading ? 'Carregando…' : `Supabase (${sbCandleCount.toLocaleString('pt-BR')})`}
                       </button>
                     )}
-                    {/* Opção B: toggle global MetaAPI */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }} title={globalMapiActive ? 'MetaAPI ligado — clique para desligar' : 'MetaAPI desligado — clique para ligar'}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: globalMapiActive ? '#00e676' : '#5a7d96' }}>
-                        {globalMapiStatus === 'loading' ? '…' : globalMapiActive ? 'ON' : 'OFF'}
-                      </span>
-                      <button
-                        onClick={globalMapiStatus === 'loading' ? undefined : toggleGlobalMapi}
-                        disabled={globalMapiStatus === 'loading'}
-                        style={{
-                          width: 36, height: 20, borderRadius: 10, border: 'none',
-                          cursor: globalMapiStatus === 'loading' ? 'wait' : 'pointer',
-                          background: globalMapiActive ? '#00e676' : '#1a2d42',
-                          position: 'relative', transition: 'background .25s', flexShrink: 0,
-                          opacity: globalMapiStatus === 'loading' ? 0.6 : 1,
-                        }}>
-                        <span style={{
-                          position: 'absolute', top: 2, width: 16, height: 16, borderRadius: '50%',
-                          background: '#fff', transition: 'left .25s',
-                          left: globalMapiActive ? 18 : 2,
-                        }} />
-                      </button>
-                    </div>
                     <button
                       onClick={() => {
                         if (metaConnected) {
@@ -1878,8 +1884,16 @@ export default function ChartPage() {
                       </div>
                     )}
                     {!metaLoading && metaError && (
-                      <span className="text-[#ef4444] text-[9px] max-w-[200px] truncate" title={metaError}>
-                        ⚠ {metaError}
+                      <span className="flex items-center gap-1 text-[#ef4444] text-[9px]" title={metaError}>
+                        <span className="max-w-[180px] truncate">⚠ {metaError}</span>
+                        {/conectando|aguarde|tente/i.test(metaError) && (
+                          <button
+                            onClick={loadCandlesFromMetaAPI}
+                            className="shrink-0 underline hover:text-[#ff6b6b] transition-colors"
+                          >
+                            Tentar novamente
+                          </button>
+                        )}
                       </span>
                     )}
                   </div>
