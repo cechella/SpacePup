@@ -121,9 +121,9 @@ export function MetasOverlay({
           </div>
           <div className="bg-[#0f1824] rounded-xl px-3 py-2.5 border border-[#1c3050]">
             <div className="text-[15px] font-black font-mono text-[#00e676]">
-              {currency} {pnl.toFixed(0)}
+              {pnl >= 0 ? '+' : ''}{currency} {pnl.toFixed(2)}
             </div>
-            <div className="text-[8px] text-[#334455] uppercase tracking-wide mt-0.5">em conta</div>
+            <div className="text-[8px] text-[#334455] uppercase tracking-wide mt-0.5">{isWeekly ? 'lucro semana' : 'lucro hoje'}</div>
           </div>
           <div className="bg-[#0f1824] rounded-xl px-3 py-2.5 border border-[#1c3050]">
             {isWeekly ? (

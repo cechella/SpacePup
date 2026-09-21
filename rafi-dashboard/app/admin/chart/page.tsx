@@ -143,10 +143,12 @@ export default function ChartPage() {
   const [metaStep,      setMetaStep]      = useState<string>('')
   const [metaElapsed,   setMetaElapsed]   = useState(0)
   const metaTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  // Feature 1: saldo e equity da conta Pepperstone
+  // Feature 1: saldo e equity da conta primária (Pepperstone)
   const [metaAccount,   setMetaAccount]   = useState<{
     balance: number; equity: number; freeMargin: number; currency: string; updatedAt: string
   } | null>(null)
+  // Capital consolidado: soma dos saldos de todas as corretoras habilitadas
+  const [consolidatedBalance, setConsolidatedBalance] = useState<number | null>(null)
   // Feature 2: posições abertas em tempo real
   const [metaPositions, setMetaPositions] = useState<Array<{
     id: string; symbol: string; type: string; volume: number
@@ -308,7 +310,8 @@ export default function ChartPage() {
       })
       .reduce((s, t) => s + (t.profit ?? 0), 0)
 
-    const bal          = metaAccount?.balance ?? 100
+    // Capital base: consolidado (todas corretoras) > Pepperstone > fallback
+    const bal          = consolidatedBalance ?? metaAccount?.balance ?? 100
     const startBal     = Math.max(bal - todayPnl, 1)
     const weekStartBal = Math.max(bal - weekPnl,  1)
     const dailyPct     = (todayPnl / startBal) * 100
@@ -343,7 +346,7 @@ export default function ChartPage() {
       locked: dailyMet || weeklyMet,
       DAILY_TARGET, WEEKLY_TARGET,
     }
-  }, [metaHistory, metaAccount])
+  }, [metaHistory, metaAccount, consolidatedBalance])
 
   // Dispara overlay quando a meta é atingida pela primeira vez nesta sessão
   useEffect(() => {
@@ -932,15 +935,29 @@ export default function ChartPage() {
   useEffect(() => {
     const fetchRouting = async () => {
       try {
-        // Busca lista completa só para alimentar o seletor de histórico
+        // Busca lista completa para alimentar o seletor de histórico
         const listRes = await fetch('/api/brokers')
         const { brokers } = await listRes.json()
-        if (Array.isArray(brokers)) {
-          setEnabledBrokers(
-            brokers
-              .filter((b: any) => b.enabled && b.metaapi_account_id)
-              .map((b: any) => ({ id: b.id, nome: b.nome ?? b.id }))
+        const activeBrokers: any[] = Array.isArray(brokers)
+          ? brokers.filter((b: any) => b.enabled && b.metaapi_account_id)
+          : []
+        if (activeBrokers.length) {
+          setEnabledBrokers(activeBrokers.map((b: any) => ({ id: b.id, nome: b.nome ?? b.id })))
+        }
+
+        // Capital consolidado: busca saldo de cada corretora em paralelo e soma
+        if (activeBrokers.length) {
+          const balResults = await Promise.allSettled(
+            activeBrokers.map((b: any) =>
+              fetch(`/api/metaapi/account?accountId=${b.metaapi_account_id}`)
+                .then(r => r.ok ? r.json() : null)
+            )
           )
+          const total = balResults.reduce((sum, r) => {
+            if (r.status !== 'fulfilled' || !r.value || r.value.error) return sum
+            return sum + (r.value.balance ?? 0)
+          }, 0)
+          if (total > 0) setConsolidatedBalance(total)
         }
 
         // Broker #1 real — inclui P&L do dia como critério primário
@@ -1542,25 +1559,54 @@ export default function ChartPage() {
           </button>
         </div>
 
-        {/* Conta corretora principal */}
+        {/* Capital consolidado + corretora principal */}
         {metaConnected && metaAccount && (
           <div className="px-4 py-3 border-b border-[#30363d]">
-            <div className="text-[9px] font-semibold text-[#26c6da] uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#26c6da] animate-pulse inline-block" />
-              {routeBroker?.nome ?? 'Corretora'} · MT5
-            </div>
-            <div className="space-y-2">
-              {([
-                { label: 'Saldo',       val: `${metaAccount.currency} ${metaAccount.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, color: '#f0f6fc' },
-                { label: 'Equity',      val: (liveEquity ?? metaAccount.equity).toLocaleString('pt-BR', { minimumFractionDigits: 2 }), color: '#22c55e' },
-                { label: 'Margem livre',val: metaAccount.freeMargin.toLocaleString('pt-BR', { minimumFractionDigits: 2 }), color: '#f0f6fc' },
-              ] as const).map(r => (
-                <div key={r.label} className="flex justify-between items-center text-[12px]">
-                  <span className="text-[#484f58]">{r.label}</span>
-                  <span className="font-mono font-bold" style={{ color: r.color }}>{r.val}</span>
+            {consolidatedBalance && consolidatedBalance > metaAccount.balance ? (
+              <>
+                <div className="text-[9px] font-semibold text-[#26c6da] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#26c6da] animate-pulse inline-block" />
+                  Capital Consolidado · {enabledBrokers.length} corretoras
                 </div>
-              ))}
-            </div>
+                <div className="mb-3">
+                  <div className="text-[22px] font-black font-mono text-[#26c6da]">
+                    {metaAccount.currency} {consolidatedBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-[9px] text-[#484f58] mt-0.5">soma de todos os saldos</div>
+                </div>
+                <div className="flex justify-between items-center text-[12px]">
+                  <span className="text-[#484f58]">{routeBroker?.nome ?? 'Principal'}</span>
+                  <span className="font-mono font-bold text-[#f0f6fc]">
+                    {metaAccount.currency} {metaAccount.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-[12px] mt-1">
+                  <span className="text-[#484f58]">Margem livre</span>
+                  <span className="font-mono font-bold text-[#f0f6fc]">
+                    {metaAccount.freeMargin.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-[9px] font-semibold text-[#26c6da] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#26c6da] animate-pulse inline-block" />
+                  {routeBroker?.nome ?? 'Corretora'} · MT5
+                </div>
+                <div className="space-y-2">
+                  {([
+                    { label: 'Saldo',        val: `${metaAccount.currency} ${metaAccount.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, color: '#f0f6fc' },
+                    { label: 'Equity',       val: (liveEquity ?? metaAccount.equity).toLocaleString('pt-BR', { minimumFractionDigits: 2 }), color: '#22c55e' },
+                    { label: 'Margem livre', val: metaAccount.freeMargin.toLocaleString('pt-BR', { minimumFractionDigits: 2 }), color: '#f0f6fc' },
+                  ] as const).map(r => (
+                    <div key={r.label} className="flex justify-between items-center text-[12px]">
+                      <span className="text-[#484f58]">{r.label}</span>
+                      <span className="font-mono font-bold" style={{ color: r.color }}>{r.val}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -2882,7 +2928,7 @@ export default function ChartPage() {
         externalEntry={clickedEntry}
         freeMargin={metaAccount?.freeMargin ?? null}
         livePrice={livePrice}
-        balance={metaAccount?.balance ?? null}
+        balance={consolidatedBalance ?? metaAccount?.balance ?? null}
         discipline={disciplineState}
         rafiValue={currentRafiValue}
         bbExpanding={currentBbExpanding}

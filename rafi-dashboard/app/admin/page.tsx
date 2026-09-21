@@ -1285,8 +1285,13 @@ export default function AdminDashboard() {
   )
   const capitalFinal = pnl + capitalInicial
 
-  const capitalParaJornada = metaAccount
-    ? metaAccount.balance
+  // Capital consolidado: soma dos saldos de todas as corretoras conectadas
+  const capitalConsolidado = brokersLive
+    .filter(b => b.connected && b.balance > 0)
+    .reduce((sum, b) => sum + b.balance, 0)
+
+  const capitalParaJornada = capitalConsolidado > 0
+    ? capitalConsolidado
     : (capitalInicial > 0 ? capitalFinal : sessionConfig.capitalInicial + pnl)
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1398,10 +1403,16 @@ export default function AdminDashboard() {
           : metaAccount
             ? <>
                 <Wifi size={13} style={{ color: C.teal }} className="shrink-0" />
-                <span className="font-semibold" style={{ color: C.teal }}>Pepperstone</span>
+                <span className="font-semibold" style={{ color: C.teal }}>
+                  {capitalConsolidado > metaAccount.balance
+                    ? `Capital Consolidado · ${connectedBrokers.length} corretoras`
+                    : 'Pepperstone'}
+                </span>
                 <span style={{ color: C.muted }}>·</span>
                 <span style={{ color: C.text }}>Saldo <span className="font-bold" style={{ color: C.teal }}>
-                  ${metaAccount.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${capitalConsolidado > 0
+                    ? capitalConsolidado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                    : metaAccount.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span></span>
                 <span style={{ color: C.muted }}>·</span>
                 <span style={{ color: C.sub }}>Equity <span style={{ color: C.text }}>
