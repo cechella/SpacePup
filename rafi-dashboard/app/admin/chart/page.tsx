@@ -13,6 +13,7 @@ import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
 import { getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
 import { upsertTrade, fetchTrades, fetchCandles, countCandles } from '@/lib/trades-db'
+import { upsertDailyGoal, fetchDailyGoal, fetchWeeklyGoal } from '@/lib/daily-goals-db'
 import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine, History, ChevronDown, Trash2, Database, Menu } from 'lucide-react'
 import type { CandleData } from '@/lib/types'
 import { generateTradeSnapshot } from '@/lib/trade-snapshot'
@@ -297,6 +298,36 @@ export default function ChartPage() {
     }
   }, [])
 
+  // Fallback: verifica Supabase para metas já cumpridas (funciona mesmo com MetaAPI
+  // desconectado e em qualquer dispositivo — não depende do localStorage local)
+  useEffect(() => {
+    async function checkGoalsFromSupabase() {
+      try {
+        const today      = brtDateStr()
+        const weekMonday = brtWeekMondayStr()
+
+        // Verifica meta diária
+        const daily = await fetchDailyGoal(today)
+        if (daily?.dailyMet) {
+          localStorage.setItem(`rafi-daily-target-met-${today}`, 'true')
+          setShowDailyOverlay(true)
+          setShowCheckin(false)
+          prevDailyMetRef.current = true
+        }
+
+        // Verifica meta semanal (qualquer dia da semana pode ter batido a meta)
+        const weekly = await fetchWeeklyGoal(weekMonday)
+        if (weekly?.weeklyMet) {
+          localStorage.setItem(`rafi-weekly-target-met-${weekMonday}`, 'true')
+          setShowWeeklyOverlay(true)
+          setShowCheckin(false)
+          prevWeeklyMetRef.current = true
+        }
+      } catch { /* Supabase indisponível — fallback silencioso para localStorage */ }
+    }
+    checkGoalsFromSupabase()
+  }, [])
+
   function handleCheckinComplete(result: CheckinResult) {
     setCheckin(result)
     setShowCheckin(false)
@@ -408,7 +439,18 @@ export default function ChartPage() {
     if (!balanceLoaded) return
     if (targetMetrics.dailyMet && !prevDailyMetRef.current) {
       setShowDailyOverlay(true)
-      setShowCheckin(false)  // fecha check-in se a meta foi atingida nessa sessão
+      setShowCheckin(false)
+      // Persiste no Supabase — funciona mesmo após reconectar MetaAPI em outro dispositivo
+      upsertDailyGoal({
+        date:       brtDateStr(),
+        dailyPct:   targetMetrics.dailyPct,
+        dailyPnl:   targetMetrics.dailyPnl,
+        dailyMet:   true,
+        weeklyPct:  targetMetrics.weeklyPct,
+        weeklyPnl:  targetMetrics.weeklyPnl,
+        weeklyMet:  targetMetrics.weeklyMet,
+        weekMonday: brtWeekMondayStr(),
+      }).catch(() => {/* falha silenciosa */})
     }
     prevDailyMetRef.current = targetMetrics.dailyMet
   }, [targetMetrics.dailyMet, balanceLoaded])
@@ -417,6 +459,16 @@ export default function ChartPage() {
     if (!balanceLoaded) return
     if (targetMetrics.weeklyMet && !prevWeeklyMetRef.current) {
       setShowWeeklyOverlay(true)
+      upsertDailyGoal({
+        date:       brtDateStr(),
+        dailyPct:   targetMetrics.dailyPct,
+        dailyPnl:   targetMetrics.dailyPnl,
+        dailyMet:   targetMetrics.dailyMet,
+        weeklyPct:  targetMetrics.weeklyPct,
+        weeklyPnl:  targetMetrics.weeklyPnl,
+        weeklyMet:  true,
+        weekMonday: brtWeekMondayStr(),
+      }).catch(() => {/* falha silenciosa */})
     }
     prevWeeklyMetRef.current = targetMetrics.weeklyMet
   }, [targetMetrics.weeklyMet, balanceLoaded])
