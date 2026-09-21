@@ -1,0 +1,17 @@
+{
+  "name": "rafi-metaapi-bridge",
+  "version": "1.0.0",
+  "description": "Bridge MetaAPI streaming → Supabase para o dashboard RAFI",
+  "main": "bridge.js",
+  "scripts": {
+    "start": "node bridge.js"
+  },
+  "dependencies": {
+    "metaapi.cloud-sdk": "^27.0.0",
+    "@supabase/supabase-js": "^2.50.0",
+    "dotenv": "^16.5.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

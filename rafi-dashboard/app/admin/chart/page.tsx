@@ -17,6 +17,7 @@ import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanL
 import type { CandleData } from '@/lib/types'
 import { generateTradeSnapshot } from '@/lib/trade-snapshot'
 import { getSessionConfig } from '@/lib/session-config'
+import { createClient as createSupabaseClient } from '@/lib/supabase'
 
 const RAFIChart = dynamic(
   () => import('@/components/rafi-chart').then(m => m.RAFIChart),
@@ -635,6 +636,41 @@ export default function ChartPage() {
     } catch {}
   }, [])
 
+  // true quando o bridge está rodando e Realtime já entregou dados → polling não sobrescreve
+  const supaRtActiveRef = useRef(false)
+
+  // Mapeia rows do rafi_positions → formato allBrokerPositions esperado pelo painel
+  const buildAllBrokerPositions = useCallback((rows: any[]) => {
+    const byBroker: Record<string, any[]> = {}
+    for (const r of rows) {
+      if (!byBroker[r.broker_id]) byBroker[r.broker_id] = []
+      byBroker[r.broker_id].push(r)
+    }
+    const groups = enabledBrokers.map((b, idx) => {
+      const bRows = byBroker[b.id] ?? []
+      const positions = bRows.map((r: any) => ({
+        id:           r.id,
+        symbol:       r.symbol,
+        type:         r.type,
+        volume:       r.volume,
+        openPrice:    r.open_price,
+        currentPrice: r.current_price ?? r.open_price,
+        profit:       r.profit        ?? 0,
+        commission:   r.commission    ?? 0,
+        swap:         r.swap          ?? 0,
+        netPnl:       (r.profit ?? 0) + (r.commission ?? 0) + (r.swap ?? 0),
+        stopLoss:     r.raw?.stopLoss  ?? 0,
+        takeProfit:   r.raw?.takeProfit ?? 0,
+        openTime:     r.opened_at,
+      }))
+      const totalPnl    = positions.reduce((s, p) => s + p.profit,             0)
+      const totalNetPnl = positions.reduce((s, p) => s + (p.netPnl ?? p.profit), 0)
+      const firstSymbol = positions[0]?.symbol ?? 'EURUSD'
+      return { rank: idx + 1, brokerId: b.id, nome: b.nome, symbol: firstSymbol, positions, totalPnl, totalNetPnl }
+    })
+    setAllBrokerPositions(groups)
+  }, [enabledBrokers])
+
   // Features 1, 2, 5: busca saldo + posições abertas (todas as corretoras), detecta atividade do bot
   const fetchLiveData = useCallback(async () => {
     try {
@@ -678,7 +714,7 @@ export default function ChartPage() {
           return newPos
         })
       }
-      if (allPosRes.status === 'fulfilled' && allPosRes.value.ok) {
+      if (allPosRes.status === 'fulfilled' && allPosRes.value.ok && !supaRtActiveRef.current) {
         const data = await allPosRes.value.json()
         setAllBrokerPositions(data.brokers ?? [])
       }
@@ -686,25 +722,89 @@ export default function ChartPage() {
   }, [])
 
   // Histórico: busca trades fechados pelo período e corretora selecionados
+  // Tenta Supabase (rafi_deals) primeiro — instantâneo quando bridge está rodando.
+  // Fallback: MetaAPI REST quando Supabase está vazio (bridge não instalado ainda).
   const fetchHistory = useCallback(async (period = '7d', broker = '') => {
     setHistoryLoading(true)
     try {
-      const params = new URLSearchParams({ period })
-      if (broker) {
-        params.set('broker', broker)
-      } else {
-        params.set('all', 'true')
+      // ── Supabase (fonte primária) ──────────────────────────────────────────
+      const fromISO = (() => {
+        const now = new Date()
+        switch (period) {
+          case 'today': { const d = new Date(now); d.setUTCHours(0, 0, 0, 0); return d.toISOString() }
+          case '30d': return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+          case '3m':  return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString()
+          default:    return new Date(now.getTime() -  7 * 24 * 60 * 60 * 1000).toISOString()
+        }
+      })()
+
+      const supa = createSupabaseClient()
+      let query = supa.from('rafi_deals').select('*').gte('time', fromISO).order('time', { ascending: false })
+      if (broker) query = query.eq('broker_id', broker)
+      const { data: rawDeals } = await query
+
+      if (rawDeals && rawDeals.length > 0) {
+        // Reconstrói entry_price: mapeia ENTRY_IN por position_id
+        const entryByPos: Record<string, number> = {}
+        rawDeals
+          .filter((d: any) => d.entry_type === 'DEAL_ENTRY_IN' && d.price && d.position_id)
+          .forEach((d: any) => { entryByPos[d.position_id] = d.price })
+
+        const closedDeals = rawDeals.filter((d: any) => d.entry_type === 'DEAL_ENTRY_OUT')
+        const toTrade = (d: any) => ({
+          id:         d.id,
+          symbol:     d.symbol,
+          type:       d.deal_type,
+          direction:  (d.direction ?? (d.deal_type === 'DEAL_TYPE_SELL' ? 'buy' : 'sell')) as 'buy' | 'sell',
+          volume:     d.volume,
+          price:      d.price,
+          entryPrice: entryByPos[d.position_id] ?? null,
+          profit:     d.profit ?? 0,
+          time:       typeof d.time === 'string' ? d.time : new Date(d.time).toISOString(),
+          comment:    d.comment ?? '',
+          positionId: d.position_id ?? null,
+        })
+
+        const history = closedDeals.map(toTrade)
+        setMetaHistory(history)
+
+        if (broker) {
+          const nome = enabledBrokers.find(b => b.id === broker)?.nome ?? broker
+          setHistoryGroups([{ rank: 0, brokerId: broker, nome, trades: history }])
+        } else {
+          // Agrupa por broker_id preservando a ordem de enabledBrokers
+          const brokerDeals: Record<string, typeof history> = {}
+          for (const trade of history) {
+            const raw = rawDeals.find((x: any) => x.id === trade.id)
+            if (!raw) continue
+            if (!brokerDeals[raw.broker_id]) brokerDeals[raw.broker_id] = []
+            brokerDeals[raw.broker_id].push(trade)
+          }
+          const groups = enabledBrokers.map((b, idx) => ({
+            rank:     idx + 1,
+            brokerId: b.id,
+            nome:     b.nome,
+            trades:   brokerDeals[b.id] ?? [],
+          }))
+          setHistoryGroups(groups)
+        }
+        setHistoryLoading(false)
+        return
       }
+    } catch { /* silencioso — fallback para MetaAPI abaixo */ }
+
+    // ── Fallback: MetaAPI REST (quando bridge não está rodando) ───────────────
+    try {
+      const params = new URLSearchParams({ period })
+      if (broker) { params.set('broker', broker) } else { params.set('all', 'true') }
       const res = await fetch(`/api/metaapi/history?${params}`)
       if (res.ok) {
         const data = await res.json()
         if (!data.error) {
           setMetaHistory(data.history ?? [])
           if (data.groups) {
-            // Modo Auto: grupos de corretoras
             setHistoryGroups(data.groups)
           } else {
-            // Corretora específica: grupo único
             const nome = enabledBrokers.find(b => b.id === broker)?.nome ?? broker
             setHistoryGroups([{ rank: 0, brokerId: broker, nome, trades: data.history ?? [] }])
           }
@@ -863,13 +963,56 @@ export default function ChartPage() {
   }, [])
 
   // Histórico: carrega ao conectar ou ao mudar período/corretora; limpa ao desconectar
-  // Atualiza a cada 60s para capturar deals que o MetaAPI indexou com atraso (1-10 min após fechar)
+  // Quando bridge está ativo: resposta instantânea via Supabase.
+  // Quando não está: fallback para MetaAPI com poll a cada 60s (indexação com atraso).
   useEffect(() => {
     if (!metaConnected) { setMetaHistory([]); return }
     fetchHistory(historyPeriod, historyBroker)
     const id = setInterval(() => fetchHistory(historyPeriod, historyBroker), 60_000)
     return () => clearInterval(id)
   }, [metaConnected, historyPeriod, historyBroker, fetchHistory])
+
+  // Realtime Supabase: posições abertas + deals fechados (bridge em execução no VPS)
+  // Quando o bridge não está rodando, este useEffect é no-op — o polling assume o controle.
+  useEffect(() => {
+    if (!metaConnected) return
+
+    const supa = createSupabaseClient()
+
+    // Carga inicial de posições abertas
+    supa.from('rafi_positions').select('*').then(({ data }) => {
+      if (!data?.length) return  // bridge não está rodando ainda
+      supaRtActiveRef.current = true
+      buildAllBrokerPositions(data)
+    })
+
+    // Realtime: qualquer mudança em rafi_positions → rebusca tudo
+    const posChannel = supa
+      .channel('rafi-positions-rt')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rafi_positions' }, () => {
+        supa.from('rafi_positions').select('*').then(({ data }) => {
+          if (!data) return
+          supaRtActiveRef.current = true
+          buildAllBrokerPositions(data)
+        })
+      })
+      .subscribe()
+
+    // Realtime: novo deal fechado → atualiza histórico imediatamente
+    const dealsChannel = supa
+      .channel('rafi-deals-rt')
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'rafi_deals', filter: 'entry_type=eq.DEAL_ENTRY_OUT' },
+        () => { fetchHistory(historyPeriod, historyBroker) },
+      )
+      .subscribe()
+
+    return () => {
+      supaRtActiveRef.current = false
+      supa.removeChannel(posChannel)
+      supa.removeChannel(dealsChannel)
+    }
+  }, [metaConnected, buildAllBrokerPositions, fetchHistory, historyPeriod, historyBroker])
 
   // Features 1, 2, 5: poll saldo + posições quando MetaAPI ativo
   // Nos primeiros 30s após conectar faz poll a cada 2s (MetaAPI demora para ter stream pronto em todas as contas)
