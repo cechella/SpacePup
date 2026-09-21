@@ -236,11 +236,16 @@ export default function ChartPage() {
 
   // Mostra check-in na primeira abertura do dia (seg–qui), qualquer horário.
   // O check-in define se o trader está apto antes de ver qualquer dado de mercado.
+  // NÃO aparece se a meta diária já foi cumprida hoje — sessão já encerrada.
   useEffect(() => {
     const CHECKIN_KEY = 'rafi-checkin-date'
     const today = new Date().toISOString().slice(0, 10)
     const done  = typeof window !== 'undefined' && localStorage.getItem(CHECKIN_KEY) === today
     if (done) return
+
+    // Meta do dia já atingida — trader não pode mais operar; não pede check-in
+    const goalMet = typeof window !== 'undefined' && localStorage.getItem(`rafi-daily-target-met-${today}`) === 'true'
+    if (goalMet) return
 
     const jsDay = new Date().getUTCDay()
     const activeDays = getSessionConfig().tradingDays
@@ -358,6 +363,7 @@ export default function ChartPage() {
     if (!balanceLoaded) return
     if (targetMetrics.dailyMet && !prevDailyMetRef.current) {
       setShowDailyOverlay(true)
+      setShowCheckin(false)  // fecha check-in se a meta foi atingida nessa sessão
     }
     prevDailyMetRef.current = targetMetrics.dailyMet
   }, [targetMetrics.dailyMet, balanceLoaded])
