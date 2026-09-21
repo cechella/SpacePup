@@ -136,6 +136,9 @@ export default function ChartPage() {
   const [metaLoading,   setMetaLoading]   = useState(false)
   const [metaConnected, setMetaConnected] = useState(false)
   const [metaError,     setMetaError]     = useState<string | null>(null)
+  // Toggle global MetaAPI — sincronizado com localStorage da página Corretoras
+  const [globalMapiActive, setGlobalMapiActive] = useState<boolean | null>(null)
+  const [globalMapiStatus, setGlobalMapiStatus] = useState<'idle' | 'loading'>('idle')
   const [metaStep,      setMetaStep]      = useState<string>('')
   const [metaElapsed,   setMetaElapsed]   = useState(0)
   const metaTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -543,6 +546,13 @@ export default function ChartPage() {
 
   // Carrega 100 candles ao vivo via MetaAPI — simples e direto
   const loadCandlesFromMetaAPI = useCallback(async () => {
+    // Opção A: bloqueia com mensagem amigável se MetaAPI global estiver desligado
+    try {
+      if (localStorage.getItem('rafi_mapi_active') === 'false') {
+        setMetaError('MetaAPI desligado — use o toggle ao lado para ligar e conectar ao vivo')
+        return
+      }
+    } catch {}
     setMetaLoading(true)
     setMetaError(null)
     setMetaElapsed(0)
@@ -594,6 +604,32 @@ export default function ChartPage() {
       setMetaStep('')
     }
   }, [tf, saveToHistory])
+
+  // Opção B: toggle MetaAPI global — sincronizado com Corretoras via localStorage
+  const toggleGlobalMapi = useCallback(async () => {
+    const novoEstado = !globalMapiActive
+    setGlobalMapiStatus('loading')
+    try { localStorage.setItem('rafi_mapi_active', String(novoEstado)) } catch {}
+    setGlobalMapiActive(novoEstado)
+    await fetch(`/api/metaapi/${novoEstado ? 'deploy' : 'undeploy'}`, { method: 'POST' })
+    setGlobalMapiStatus('idle')
+    if (novoEstado) {
+      try { localStorage.setItem(META_AUTO_KEY, 'true') } catch {}
+      setTimeout(() => loadCandlesFromMetaAPI(), 5_000) // aguarda ~5s para conta conectar
+    } else {
+      try { localStorage.setItem(META_AUTO_KEY, 'false') } catch {}
+      setMetaConnected(false)
+      setCsvData(null)
+    }
+  }, [globalMapiActive, loadCandlesFromMetaAPI])
+
+  // Lê estado global do MetaAPI do localStorage ao montar
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('rafi_mapi_active')
+      if (saved !== null) setGlobalMapiActive(saved === 'true')
+    } catch {}
+  }, [])
 
   // Features 1, 2, 5: busca saldo + posições abertas (todas as corretoras), detecta atividade do bot
   const fetchLiveData = useCallback(async () => {
@@ -1755,6 +1791,28 @@ export default function ChartPage() {
                         {sbLoading ? 'Carregando…' : `Supabase (${sbCandleCount.toLocaleString('pt-BR')})`}
                       </button>
                     )}
+                    {/* Opção B: toggle global MetaAPI */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }} title={globalMapiActive ? 'MetaAPI ligado — clique para desligar' : 'MetaAPI desligado — clique para ligar'}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: globalMapiActive ? '#00e676' : '#5a7d96' }}>
+                        {globalMapiStatus === 'loading' ? '…' : globalMapiActive ? 'ON' : 'OFF'}
+                      </span>
+                      <button
+                        onClick={globalMapiStatus === 'loading' ? undefined : toggleGlobalMapi}
+                        disabled={globalMapiStatus === 'loading'}
+                        style={{
+                          width: 36, height: 20, borderRadius: 10, border: 'none',
+                          cursor: globalMapiStatus === 'loading' ? 'wait' : 'pointer',
+                          background: globalMapiActive ? '#00e676' : '#1a2d42',
+                          position: 'relative', transition: 'background .25s', flexShrink: 0,
+                          opacity: globalMapiStatus === 'loading' ? 0.6 : 1,
+                        }}>
+                        <span style={{
+                          position: 'absolute', top: 2, width: 16, height: 16, borderRadius: '50%',
+                          background: '#fff', transition: 'left .25s',
+                          left: globalMapiActive ? 18 : 2,
+                        }} />
+                      </button>
+                    </div>
                     <button
                       onClick={() => {
                         if (metaConnected) {
@@ -1768,14 +1826,14 @@ export default function ChartPage() {
                           loadCandlesFromMetaAPI()
                         }
                       }}
-                      disabled={metaLoading}
+                      disabled={metaLoading || globalMapiActive === false}
                       className={cn(
                         'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-all disabled:opacity-50',
                         metaConnected
                           ? 'border-[#22c55e]/50 bg-[#22c55e]/8 text-[#22c55e] hover:bg-[#ef4444]/10 hover:border-[#ef4444]/40 hover:text-[#ef4444]'
                           : 'border-[#26c6da]/40 bg-[#26c6da]/8 text-[#26c6da] hover:bg-[#26c6da]/15',
                       )}
-                      title={metaConnected ? 'Clique para desabilitar MetaAPI' : 'Carregar candles ao vivo via MetaAPI · Pepperstone'}
+                      title={globalMapiActive === false ? 'Ligue o MetaAPI primeiro' : metaConnected ? 'Clique para desabilitar MetaAPI' : 'Carregar candles ao vivo via MetaAPI · Pepperstone'}
                     >
                       <span className={cn(
                         'w-1.5 h-1.5 rounded-full inline-block',
@@ -1783,6 +1841,16 @@ export default function ChartPage() {
                       )} />
                       {metaLoading ? 'Conectando…' : metaConnected ? 'MetaAPI · LIVE' : 'MetaAPI Ao Vivo'}
                     </button>
+                    {/* Opção A: aviso quando MetaAPI global está desligado */}
+                    {globalMapiActive === false && !metaConnected && (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px',
+                        background: '#1a1500', border: '1px solid #3d2a00', borderRadius: 6,
+                        fontSize: 10, color: '#ffb300',
+                      }}>
+                        ⚠ MetaAPI OFF — ligue o toggle para operar ao vivo
+                      </div>
+                    )}
                     {/* Feature 4: countdown para auto-refresh dos candles */}
                     {metaConnected && refreshIn > 0 && (
                       <div className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] border border-[#26c6da]/25 bg-[#26c6da]/6 text-[#26c6da] font-mono">
