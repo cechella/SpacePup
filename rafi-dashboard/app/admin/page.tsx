@@ -815,6 +815,8 @@ function IntelPanel({ trades, winRate, avgRR, rafiStrong, winsCount, lossesCount
   const avgRRColor   = avgRR && parseFloat(avgRR) >= 1.5 ? C.teal : C.gold
   const rafiPct      = trades.length > 0 ? Math.round(rafiStrong / trades.length * 100) : 0
   const phaseColor   = trades.length >= 20 ? C.teal : trades.length >= 5 ? C.blue : trades.length > 0 ? C.gold : C.muted
+  const mlBarPct     = Math.min(trades.length * 5, 100)  // 20 trades = barra cheia
+  const mlActive     = trades.length >= 20
 
   const kpis = [
     { label: 'Win Rate',      val: winRate !== null ? `${winRate}%` : '—', sub: `${winsCount}W · ${lossesCount}L`, color: winRateColor,  Icon: Award },
@@ -861,25 +863,25 @@ function IntelPanel({ trades, winRate, avgRR, rafiStrong, winsCount, lossesCount
           <span className="font-mono font-bold" style={{ color: phaseColor }}>{trades.length} trades</span>
         </div>
         <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.card2 }}>
-          <div className="h-full rounded-full transition-all duration-700" style={{ width: `${phasePct}%`, background: phaseColor }} />
+          <div className="h-full rounded-full transition-all duration-700" style={{ width: `${mlBarPct}%`, background: phaseColor }} />
         </div>
         <div className="flex items-center justify-between mt-1 text-[8px]" style={{ color: C.muted }}>
-          <span>{phasePct >= 100 ? 'Pronto para treinar XGBoost' : 'Fase 1A — mapeando'}</span>
-          <span style={{ color: phaseColor }}>{phasePct.toFixed(1)}% completo</span>
+          <span>{mlActive ? 'Aprendendo — melhora a cada trade' : 'Coletando dados…'}</span>
+          <span style={{ color: phaseColor }}>{trades.length} trade{trades.length !== 1 ? 's' : ''}</span>
         </div>
       </div>
 
       {/* Co-Piloto status */}
       <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg" style={{
-        background: phasePct >= 100 ? `${C.teal}12` : `${C.card2}`,
-        border: `1px solid ${phasePct >= 100 ? C.teal : C.border}30`,
+        background: mlActive ? `${C.teal}12` : `${C.card2}`,
+        border: `1px solid ${mlActive ? C.teal : C.border}30`,
       }}>
         <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{
-          background: phasePct >= 100 ? `${C.teal}20` : C.bg,
-          border: `2px solid ${phasePct >= 100 ? C.teal : C.border}`,
+          background: mlActive ? `${C.teal}20` : C.bg,
+          border: `2px solid ${mlActive ? C.teal : C.border}`,
         }}>
-          <span className="text-[9px] font-black font-mono" style={{ color: phasePct >= 100 ? C.teal : C.muted }}>
-            {Math.round(phasePct)}%
+          <span className="text-[9px] font-black font-mono" style={{ color: mlActive ? C.teal : C.muted }}>
+            {trades.length > 0 ? `${trades.length}` : '0'}
           </span>
         </div>
         <div>
