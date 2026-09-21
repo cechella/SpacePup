@@ -20,6 +20,8 @@ import { generateTradeSnapshot } from '@/lib/trade-snapshot'
 import { getSessionConfig } from '@/lib/session-config'
 import { createClient as createSupabaseClient } from '@/lib/supabase'
 import { IASuggestionModal, type IASuggestion } from '@/components/ia-suggestion-modal'
+import { ModoAutonomoModal } from '@/components/modo-autonomo-modal'
+import { ModoAutonomoBanner, type AutonomoTrade } from '@/components/modo-autonomo-banner'
 
 const RAFIChart = dynamic(
   () => import('@/components/rafi-chart').then(m => m.RAFIChart),
@@ -237,6 +239,14 @@ export default function ChartPage() {
   const [iaWatcherActive,  setIaWatcherActive]  = useState(true)
   const iaLastSuggestRef = useRef<number>(0)  // evita re-disparar a mesma sugestão dentro de 5min
 
+  // Modo Autônomo — IA opera sozinha quando estado mental está comprometido
+  const [showAutonomoModal, setShowAutonomoModal] = useState(false)
+  const [autonomoAtivo,     setAutonomoAtivo]     = useState(false)
+  const [autonomoTrades,    setAutonomoTrades]     = useState<AutonomoTrade[]>([])
+  const [autonomoPnl,       setAutonomoPnl]        = useState(0)
+  const autonomoLastRef = useRef<number>(0)  // evita re-execução dentro de 5min
+  const META_DIARIA_PCT = 7  // 7% de meta diária
+
   // Check-in de estado mental do dia
   const [checkin,     setCheckin]     = useState<CheckinResult | null>(null)
   const [showCheckin, setShowCheckin] = useState(false)
@@ -365,6 +375,112 @@ export default function ChartPage() {
     return () => clearInterval(intervalId)
   }, [iaWatcherActive, showIASuggestion, checkin, consolidatedBalance])
 
+  // ── Loop Autônomo — executa trades sem confirmação quando ativado ────────────
+  useEffect(() => {
+    if (!autonomoAtivo) return
+
+    function getSessaoAtiva(): 'Londres' | 'NY' | null {
+      const h = new Date().getUTCHours()
+      if (h >= 8  && h < 12) return 'Londres'
+      if (h >= 13 && h < 17) return 'NY'
+      return null
+    }
+
+    async function runLoop() {
+      const price = livePriceRef.current
+      if (!price) return
+      const sessao = getSessaoAtiva()
+      if (!sessao) return  // fora das sessões — não opera
+
+      const capital = consolidatedBalance ?? 100
+      const metaUsd = capital * (META_DIARIA_PCT / 100)
+      if (autonomoPnl >= metaUsd) return  // meta já atingida
+
+      const posOpen = allBrokerPositionsRef.current.reduce((acc, b) => acc + (b.positions?.length ?? 0), 0)
+      if (posOpen >= 2) return  // limite de posições simultâneas
+
+      if (Date.now() - autonomoLastRef.current < 5 * 60 * 1000) return  // cooldown 5 min
+
+      const stored = typeof window !== 'undefined'
+        ? JSON.parse(localStorage.getItem('rafi-trade-log') ?? '[]')
+        : []
+      const labeledCount = Array.isArray(stored)
+        ? stored.filter((t: { result?: string }) => t.result === 'win' || t.result === 'loss').length
+        : 0
+
+      try {
+        const res = await fetch('/api/ml/signal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            rafi:          0,
+            direction:     'buy',
+            currentPrice:  price,
+            horaUtc:       new Date().getUTCHours(),
+            capital,
+            labeled_count: labeledCount,
+            checkinSono:    checkin?.sono    ?? null,
+            checkinEnergia: checkin?.energia ?? null,
+            checkinMental:  checkin?.mental  ?? null,
+            checkinHumor:   checkin?.humor   ?? null,
+          }),
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        if (data.suggestion !== true || data.probability < 65) return
+
+        autonomoLastRef.current = Date.now()
+        const tradeId = `auto-${Date.now()}`
+        const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+
+        // Registra trade autônomo como "em aberto"
+        setAutonomoTrades(prev => [...prev, {
+          id: tradeId, direction: data.direction, entry: data.entry,
+          lot: data.lot, prob: data.probability, status: 'open', hora,
+        }])
+
+        // Envia ordem
+        const orderRes = await fetch('/api/metaapi/order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            symbol:     'EURUSD',
+            actionType: data.direction === 'buy' ? 'ORDER_TYPE_BUY' : 'ORDER_TYPE_SELL',
+            volume:     data.lot,
+            stopLoss:   data.stopLoss,
+            takeProfit: data.takeProfit,
+            comment:    `AUTONOMO-P${data.probability}`,
+          }),
+        })
+
+        if (orderRes.ok) {
+          const result = await orderRes.json().catch(() => ({}))
+          const tipo = data.direction === 'buy' ? 'COMPRA' : 'VENDA'
+          const reps = (result.replication as Array<{ ok: boolean }>)?.filter(r => r.ok).length ?? 1
+          setOrderToast({ ok: true, msg: `🤖 Autônomo: ${tipo} ${data.entry.toFixed(5)} · P=${data.probability}% · ${reps} corretora${reps > 1 ? 's' : ''} ✓` })
+        } else {
+          setAutonomoTrades(prev => prev.filter(t => t.id !== tradeId))
+          const err = await orderRes.json().catch(() => ({}))
+          setOrderToast({ ok: false, msg: `🤖 Autônomo: erro — ${err?.error ?? orderRes.status}` })
+        }
+        setTimeout(() => setOrderToast(null), 8000)
+      } catch {
+        // silencioso
+      }
+    }
+
+    const iv = setInterval(runLoop, 5 * 60 * 1000)  // a cada 5 minutos
+    runLoop()  // roda imediatamente ao ativar
+    return () => clearInterval(iv)
+  }, [autonomoAtivo, autonomoPnl, checkin, consolidatedBalance])
+
+  function getAutonomoSessao(): 'Londres' | 'NY' | 'aguardando' {
+    const h = new Date().getUTCHours()
+    if (h >= 8  && h < 12) return 'Londres'
+    if (h >= 13 && h < 17) return 'NY'
+    return 'aguardando'
+  }
+
   async function handleIAAuthorize(s: IASuggestion) {
     await fetch('/api/metaapi/order', {
       method:  'POST',
@@ -431,9 +547,24 @@ export default function ChartPage() {
   function handleCheckinComplete(result: CheckinResult) {
     setCheckin(result)
     setShowCheckin(false)
-    try {
-      localStorage.setItem('rafi-checkin-date', brtDateStr())
-    } catch { /* */ }
+    try { localStorage.setItem('rafi-checkin-date', brtDateStr()) } catch { /* */ }
+
+    // Verifica se estado está comprometido — mostra modal de Modo Autônomo
+    const estadoRuim =
+      result.sono    === 'mal'    ||
+      result.energia === 'baixa'  ||
+      result.mental  === 'ruim'   ||
+      result.humor   === 'triste'
+    if (estadoRuim) {
+      // Só oferece modo autônomo se há ≥ 10 trades rotulados
+      const stored = typeof window !== 'undefined'
+        ? JSON.parse(localStorage.getItem('rafi-trade-log') ?? '[]')
+        : []
+      const labeled = Array.isArray(stored)
+        ? stored.filter((t: { result?: string }) => t.result === 'win' || t.result === 'loss').length
+        : 0
+      if (labeled >= 10) setShowAutonomoModal(true)
+    }
   }
 
   // Estado de disciplina derivado do histórico de operações já carregado
@@ -1712,6 +1843,37 @@ export default function ChartPage() {
 
   return (
     <div className="flex h-full overflow-hidden relative">
+
+      {/* ── Banner Modo Autônomo — topo da página quando IA está operando ── */}
+      {autonomoAtivo && (
+        <ModoAutonomoBanner
+          capital={consolidatedBalance ?? 100}
+          metaAlvo={META_DIARIA_PCT}
+          pnlHoje={autonomoPnl}
+          sessaoAtiva={getAutonomoSessao()}
+          trades={autonomoTrades}
+          onPausar={() => {
+            setAutonomoAtivo(false)
+            setAutonomoTrades([])
+            setAutonomoPnl(0)
+          }}
+        />
+      )}
+
+      {/* ── Modal de ativação do Modo Autônomo ── */}
+      {showAutonomoModal && checkin && (
+        <ModoAutonomoModal
+          checkin={checkin}
+          onAutonomo={() => {
+            setShowAutonomoModal(false)
+            setAutonomoAtivo(true)
+            setAutonomoTrades([])
+            setAutonomoPnl(0)
+            setIaWatcherActive(false)  // desativa pop-ups durante modo autônomo
+          }}
+          onManual={() => setShowAutonomoModal(false)}
+        />
+      )}
 
       {/* ── Check-in de estado mental ── */}
       {showCheckin && <CheckinModal onComplete={handleCheckinComplete} />}
