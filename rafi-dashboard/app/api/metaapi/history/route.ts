@@ -7,18 +7,28 @@ const PROV_BASE   = 'https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai
 const TOKEN       = process.env.METAAPI_TOKEN!
 const ENV_ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
 
-/** Dispara re-deploy de conta desconectada sem aguardar (fire-and-forget).
- *  O próximo poll de 60s do frontend vai pegar os deals após re-deploy completar (~15-30s). */
-function triggerRedeploy(accountId: string): void {
-  fetch(`${PROV_BASE}/users/current/accounts/${accountId}/deploy`, {
+/** Faz deploy e aguarda a conta ficar online, depois tenta buscar os deals novamente. */
+async function deployAndRetry(
+  accountId: string,
+  from: string,
+  to: string,
+): Promise<{ deals: any[]; httpStatus?: number; fetchError?: string }> {
+  // Dispara deploy
+  await fetch(`${PROV_BASE}/users/current/accounts/${accountId}/deploy`, {
     method:  'POST',
     headers: { 'auth-token': TOKEN },
-    signal:  AbortSignal.timeout(10_000),
+    signal:  AbortSignal.timeout(8_000),
   }).catch(() => { /* silencioso */ })
+
+  // Aguarda MetaAPI subir a conta (~12s)
+  await new Promise(r => setTimeout(r, 12_000))
+
+  // Tenta novamente
+  return fetchDealsForAccount(accountId, from, to)
 }
 
 export const runtime     = 'nodejs'
-export const maxDuration = 30
+export const maxDuration = 60
 
 function periodToFrom(period: string): Date {
   const now = new Date()
@@ -117,9 +127,14 @@ export async function GET(req: Request) {
       const brokers = await getActiveBrokers()
       const results = await Promise.allSettled(
         brokers.map(async (b, idx) => {
-          const { deals, httpStatus, fetchError } = await fetchDealsForAccount(b.accountId, from, to)
-          // Conta desconectada (504) → dispara re-deploy em background; próximo poll vai pegar os deals
-          if (httpStatus === 504) triggerRedeploy(b.accountId)
+          let { deals, httpStatus, fetchError } = await fetchDealsForAccount(b.accountId, from, to)
+          // Conta desconectada (504) → faz deploy, aguarda ~12s e tenta novamente
+          if (httpStatus === 504) {
+            const retry = await deployAndRetry(b.accountId, from, to)
+            deals      = retry.deals
+            httpStatus = retry.httpStatus
+            fetchError = retry.fetchError
+          }
           return {
             rank:       idx + 1,
             brokerId:   b.brokerId,
