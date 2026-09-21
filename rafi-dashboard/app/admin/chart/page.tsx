@@ -238,6 +238,10 @@ export default function ChartPage() {
   const [showWeeklyOverlay, setShowWeeklyOverlay] = useState(false)
   const prevDailyMetRef  = useRef(false)
   const prevWeeklyMetRef = useRef(false)
+  // Métricas salvas no Supabase — fallback quando MetaAPI está desconectado
+  const [supabaseGoalData, setSupabaseGoalData] = useState<{
+    dailyPct: number; dailyPnl: number; weeklyPct: number; weeklyPnl: number
+  } | null>(null)
   // Roteamento multi-corretora: broker vencedor atual do ranking
   const [routeBroker, setRouteBroker] = useState<{
     id: string; nome: string; estado: string; health_score: number; circuit_breaker: string
@@ -310,6 +314,7 @@ export default function ChartPage() {
         const daily = await fetchDailyGoal(today)
         if (daily?.dailyMet) {
           localStorage.setItem(`rafi-daily-target-met-${today}`, 'true')
+          setSupabaseGoalData({ dailyPct: daily.dailyPct, dailyPnl: daily.dailyPnl, weeklyPct: daily.weeklyPct, weeklyPnl: daily.weeklyPnl })
           setShowDailyOverlay(true)
           setShowCheckin(false)
           prevDailyMetRef.current = true
@@ -319,6 +324,7 @@ export default function ChartPage() {
         const weekly = await fetchWeeklyGoal(weekMonday)
         if (weekly?.weeklyMet) {
           localStorage.setItem(`rafi-weekly-target-met-${weekMonday}`, 'true')
+          setSupabaseGoalData({ dailyPct: weekly.dailyPct, dailyPnl: weekly.dailyPnl, weeklyPct: weekly.weeklyPct, weeklyPnl: weekly.weeklyPnl })
           setShowWeeklyOverlay(true)
           setShowCheckin(false)
           prevWeeklyMetRef.current = true
@@ -1620,10 +1626,10 @@ export default function ChartPage() {
       {showDailyOverlay && (
         <MetasOverlay
           type="daily"
-          dailyPct={targetMetrics.dailyPct}
-          dailyPnl={targetMetrics.dailyPnl}
-          weeklyPct={targetMetrics.weeklyPct}
-          weeklyPnl={targetMetrics.weeklyPnl}
+          dailyPct={balanceLoaded  ? targetMetrics.dailyPct  : (supabaseGoalData?.dailyPct  ?? 0)}
+          dailyPnl={balanceLoaded  ? targetMetrics.dailyPnl  : (supabaseGoalData?.dailyPnl  ?? 0)}
+          weeklyPct={balanceLoaded ? targetMetrics.weeklyPct : (supabaseGoalData?.weeklyPct ?? 0)}
+          weeklyPnl={balanceLoaded ? targetMetrics.weeklyPnl : (supabaseGoalData?.weeklyPnl ?? 0)}
           daysHit={targetMetrics.daysHit}
           currency={metaAccount?.currency ?? 'USD'}
           onClose={() => setShowDailyOverlay(false)}
@@ -1634,10 +1640,10 @@ export default function ChartPage() {
       {showWeeklyOverlay && (
         <MetasOverlay
           type="weekly"
-          dailyPct={targetMetrics.dailyPct}
-          dailyPnl={targetMetrics.dailyPnl}
-          weeklyPct={targetMetrics.weeklyPct}
-          weeklyPnl={targetMetrics.weeklyPnl}
+          dailyPct={balanceLoaded  ? targetMetrics.dailyPct  : (supabaseGoalData?.dailyPct  ?? 0)}
+          dailyPnl={balanceLoaded  ? targetMetrics.dailyPnl  : (supabaseGoalData?.dailyPnl  ?? 0)}
+          weeklyPct={balanceLoaded ? targetMetrics.weeklyPct : (supabaseGoalData?.weeklyPct ?? 0)}
+          weeklyPnl={balanceLoaded ? targetMetrics.weeklyPnl : (supabaseGoalData?.weeklyPnl ?? 0)}
           daysHit={targetMetrics.daysHit}
           currency={metaAccount?.currency ?? 'USD'}
           onClose={() => setShowWeeklyOverlay(false)}
