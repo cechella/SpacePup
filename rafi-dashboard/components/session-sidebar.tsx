@@ -11,6 +11,7 @@ export interface TargetMetrics {
   dailyPnl:   number   // $ lucro hoje
   weeklyPct:  number   // % lucro esta semana
   weeklyPnl:  number   // $ lucro esta semana
+  daysHit:    number   // quantos dias da semana bateram a meta diária
   dailyMet:   boolean
   weeklyMet:  boolean
   locked:     boolean

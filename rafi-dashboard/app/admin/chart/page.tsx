@@ -342,26 +342,33 @@ export default function ChartPage() {
     return {
       dailyPct, dailyPnl: todayPnl,
       weeklyPct, weeklyPnl: weekPnl,
+      daysHit,
       dailyMet, weeklyMet,
       locked: dailyMet || weeklyMet,
       DAILY_TARGET, WEEKLY_TARGET,
     }
   }, [metaHistory, metaAccount, consolidatedBalance])
 
-  // Dispara overlay quando a meta é atingida pela primeira vez nesta sessão
+  // Dispara overlay quando a meta é atingida pela primeira vez nesta sessão.
+  // Aguarda saldo real (consolidado ou MetaAPI) para evitar falso positivo com
+  // o fallback de $100 que inflaria o % antes dos dados carregarem.
+  const balanceLoaded = consolidatedBalance !== null || (metaAccount?.balance ?? 0) > 0
+
   useEffect(() => {
+    if (!balanceLoaded) return
     if (targetMetrics.dailyMet && !prevDailyMetRef.current) {
       setShowDailyOverlay(true)
     }
     prevDailyMetRef.current = targetMetrics.dailyMet
-  }, [targetMetrics.dailyMet])
+  }, [targetMetrics.dailyMet, balanceLoaded])
 
   useEffect(() => {
+    if (!balanceLoaded) return
     if (targetMetrics.weeklyMet && !prevWeeklyMetRef.current) {
       setShowWeeklyOverlay(true)
     }
     prevWeeklyMetRef.current = targetMetrics.weeklyMet
-  }, [targetMetrics.weeklyMet])
+  }, [targetMetrics.weeklyMet, balanceLoaded])
 
   // Inicializa altura do gráfico e detecta desktop
   useEffect(() => {
@@ -1514,7 +1521,7 @@ export default function ChartPage() {
           dailyPnl={targetMetrics.dailyPnl}
           weeklyPct={targetMetrics.weeklyPct}
           weeklyPnl={targetMetrics.weeklyPnl}
-          daysHit={0}
+          daysHit={targetMetrics.daysHit}
           currency={metaAccount?.currency ?? 'USD'}
           onClose={() => setShowDailyOverlay(false)}
         />
@@ -1528,7 +1535,7 @@ export default function ChartPage() {
           dailyPnl={targetMetrics.dailyPnl}
           weeklyPct={targetMetrics.weeklyPct}
           weeklyPnl={targetMetrics.weeklyPnl}
-          daysHit={0}
+          daysHit={targetMetrics.daysHit}
           currency={metaAccount?.currency ?? 'USD'}
           onClose={() => setShowWeeklyOverlay(false)}
         />
