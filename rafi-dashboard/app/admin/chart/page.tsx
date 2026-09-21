@@ -863,9 +863,12 @@ export default function ChartPage() {
   }, [])
 
   // Histórico: carrega ao conectar ou ao mudar período/corretora; limpa ao desconectar
+  // Atualiza a cada 60s para capturar deals que o MetaAPI indexou com atraso (1-10 min após fechar)
   useEffect(() => {
     if (!metaConnected) { setMetaHistory([]); return }
     fetchHistory(historyPeriod, historyBroker)
+    const id = setInterval(() => fetchHistory(historyPeriod, historyBroker), 60_000)
+    return () => clearInterval(id)
   }, [metaConnected, historyPeriod, historyBroker, fetchHistory])
 
   // Features 1, 2, 5: poll saldo + posições quando MetaAPI ativo
