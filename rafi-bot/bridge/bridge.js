@@ -5,6 +5,7 @@ require('dotenv').config()
 const MetaApi            = require('metaapi.cloud-sdk').default
 const SynchronizationListener = require('metaapi.cloud-sdk').SynchronizationListener
 const { createClient }   = require('@supabase/supabase-js')
+const WebSocket          = require('ws')
 
 // ── Variáveis de ambiente ─────────────────────────────────────────────────────
 const MA_TOKEN = process.env.METAAPI_TOKEN
@@ -17,7 +18,7 @@ if (!MA_TOKEN || !SUPA_URL || !SUPA_KEY) {
   process.exit(1)
 }
 
-const supa = createClient(SUPA_URL, SUPA_KEY, { auth: { persistSession: false } })
+const supa = createClient(SUPA_URL, SUPA_KEY, { auth: { persistSession: false }, realtime: { transport: WebSocket } })
 const api  = new MetaApi(MA_TOKEN)
 
 // ── Helpers Supabase ──────────────────────────────────────────────────────────
