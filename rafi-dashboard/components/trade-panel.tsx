@@ -109,6 +109,7 @@ export function TradePanel({
   }, [externalEntry])
 
   const handleAdd = () => {
+    if (locked) return  // meta atingida — bloqueia registro de novas ordens
     const e   = parseFloat(entry)
     const s   = parseFloat(sl)
     const t   = parseFloat(tp)
@@ -415,7 +416,7 @@ export function TradePanel({
         )}
         <button
           onClick={handleAdd}
-          disabled={!hasValues || risk <= 0 || !marginOk}
+          disabled={locked || !hasValues || risk <= 0 || !marginOk}
           className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold bg-[#3b82f6] hover:bg-[#2563eb] text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Plus size={12} /> Adicionar Ordem OCO
