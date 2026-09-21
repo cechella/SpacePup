@@ -96,7 +96,6 @@ interface ManualTrade {
 }
 
 const STORAGE_KEY = 'rafi-trade-log'
-const ML_TARGET   = 300
 
 function riskPips(e: number, s: number, dir: 'buy' | 'sell') {
   return dir === 'buy' ? Math.round((e - s) * 10000) : Math.round((s - e) * 10000)
@@ -338,22 +337,23 @@ function BrokerCompareRow({ brokers }: { brokers: BrokerLiveData[] }) {
 
 // ── Progress bar do ML ────────────────────────────────────────────────────────
 function MLProgress({ current }: { current: number }) {
-  const pct   = Math.min((current / ML_TARGET) * 100, 100)
-  const color = pct >= 100 ? C.teal : pct >= 50 ? C.blue : C.gold
-  const phase = pct >= 100 ? 'Pronto para treinar!' : pct >= 50 ? 'Fase 1B quase lá' : 'Fase 1A — mapeando'
+  const color = current >= 20 ? C.teal : current >= 5 ? C.blue : C.gold
+  const phase = current === 0
+    ? 'Aguardando 1º trade'
+    : `IA aprendendo — ${current} trade${current > 1 ? 's' : ''} coletado${current > 1 ? 's' : ''}`
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between text-xs">
         <span className="font-medium" style={{ color: C.sub }}>{phase}</span>
-        <span className="font-mono font-bold" style={{ color }}>{current} / {ML_TARGET}</span>
+        <span className="font-mono font-bold" style={{ color }}>{current} trades</span>
       </div>
       <div className="h-2 rounded-full overflow-hidden" style={{ background: C.card2 }}>
-        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: color }} />
+        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.min(current * 2, 100)}%`, background: color }} />
       </div>
       <div className="flex items-center justify-between text-[9px]" style={{ color: C.muted }}>
         <span>0</span>
-        <span>Treinar XGBoost</span>
-        <span>{ML_TARGET}</span>
+        <span>Aprendizado contínuo</span>
+        <span>∞</span>
       </div>
     </div>
   )
@@ -814,8 +814,7 @@ function IntelPanel({ trades, winRate, avgRR, rafiStrong, winsCount, lossesCount
   const winRateColor = winRate === null ? C.text : winRate >= 60 ? C.teal : winRate >= 50 ? C.gold : C.rose
   const avgRRColor   = avgRR && parseFloat(avgRR) >= 1.5 ? C.teal : C.gold
   const rafiPct      = trades.length > 0 ? Math.round(rafiStrong / trades.length * 100) : 0
-  const phasePct     = Math.min((trades.length / ML_TARGET) * 100, 100)
-  const phaseColor   = phasePct >= 100 ? C.teal : phasePct >= 50 ? C.blue : C.gold
+  const phaseColor   = trades.length >= 20 ? C.teal : trades.length >= 5 ? C.blue : trades.length > 0 ? C.gold : C.muted
 
   const kpis = [
     { label: 'Win Rate',      val: winRate !== null ? `${winRate}%` : '—', sub: `${winsCount}W · ${lossesCount}L`, color: winRateColor,  Icon: Award },
@@ -859,7 +858,7 @@ function IntelPanel({ trades, winRate, avgRR, rafiStrong, winsCount, lossesCount
       <div>
         <div className="flex items-center justify-between mb-1 text-[8px] uppercase tracking-widest" style={{ color: C.muted }}>
           <span>ML — Aprendendo Padrões</span>
-          <span className="font-mono font-bold" style={{ color: phaseColor }}>{trades.length} / {ML_TARGET}</span>
+          <span className="font-mono font-bold" style={{ color: phaseColor }}>{trades.length} trades</span>
         </div>
         <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.card2 }}>
           <div className="h-full rounded-full transition-all duration-700" style={{ width: `${phasePct}%`, background: phaseColor }} />
@@ -884,11 +883,11 @@ function IntelPanel({ trades, winRate, avgRR, rafiStrong, winsCount, lossesCount
           </span>
         </div>
         <div>
-          <div className="text-[9px] font-semibold" style={{ color: phasePct >= 100 ? C.teal : C.sub }}>
-            Co-Piloto · {phasePct >= 100 ? 'Alta Confiança' : 'Aguardando dados'}
+          <div className="text-[9px] font-semibold" style={{ color: phaseColor }}>
+            Co-Piloto · {trades.length > 0 ? 'Aprendendo' : 'Aguardando'}
           </div>
           <div className="text-[8px]" style={{ color: C.muted }}>
-            {phasePct >= 100 ? 'Filtro ML pronto para ativar' : `Faltam ${ML_TARGET - trades.length} trades`}
+            {trades.length > 0 ? 'Melhora a cada novo trade' : 'Opera o 1º trade para iniciar'}
           </div>
         </div>
       </div>
