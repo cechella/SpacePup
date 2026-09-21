@@ -20,7 +20,8 @@ export async function GET() {
       logBrokerEvent(b.brokerId, 'positions', res.ok, Date.now() - t0, res.ok ? undefined : String(res.status))
 
       if (!res.ok) {
-        return { rank: idx + 1, brokerId: b.brokerId, nome: b.nome, symbol: b.symbol, positions: [], totalPnl: 0, error: res.status }
+        const errBody = await res.text().catch(() => '')
+        return { rank: idx + 1, brokerId: b.brokerId, nome: b.nome, symbol: b.symbol, positions: [], totalPnl: 0, error: res.status, errorDetail: errBody.slice(0, 200) }
       }
 
       const raw = await res.json()
