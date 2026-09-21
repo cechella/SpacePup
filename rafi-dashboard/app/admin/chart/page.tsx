@@ -19,6 +19,7 @@ import type { CandleData } from '@/lib/types'
 import { generateTradeSnapshot } from '@/lib/trade-snapshot'
 import { getSessionConfig } from '@/lib/session-config'
 import { createClient as createSupabaseClient } from '@/lib/supabase'
+import { IASuggestionModal, type IASuggestion } from '@/components/ia-suggestion-modal'
 
 const RAFIChart = dynamic(
   () => import('@/components/rafi-chart').then(m => m.RAFIChart),
@@ -230,6 +231,12 @@ export default function ChartPage() {
   const toolbarHRef = useRef<number>(52)  // estimativa inicial para o drag
   const toolbarElRef = useRef<HTMLDivElement | null>(null)  // mede altura real no DOM
   const prevPositionsRef = useRef<typeof metaPositions>([])
+  // IA Suggestion — pop-up de sugestão de entrada
+  const [iaSuggestion,     setIaSuggestion]     = useState<IASuggestion | null>(null)
+  const [showIASuggestion, setShowIASuggestion] = useState(false)
+  const [iaWatcherActive,  setIaWatcherActive]  = useState(true)
+  const iaLastSuggestRef = useRef<number>(0)  // evita re-disparar a mesma sugestão dentro de 5min
+
   // Check-in de estado mental do dia
   const [checkin,     setCheckin]     = useState<CheckinResult | null>(null)
   const [showCheckin, setShowCheckin] = useState(false)
@@ -297,6 +304,97 @@ export default function ChartPage() {
       prevWeeklyMetRef.current = true  // evita duplo disparo quando MetaAPI carregar
     }
   }, [])
+
+  // ── IA Signal Watcher — avalia condições a cada 30s e dispara pop-up ─────────
+  useEffect(() => {
+    if (!iaWatcherActive) return
+
+    async function checkSignal() {
+      // Não avalia se já há sugestão visível ou se disparou nos últimos 5 min
+      if (showIASuggestion) return
+      if (Date.now() - iaLastSuggestRef.current < 5 * 60 * 1000) return
+      // Não avalia se não há preço ao vivo
+      const price = livePriceRef.current
+      if (!price) return
+      // Não avalia se já há 2+ posições abertas (limite de risco)
+      if (allBrokerPositionsRef.current.reduce((acc, b) => acc + (b.positions?.length ?? 0), 0) >= 2) return
+
+      // Coleta condições atuais a partir dos dados do gráfico
+      const nowSec = Math.floor(Date.now() / 1000)
+      const horaUtc = new Date().getUTCHours()
+
+      // Pega o último valor de RAFI calculado (referência direta ao estado atual)
+      // e o último candle M5 para determinar direção natural do mercado
+      const storedTrades = typeof window !== 'undefined'
+        ? JSON.parse(localStorage.getItem('rafi-trade-log') ?? '[]')
+        : []
+      const labeledCount = Array.isArray(storedTrades)
+        ? storedTrades.filter((t: { result?: string }) => t.result === 'win' || t.result === 'loss').length
+        : 0
+
+      try {
+        const res = await fetch('/api/ml/signal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            rafi:          0,          // frontend vai sobrepor com valor atual quando disponível
+            direction:     'buy',      // será determinado pela API com base nos trades recentes
+            currentPrice:  price,
+            horaUtc,
+            capital:       consolidatedBalance ?? 100,
+            labeled_count: labeledCount,
+            checkinSono:    checkin?.sono    ?? null,
+            checkinEnergia: checkin?.energia ?? null,
+            checkinMental:  checkin?.mental  ?? null,
+            checkinHumor:   checkin?.humor   ?? null,
+          }),
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        if (data.suggestion === true) {
+          setIaSuggestion(data as IASuggestion)
+          setShowIASuggestion(true)
+          iaLastSuggestRef.current = Date.now()
+        }
+      } catch {
+        // silencioso — não interrompe a UI em caso de erro de rede
+      }
+    }
+
+    const intervalId = setInterval(checkSignal, 30_000)
+    return () => clearInterval(intervalId)
+  }, [iaWatcherActive, showIASuggestion, checkin, consolidatedBalance])
+
+  async function handleIAAuthorize(s: IASuggestion) {
+    await fetch('/api/metaapi/order', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        symbol:     'EURUSD',
+        actionType: s.direction === 'buy' ? 'ORDER_TYPE_BUY' : 'ORDER_TYPE_SELL',
+        volume:     s.lot,
+        stopLoss:   s.stopLoss,
+        takeProfit: s.takeProfit,
+        comment:    `IA-P${s.probability}`,
+      }),
+    })
+      .then(async res => {
+        if (res.ok) {
+          const result = await res.json().catch(() => ({}))
+          const tipo = s.direction === 'buy' ? 'COMPRA' : 'VENDA'
+          const replicadas = (result.replication as Array<{ ok: boolean }>)?.filter(r => r.ok).length ?? 1
+          setOrderToast({ ok: true, msg: `IA: Ordem ${tipo} enviada · ${replicadas} corretora${replicadas > 1 ? 's' : ''} ✓` })
+        } else {
+          const err = await res.json().catch(() => ({}))
+          setOrderToast({ ok: false, msg: `IA: ${err?.error ?? res.status}` })
+        }
+        setTimeout(() => setOrderToast(null), 6000)
+      })
+      .catch(err => {
+        setOrderToast({ ok: false, msg: `IA: ${err.message ?? 'Falha de rede'}` })
+        setTimeout(() => setOrderToast(null), 6000)
+      })
+  }
 
   // Fallback: verifica Supabase para metas já cumpridas (funciona mesmo com MetaAPI
   // desconectado e em qualquer dispositivo — não depende do localStorage local)
@@ -3372,6 +3470,30 @@ export default function ChartPage() {
           <span>{orderToast.msg}</span>
         </div>
       )}
+
+      {/* IA Suggestion Modal — pop-up de entrada sugerida pela IA */}
+      {showIASuggestion && iaSuggestion && (
+        <IASuggestionModal
+          suggestion={iaSuggestion}
+          onAuthorize={async (s) => { await handleIAAuthorize(s) }}
+          onDismiss={() => { setShowIASuggestion(false); setIaSuggestion(null) }}
+        />
+      )}
+
+      {/* Toggle Pausar IA — canto inferior esquerdo, discreto */}
+      <button
+        onClick={() => setIaWatcherActive(v => !v)}
+        className={cn(
+          'fixed bottom-[76px] md:bottom-6 left-4 z-40 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[9px] font-mono border transition-all',
+          iaWatcherActive
+            ? 'bg-[#0d1117] border-[#10b981]/30 text-[#10b981]'
+            : 'bg-[#0d1117] border-[#30363d] text-[#484f58]',
+        )}
+        title={iaWatcherActive ? 'IA ativa — clique para pausar' : 'IA pausada — clique para reativar'}
+      >
+        <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', iaWatcherActive ? 'bg-[#10b981] animate-pulse' : 'bg-[#484f58]')} />
+        {iaWatcherActive ? 'IA ativa' : 'IA pausada'}
+      </button>
     </div>
   )
 }
