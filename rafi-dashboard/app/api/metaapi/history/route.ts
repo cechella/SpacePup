@@ -70,14 +70,25 @@ function parseDeals(deals: any[]) {
     .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
 }
 
-async function fetchDealsForAccount(accountId: string, from: string, to: string) {
-  const res = await fetch(
-    `${BASE}/users/current/accounts/${accountId}/history-deals/time/${from}/${to}`,
-    { headers: { 'auth-token': TOKEN }, signal: AbortSignal.timeout(20_000), cache: 'no-store' },
-  )
-  if (!res.ok) return []
-  const deals: any[] = await res.json()
-  return Array.isArray(deals) ? deals : []
+async function fetchDealsForAccount(
+  accountId: string,
+  from: string,
+  to: string,
+): Promise<{ deals: any[]; httpStatus?: number; fetchError?: string }> {
+  try {
+    const res = await fetch(
+      `${BASE}/users/current/accounts/${accountId}/history-deals/time/${from}/${to}`,
+      { headers: { 'auth-token': TOKEN }, signal: AbortSignal.timeout(20_000), cache: 'no-store' },
+    )
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      return { deals: [], httpStatus: res.status, fetchError: body.slice(0, 200) }
+    }
+    const deals: any[] = await res.json()
+    return { deals: Array.isArray(deals) ? deals : [] }
+  } catch (e: any) {
+    return { deals: [], fetchError: e?.message ?? 'timeout' }
+  }
 }
 
 export async function GET(req: Request) {
@@ -95,8 +106,15 @@ export async function GET(req: Request) {
       const brokers = await getActiveBrokers()
       const results = await Promise.allSettled(
         brokers.map(async (b, idx) => {
-          const deals = await fetchDealsForAccount(b.accountId, from, to)
-          return { rank: idx + 1, brokerId: b.brokerId, nome: b.nome, trades: parseDeals(deals) }
+          const { deals, httpStatus, fetchError } = await fetchDealsForAccount(b.accountId, from, to)
+          return {
+            rank:       idx + 1,
+            brokerId:   b.brokerId,
+            nome:       b.nome,
+            trades:     parseDeals(deals),
+            ...(fetchError  && { fetchError }),
+            ...(httpStatus  && { httpStatus }),
+          }
         })
       )
       const groups = results
@@ -108,7 +126,12 @@ export async function GET(req: Request) {
 
     // Modo corretora única
     const accountId = await resolveAccountId(brokerId)
-    const deals = await fetchDealsForAccount(accountId, from, to)
+    const { deals, httpStatus, fetchError } = await fetchDealsForAccount(accountId, from, to)
+
+    if (fetchError) {
+      console.error(`[history] broker=${brokerId ?? 'top'} status=${httpStatus} err=${fetchError}`)
+      return NextResponse.json({ history: [], period, fetchError, httpStatus })
+    }
 
     if (!deals.length && !brokerId) {
       return NextResponse.json({ history: [], period })
