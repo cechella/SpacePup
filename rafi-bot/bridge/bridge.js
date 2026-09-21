@@ -190,7 +190,7 @@ async function connectAccount(brokerId, accountId) {
   if (!['DEPLOYED', 'DEPLOYING'].includes(account.state)) {
     await account.deploy()
   }
-  await account.waitConnected()
+  await account.waitConnected({ timeoutInSeconds: 120 })
 
   // Sincronização histórica antes de ligar streaming
   await syncHistory(brokerId, accountId)
@@ -201,7 +201,7 @@ async function connectAccount(brokerId, accountId) {
   conn.addSynchronizationListener(listener)
 
   await conn.connect()
-  await conn.waitSynchronized({ timeoutInSeconds: 60 })
+  await conn.waitSynchronized({ timeoutInSeconds: 120 })
 
   console.log(`[bridge] ${brokerId} — streaming ativo ✓`)
   return conn
