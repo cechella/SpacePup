@@ -257,17 +257,13 @@ export default function ChartPage() {
   const alignRightRef = useRef<(() => void) | null>(null)
 
   // Mostra check-in na primeira abertura do dia (seg–qui), qualquer horário.
-  // O check-in define se o trader está apto antes de ver qualquer dado de mercado.
-  // NÃO aparece se a meta diária já foi cumprida hoje — sessão já encerrada.
+  // Sempre aparece uma vez por dia — mesmo que a meta já tenha sido atingida,
+  // para registrar o estado mental no Supabase e cruzar com os resultados.
   useEffect(() => {
     const CHECKIN_KEY = 'rafi-checkin-date'
     const today = brtDateStr()
     const done  = typeof window !== 'undefined' && localStorage.getItem(CHECKIN_KEY) === today
     if (done) return
-
-    // Meta diária já atingida hoje (BRT) — sessão encerrada
-    const dailyGoalMet = typeof window !== 'undefined' && localStorage.getItem(`rafi-daily-target-met-${today}`) === 'true'
-    if (dailyGoalMet) return
 
     // Meta semanal já atingida esta semana — semana encerrada; check-in volta na segunda
     const weeklyGoalMet = typeof window !== 'undefined' && localStorage.getItem(`rafi-weekly-target-met-${brtWeekMondayStr()}`) === 'true'

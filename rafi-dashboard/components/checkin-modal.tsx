@@ -93,7 +93,7 @@ export function CheckinModal({ onComplete }: Props) {
 
     try {
       const db = createClient()
-      const { data } = await db
+      const { data, error } = await db
         .from('rafi_checkins')
         .insert({
           sono:          result.sono,
@@ -102,12 +102,14 @@ export function CheckinModal({ onComplete }: Props) {
           humor:         result.humor,
           score_penalty: penalty,
           blocked,
+          date:          new Date().toISOString().slice(0, 10),
         })
         .select('id')
         .single()
+      if (error) console.error('[Checkin] Supabase insert error:', error.message)
       if (data?.id) result.id = data.id
-    } catch {
-      // continua mesmo se Supabase falhar
+    } catch (e) {
+      console.error('[Checkin] Falha ao salvar no Supabase:', e)
     }
 
     setSaving(false)
