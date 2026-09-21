@@ -83,6 +83,12 @@ function getOverlapContext(unixSec: number): {
   return { overlapPhase, sessionMinute: overlapPhase !== null ? sesMin : null, dayOfWeek }
 }
 
+// Data atual no fuso de Brasília (UTC-3), para flags de meta
+function brtDateStr() {
+  const brt = new Date(Date.now() - 3 * 60 * 60 * 1000)
+  return brt.toISOString().slice(0, 10)
+}
+
 const STORAGE_KEY     = 'rafi-trade-log'
 const CSV_HISTORY_KEY = 'rafi-csv-history'
 const META_AUTO_KEY   = 'rafi-meta-auto'
@@ -239,7 +245,7 @@ export default function ChartPage() {
   // NÃO aparece se a meta diária já foi cumprida hoje — sessão já encerrada.
   useEffect(() => {
     const CHECKIN_KEY = 'rafi-checkin-date'
-    const today = new Date().toISOString().slice(0, 10)
+    const today = brtDateStr()
     const done  = typeof window !== 'undefined' && localStorage.getItem(CHECKIN_KEY) === today
     if (done) return
 
@@ -252,12 +258,22 @@ export default function ChartPage() {
     if (activeDays.includes(jsDay)) setShowCheckin(true)
   }, [])
 
+  // Ao abrir a página: se a meta já foi cumprida hoje (BRT), mostra overlay imediatamente
+  // sem depender do MetaAPI carregar — persiste até meia-noite de Brasília
+  useEffect(() => {
+    const today = brtDateStr()
+    const goalMet = typeof window !== 'undefined' && localStorage.getItem(`rafi-daily-target-met-${today}`) === 'true'
+    if (goalMet) {
+      setShowDailyOverlay(true)
+      prevDailyMetRef.current = true  // evita duplo disparo quando MetaAPI carregar
+    }
+  }, [])
+
   function handleCheckinComplete(result: CheckinResult) {
     setCheckin(result)
     setShowCheckin(false)
     try {
-      const today = new Date().toISOString().slice(0, 10)
-      localStorage.setItem('rafi-checkin-date', today)
+      localStorage.setItem('rafi-checkin-date', brtDateStr())
     } catch { /* */ }
   }
 
@@ -339,9 +355,9 @@ export default function ChartPage() {
     const dailyMet  = dailyPct  >= DAILY_TARGET
     const weeklyMet = weeklyPct >= WEEKLY_TARGET
 
-    // Persiste flag de meta diária
+    // Persiste flag de meta diária usando data BRT (meia-noite de Brasília = 03:00 UTC)
     if (dailyMet && typeof window !== 'undefined') {
-      localStorage.setItem(`rafi-daily-target-met-${today}`, 'true')
+      localStorage.setItem(`rafi-daily-target-met-${brtDateStr()}`, 'true')
     }
 
     return {
