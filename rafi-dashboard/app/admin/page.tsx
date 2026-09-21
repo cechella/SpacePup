@@ -296,7 +296,7 @@ function BrokerCompareRow({ brokers }: { brokers: BrokerLiveData[] }) {
                 {b.connected
                   ? <span className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ background: `${meta.color}15`, color: meta.color }}>● ao vivo</span>
                   : hasMeta
-                    ? <span className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ background: `${C.muted}12`, color: C.muted }}>offline</span>
+                    ? <span className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ background: `${C.gold}12`, color: C.gold }}>sincron.</span>
                     : <span className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ background: `${C.gold}12`, color: C.gold }}>aguardando</span>
                 }
               </div>
@@ -880,8 +880,9 @@ function CapitalJourney({ capitalAtual, cfg }: { capitalAtual: number; cfg: Sess
 }
 
 // ── Cockpit de Sessão ─────────────────────────────────────────────────────────
-function SessionCockpit({ gate, cfg }: { gate: SessionGate; cfg: SessionConfig }) {
-  const dailyPct = gate.todayPnl <= 0 ? 0 : Math.min((gate.todayPnl / cfg.dailyGoal) * 100, 100)
+function SessionCockpit({ gate, cfg, todayPnlOverride }: { gate: SessionGate; cfg: SessionConfig; todayPnlOverride?: number | null }) {
+  const todayPnlEff = todayPnlOverride ?? gate.todayPnl
+  const dailyPct = todayPnlEff <= 0 ? 0 : Math.min((todayPnlEff / cfg.dailyGoal) * 100, 100)
   const nowUtc   = new Date()
   const timeStr  = `${String(nowUtc.getUTCHours()).padStart(2,'0')}:${String(nowUtc.getUTCMinutes()).padStart(2,'0')} UTC`
 
@@ -916,16 +917,16 @@ function SessionCockpit({ gate, cfg }: { gate: SessionGate; cfg: SessionConfig }
           <Target size={11} style={{ color: C.blue }} />
           <span className="text-[9px] uppercase tracking-wider" style={{ color: C.muted }}>Meta Diária</span>
         </div>
-        <div className="text-xl font-black font-mono" style={{ color: gate.dailyGoalMet ? C.teal : C.text }}>
-          {gate.todayPnl >= 0 ? '+' : ''}${gate.todayPnl.toFixed(2)}
+        <div className="text-xl font-black font-mono" style={{ color: dailyPct >= 100 ? C.teal : C.text }}>
+          {todayPnlEff >= 0 ? '+' : ''}${todayPnlEff.toFixed(2)}
         </div>
         <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ background: C.card2 }}>
           <div className="h-full rounded-full transition-all duration-700" style={{
-            width: `${dailyPct}%`, background: gate.dailyGoalMet ? C.teal : C.blue,
+            width: `${dailyPct}%`, background: dailyPct >= 100 ? C.teal : C.blue,
           }} />
         </div>
         <div className="text-[9px] mt-1" style={{ color: C.muted }}>
-          meta ${cfg.dailyGoal.toFixed(2)}{gate.dailyGoalMet ? ' ✓' : ''}
+          meta ${cfg.dailyGoal.toFixed(2)}{dailyPct >= 100 ? ' ✓' : ''}
         </div>
       </div>
 
@@ -1039,13 +1040,14 @@ function RiskPanel({ gate, cfg }: { gate: SessionGate; cfg: SessionConfig }) {
 }
 
 // ── Metas em Cascata ──────────────────────────────────────────────────────────
-function GoalsCascade({ gate, cfg, capitalAtual }: { gate: SessionGate; cfg: SessionConfig; capitalAtual: number }) {
+function GoalsCascade({ gate, cfg, capitalAtual, todayPnlOverride }: { gate: SessionGate; cfg: SessionConfig; capitalAtual: number; todayPnlOverride?: number | null }) {
   const logMin = Math.log10(Math.max(cfg.capitalInicial, 1))
   const logMax = Math.log10(cfg.capitalTarget)
+  const todayPnlEff = todayPnlOverride ?? gate.todayPnl
 
   const goals = [
-    { label: 'Hoje',       value: gate.todayPnl,  target: cfg.dailyGoal,   color: C.blue,
-      pct: gate.todayPnl <= 0 ? 0 : Math.min(gate.todayPnl / cfg.dailyGoal * 100, 100) },
+    { label: 'Hoje',       value: todayPnlEff,    target: cfg.dailyGoal,   color: C.blue,
+      pct: todayPnlEff <= 0 ? 0 : Math.min(todayPnlEff / cfg.dailyGoal * 100, 100) },
     { label: 'Semana',     value: gate.weekPnl,   target: cfg.weeklyGoal,  color: C.teal,
       pct: gate.weekPnl  <= 0 ? 0 : Math.min(gate.weekPnl  / cfg.weeklyGoal  * 100, 100) },
     { label: 'Mês',        value: gate.monthPnl,  target: cfg.monthlyGoal, color: C.gold,
@@ -1412,7 +1414,7 @@ export default function AdminDashboard() {
                 {metaLoading && <span className="ml-1 w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: C.teal }} />}
                 {metaAccount.updatedAt && (
                   <span className="ml-auto text-[10px]" style={{ color: C.muted }}>
-                    {new Date(metaAccount.updatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    {metaAccount.updatedAt}
                   </span>
                 )}
               </>
@@ -1575,10 +1577,10 @@ export default function AdminDashboard() {
       {/* ── Mission Control ─────────────────────────────────────────────────── */}
       <div className="space-y-3">
         <CapitalJourney capitalAtual={capitalParaJornada} cfg={sessionConfig} />
-        <SessionCockpit gate={gate} cfg={sessionConfig} />
+        <SessionCockpit gate={gate} cfg={sessionConfig} todayPnlOverride={todayPnlMeta} />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <RiskPanel gate={gate} cfg={sessionConfig} />
-          <GoalsCascade gate={gate} cfg={sessionConfig} capitalAtual={capitalParaJornada} />
+          <GoalsCascade gate={gate} cfg={sessionConfig} capitalAtual={capitalParaJornada} todayPnlOverride={todayPnlMeta} />
         </div>
       </div>
 
