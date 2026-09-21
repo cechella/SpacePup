@@ -5,11 +5,10 @@ import Link from 'next/link'
 import {
   TrendingUp, TrendingDown, BarChart2, Activity,
   Target, AlertTriangle, ChevronRight, Download,
-  Zap, Clock, Award, X as XIcon, Layers, Upload,
+  Zap, Clock, Award, X as XIcon, Upload,
   Lock, Radio, Shield, Settings, Wifi, WifiOff,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { SCALE_TIERS, SCALE_TIER_LABELS, getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
 import { fetchTrades, upsertTrades, updateTradeResult } from '@/lib/trades-db'
 import { getSessionConfig, saveSessionConfig, SESSION_DEFAULTS, type SessionConfig } from '@/lib/session-config'
 
@@ -418,21 +417,10 @@ function MLChips({ t, onSnapClick }: { t: ManualTrade; onSnapClick?: (src: strin
     )
   }
 
-  if (!chips.length && !t.snapshot) return null
+  if (!chips.length) return null
 
   return (
     <div className="flex flex-wrap items-center gap-1 px-4 pb-2.5 border-b" style={{ borderColor: C.card2 }}>
-      {t.snapshot && (
-        <button onClick={() => onSnapClick?.(t.snapshot!)} title="Clique para ampliar"
-          style={{ flexShrink: 0, marginRight: 6, padding: 0, border: 'none', background: 'none', cursor: 'zoom-in' }}>
-          <img src={t.snapshot} alt="gráfico" style={{
-            width: 120, height: 40, borderRadius: 4, border: `1px solid ${C.border}`,
-            objectFit: 'cover', opacity: 0.85, display: 'block', transition: 'opacity 0.15s',
-          }}
-            onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-            onMouseLeave={e => (e.currentTarget.style.opacity = '0.85')} />
-        </button>
-      )}
       {chips.length > 0 && <span className="text-[8px] mr-1 uppercase tracking-wider shrink-0" style={{ color: C.muted }}>feat →</span>}
       {chips.map((c, i) => (
         <span key={i} title={c.note} style={{ background: `${c.color}12`, border: `1px solid ${c.color}35`, color: c.color }}
@@ -493,215 +481,6 @@ function TradeRow({ t, onLabel, onSnapClick }: {
         </div>
       </div>
       <MLChips t={t} onSnapClick={onSnapClick} />
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-const getLot = getLotForCapital
-
-function fmtK(v: number): string {
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`
-  if (v >= 1_000)     return `$${(v / 1_000).toFixed(1)}k`
-  return `$${v.toFixed(0)}`
-}
-
-function ExpChart({ pts1, pts2, pts3, height = 120 }: {
-  pts1: number[]; pts2: number[]; pts3: number[]; height?: number
-}) {
-  const W = 500, H = height
-  const allVals = [...pts1, ...pts2, ...pts3].filter(v => v > 0)
-  const logMin  = Math.log10(Math.max(1, Math.min(...allVals)))
-  const logMax  = Math.log10(Math.max(...allVals, 1))
-  const rng     = logMax - logMin || 1
-  const n       = pts1.length
-  const toY = (v: number) => {
-    const safe = Math.max(1, v)
-    return H - ((Math.log10(safe) - logMin) / rng) * (H - 16) - 8
-  }
-  const toX = (i: number) => (i / (n - 1)) * W
-  const makePath = (pts: number[]) =>
-    pts.map((v, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(' ')
-
-  const gridLines = [1_000, 10_000, 100_000, 300_000].filter(v => {
-    const y = toY(v); return y > 4 && y < H - 4
-  })
-
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height }} preserveAspectRatio="none">
-      {gridLines.map(v => (
-        <g key={v}>
-          <line x1="0" y1={toY(v)} x2={W} y2={toY(v)} stroke={C.border} strokeWidth="1" strokeDasharray="3 3" />
-          <text x="4" y={toY(v) - 3} fill={C.muted} fontSize="8" fontFamily="monospace">{fmtK(v)}</text>
-        </g>
-      ))}
-      <path d={makePath(pts3)} fill="none" stroke={C.rose} strokeWidth="1.5" strokeDasharray="5 3" opacity="0.6" />
-      <path d={makePath(pts2)} fill="none" stroke={C.gold} strokeWidth="2" />
-      <path d={makePath(pts1)} fill="none" stroke={C.teal} strokeWidth="2.5" />
-      <circle cx={toX(n - 1)} cy={toY(pts1[n - 1])} r="4"   fill={C.teal} />
-      <circle cx={toX(n - 1)} cy={toY(pts2[n - 1])} r="3.5" fill={C.gold} />
-      <circle cx={toX(n - 1)} cy={toY(pts3[n - 1])} r="3"   fill={C.rose} />
-    </svg>
-  )
-}
-
-// ── Simulador de crescimento exponencial ─────────────────────────────────────
-function LotScalingWidget({ trades }: { trades: ManualTrade[] }) {
-  const [winRate, setWinRate] = useState(60)
-  const N_SIM = 200
-
-  const avgRiskP = useMemo(() => {
-    if (!trades.length) return 5
-    return trades.reduce((s, t) => s + riskPips(t.entry, t.stopLoss, t.direction), 0) / trades.length
-  }, [trades])
-
-  const avgRewardP = useMemo(() => {
-    if (!trades.length) return 7.5
-    return trades.reduce((s, t) => s + rewardPips(t.entry, t.takeProfit, t.direction), 0) / trades.length
-  }, [trades])
-
-  const simulate = useCallback((wr: number): number[] => {
-    const pts = [100]
-    let c = 100
-    const period = 100
-    const wins   = Math.round(wr)
-    for (let i = 0; i < N_SIM; i++) {
-      const lot   = getLot(c)
-      const isWin = (i % period) < wins
-      c = Math.max(0, c + (isWin ? avgRewardP * lot * 10 : -(avgRiskP * lot * 10)))
-      pts.push(c)
-      if (c <= 0) { for (let j = pts.length; j <= N_SIM; j++) pts.push(0); break }
-    }
-    return pts
-  }, [avgRiskP, avgRewardP])
-
-  const pt70 = useMemo(() => simulate(70), [simulate])
-  const pt60 = useMemo(() => simulate(60), [simulate])
-  const pt50 = useMemo(() => simulate(50), [simulate])
-
-  const tradesTo300k = useMemo(() => {
-    const pts = simulate(winRate)
-    const idx = pts.findIndex(v => v >= 300_000)
-    return idx === -1 ? null : idx
-  }, [simulate, winRate])
-
-  const currentPts = useMemo(() => simulate(winRate), [simulate, winRate])
-  const finalCap   = currentPts[currentPts.length - 1]
-
-  return (
-    <div className="rounded-xl p-5 space-y-5" style={{ background: C.card, border: `1px solid ${C.border}` }}>
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-2">
-          <Layers size={14} style={{ color: C.gold }} />
-          <div>
-            <span className="text-sm font-semibold" style={{ color: C.text }}>Escalonamento Exponencial de Lote</span>
-            <span className="ml-2 text-[9px]" style={{ color: C.muted }}>$100 → $300k · EURUSD</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="text-[9px] mr-1" style={{ color: C.muted }}>Win rate:</span>
-          {[50, 60, 70].map(w => (
-            <button key={w} onClick={() => setWinRate(w)}
-              className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
-              style={winRate === w
-                ? { background: `${C.blue}20`, border: `1px solid ${C.blue}50`, color: C.blue }
-                : { border: `1px solid ${C.border}`, color: C.muted }}>
-              {w}%
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          { label: `Capital após ${N_SIM} trades`, val: fmtK(finalCap), sub: `com ${winRate}% win rate`,
-            color: finalCap >= 300_000 ? C.teal : finalCap > 100 ? C.gold : C.rose },
-          { label: 'Trades p/ $300k', val: tradesTo300k ? String(tradesTo300k) : '> ' + N_SIM,
-            sub: tradesTo300k ? `≈ ${Math.ceil(tradesTo300k / 3)} dias (3/dia)` : 'não atingido',
-            color: tradesTo300k ? C.teal : C.rose },
-          { label: 'Lote atual ($100)', val: `${getLotForCapital(100).toFixed(2)}L`,
-            sub: `+$${(avgRewardP * getLotForCapital(100) * 10).toFixed(0)}/WIN · -$${(avgRiskP * getLotForCapital(100) * 10).toFixed(0)}/LOSS`,
-            color: C.gold },
-        ].map(item => (
-          <div key={item.label} className="rounded-lg p-3 text-center" style={{ background: C.bg }}>
-            <div className="text-[9px] uppercase tracking-wider mb-1" style={{ color: C.muted }}>{item.label}</div>
-            <div className="text-xl font-black font-mono" style={{ color: item.color }}>{item.val}</div>
-            <div className="text-[8px] mt-0.5" style={{ color: C.muted }}>{item.sub}</div>
-          </div>
-        ))}
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs font-mono">
-          <thead>
-            <tr className="text-[8px] uppercase tracking-wider border-b" style={{ color: C.muted, borderColor: C.border }}>
-              <th className="text-left py-2 pr-3 font-medium">Capital</th>
-              <th className="text-right py-2 px-2 font-medium">Lote</th>
-              <th className="text-right py-2 px-2 font-medium" style={{ color: C.teal }}>WIN/trade</th>
-              <th className="text-right py-2 px-2 font-medium" style={{ color: C.rose }}>LOSS/trade</th>
-              <th className="text-right py-2 px-2 font-medium">% risco</th>
-              <th className="text-right py-2 pl-2 font-medium">EV/trade</th>
-            </tr>
-          </thead>
-          <tbody>
-            {SCALE_TIERS.map((tier, i) => {
-              const gain    = avgRewardP * tier.lot * 10
-              const loss    = avgRiskP   * tier.lot * 10
-              const midCap  = i + 1 < SCALE_TIERS.length
-                ? (tier.minCap + SCALE_TIERS[i + 1].minCap) / 2
-                : tier.minCap * 1.5
-              const refCap  = Math.max(tier.minCap || 100, midCap)
-              const pctRisk = (loss / refCap) * 100
-              const ev      = (winRate / 100) * gain - ((100 - winRate) / 100) * loss
-              const isActive = finalCap >= tier.minCap && (i + 1 >= SCALE_TIERS.length || finalCap < SCALE_TIERS[i + 1].minCap)
-              return (
-                <tr key={tier.minCap} className="border-b" style={{ borderColor: `${C.border}66`, background: isActive ? `${C.gold}0a` : 'transparent' }}>
-                  <td className="py-1.5 pr-3">
-                    <span className="font-bold" style={{ color: isActive ? C.gold : C.sub }}>
-                      {SCALE_TIER_LABELS[i]}
-                    </span>
-                    {isActive && (
-                      <span className="ml-1.5 text-[8px] px-1 py-px rounded"
-                        style={{ background: `${C.gold}25`, color: C.gold }}>AGORA</span>
-                    )}
-                  </td>
-                  <td className="py-1.5 px-2 text-right font-bold" style={{ color: C.text }}>{tier.lot.toFixed(2)}L</td>
-                  <td className="py-1.5 px-2 text-right font-bold" style={{ color: C.teal }}>+${gain.toFixed(0)}</td>
-                  <td className="py-1.5 px-2 text-right" style={{ color: C.rose }}>-${loss.toFixed(0)}</td>
-                  <td className="py-1.5 px-2 text-right" style={{
-                    color: pctRisk > 50 ? C.rose : pctRisk > 20 ? C.gold : C.sub
-                  }}>{pctRisk.toFixed(0)}%</td>
-                  <td className="py-1.5 pl-2 text-right font-bold" style={{ color: ev >= 0 ? C.teal : C.rose }}>
-                    {ev >= 0 ? '+' : ''}${ev.toFixed(0)}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[10px] uppercase tracking-wider" style={{ color: C.muted }}>
-            Projeção — {N_SIM} trades · escala logarítmica
-          </span>
-          <div className="flex items-center gap-4 text-[9px]" style={{ color: C.muted }}>
-            <span className="flex items-center gap-1.5"><span className="w-5 h-0.5 inline-block" style={{ background: C.teal }} />70%</span>
-            <span className="flex items-center gap-1.5"><span className="w-5 h-0.5 inline-block" style={{ background: C.gold }} />60%</span>
-            <span className="flex items-center gap-1.5"><span className="w-5 h-0.5 inline-block" style={{ background: C.rose }} />50%</span>
-          </div>
-        </div>
-        <div className="rounded-lg px-3 py-2" style={{ background: C.bg }}>
-          <ExpChart pts1={pt70} pts2={pt60} pts3={pt50} height={120} />
-        </div>
-        <div className="grid grid-cols-3 gap-2 text-[9px] font-mono mt-1">
-          <span style={{ color: C.teal }}>70%: {fmtK(pt70[pt70.length - 1])}</span>
-          <span className="text-center" style={{ color: C.gold }}>60%: {fmtK(pt60[pt60.length - 1])}</span>
-          <span className="text-right" style={{ color: C.rose }}>50%: {fmtK(pt50[pt50.length - 1])}</span>
-        </div>
-      </div>
     </div>
   )
 }
@@ -1611,9 +1390,6 @@ export default function AdminDashboard() {
           </p>
         )}
       </div>
-
-      {/* ── Simulador de escalonamento ──────────────────────────────────────── */}
-      <LotScalingWidget trades={trades} />
 
       {/* ── Trades recentes ─────────────────────────────────────────────────── */}
       <div className="rounded-xl overflow-hidden" style={{ background: C.card, border: `1px solid ${C.border}` }}>
