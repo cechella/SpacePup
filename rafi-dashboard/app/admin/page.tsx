@@ -595,33 +595,45 @@ function DisciplinePanel({ gate, cfg }: { gate: SessionGate; cfg: SessionConfig 
   const seqColor   = gate.lossGate ? C.rose : gate.consecutiveLosses > 0 ? C.gold : C.teal
 
   return (
-    <div className="rounded-xl p-5 space-y-4" style={{ background: C.card, border: `1px solid ${C.border}` }}>
+    <div className="rounded-xl p-5 space-y-4" style={{
+      background: C.card,
+      border: `1px solid ${C.blue}40`,
+      boxShadow: `inset 0 3px 0 ${C.blue}`,
+    }}>
       <div className="flex items-center gap-2">
         <Shield size={13} style={{ color: C.blue }} />
-        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.text }}>Disciplina &amp; Sessão</span>
+        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.blue }}>Disciplina &amp; Sessão</span>
       </div>
 
       {/* Two big metric tiles */}
       <div className="grid grid-cols-2 gap-2">
         <div className="rounded-lg p-4 flex flex-col items-center justify-center" style={{
-          background: C.card2, border: `1px solid ${stopsColor}30`, minHeight: 80,
+          background: `linear-gradient(135deg, ${stopsColor}22 0%, ${C.card2} 100%)`,
+          border: `1px solid ${stopsColor}50`,
+          boxShadow: `0 4px 20px ${stopsColor}12`,
+          minHeight: 80,
         }}>
           <div className="font-black font-mono leading-none mb-1" style={{
-            fontFamily: "'Barlow Condensed', sans-serif", fontSize: 36, color: stopsColor,
+            fontFamily: "'Barlow Condensed', sans-serif", fontSize: 40, color: stopsColor,
+            textShadow: `0 0 20px ${stopsColor}60`,
           }}>
-            {gate.lossesToday}<span className="text-xl" style={{ color: C.sub }}>/{cfg.maxConsecutiveLosses}</span>
+            {gate.lossesToday}<span className="text-2xl" style={{ color: C.sub }}>/{cfg.maxConsecutiveLosses}</span>
           </div>
-          <div className="text-[8px] uppercase tracking-widest text-center" style={{ color: C.muted }}>Stops Hoje</div>
+          <div className="text-[8px] uppercase tracking-widest text-center font-bold" style={{ color: stopsColor }}>Stops Hoje</div>
         </div>
         <div className="rounded-lg p-4 flex flex-col items-center justify-center" style={{
-          background: C.card2, border: `1px solid ${seqColor}30`, minHeight: 80,
+          background: `linear-gradient(135deg, ${seqColor}22 0%, ${C.card2} 100%)`,
+          border: `1px solid ${seqColor}50`,
+          boxShadow: `0 4px 20px ${seqColor}12`,
+          minHeight: 80,
         }}>
           <div className="font-black font-mono leading-none mb-1" style={{
-            fontFamily: "'Barlow Condensed', sans-serif", fontSize: 36, color: seqColor,
+            fontFamily: "'Barlow Condensed', sans-serif", fontSize: 40, color: seqColor,
+            textShadow: `0 0 20px ${seqColor}60`,
           }}>
-            {gate.consecutiveLosses}<span className="text-xl" style={{ color: C.sub }}>/{cfg.maxConsecutiveLosses}</span>
+            {gate.consecutiveLosses}<span className="text-2xl" style={{ color: C.sub }}>/{cfg.maxConsecutiveLosses}</span>
           </div>
-          <div className="text-[8px] uppercase tracking-widest text-center" style={{ color: C.muted }}>Seq. Perdas</div>
+          <div className="text-[8px] uppercase tracking-widest text-center font-bold" style={{ color: seqColor }}>Seq. Perdas</div>
         </div>
       </div>
 
@@ -722,10 +734,14 @@ function GoalsCascade({ gate, cfg, capitalAtual, todayPnlOverride }: { gate: Ses
   const fmtCapital = (v: number) => v >= 1_000_000 ? `$${(v/1_000_000).toFixed(2)}M` : v >= 1_000 ? `$${(v/1_000).toFixed(1)}k` : `$${v.toFixed(0)}`
 
   return (
-    <div className="rounded-xl p-5" style={{ background: C.card, border: `1px solid ${C.border}` }}>
+    <div className="rounded-xl p-5" style={{
+      background: C.card,
+      border: `1px solid ${C.teal}40`,
+      boxShadow: `inset 0 3px 0 ${C.teal}`,
+    }}>
       <div className="flex items-center gap-2 mb-4">
         <Award size={13} style={{ color: C.teal }} />
-        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.text }}>Metas em Cascata</span>
+        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.teal }}>Metas em Cascata</span>
         <span className="ml-1 text-[8px] px-1.5 py-0.5 rounded font-bold uppercase" style={{
           background: `${C.teal}18`, border: `1px solid ${C.teal}40`, color: C.teal,
         }}>Redesenhado</span>
@@ -809,10 +825,14 @@ function IntelPanel({ trades, winRate, avgRR, rafiStrong, winsCount, lossesCount
   ]
 
   return (
-    <div className="rounded-xl p-5 space-y-4" style={{ background: C.card, border: `1px solid ${C.border}` }}>
+    <div className="rounded-xl p-5 space-y-4" style={{
+      background: C.card,
+      border: `1px solid #a855f740`,
+      boxShadow: `inset 0 3px 0 #a855f7`,
+    }}>
       <div className="flex items-center gap-2">
-        <Zap size={13} style={{ color: C.blue }} />
-        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.text }}>Inteligência RAFI</span>
+        <Zap size={13} style={{ color: '#a855f7' }} />
+        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#a855f7' }}>Inteligência RAFI</span>
         <span className="ml-1 text-[8px] px-1.5 py-0.5 rounded font-bold uppercase" style={{
           background: `${C.blue}18`, border: `1px solid ${C.blue}40`, color: C.blue,
         }}>1A Ativa</span>
@@ -821,7 +841,10 @@ function IntelPanel({ trades, winRate, avgRR, rafiStrong, winsCount, lossesCount
       {/* 2×2 KPI grid */}
       <div className="grid grid-cols-2 gap-2">
         {kpis.map(({ label, val, sub, color, Icon }) => (
-          <div key={label} className="rounded-lg p-3 flex flex-col gap-0.5" style={{ background: C.card2, border: `1px solid ${C.border}` }}>
+          <div key={label} className="rounded-lg p-3 flex flex-col gap-0.5" style={{
+            background: `linear-gradient(135deg, ${color}15 0%, ${C.card2} 100%)`,
+            border: `1px solid ${color}40`,
+          }}>
             <div className="flex items-center gap-1 text-[8px] uppercase tracking-widest" style={{ color: C.muted }}>
               <Icon size={8} style={{ color }} />
               {label}
@@ -1291,11 +1314,12 @@ export default function AdminDashboard() {
 
           {/* Card 1: Capital Consolidado */}
           <div className="rounded-xl p-5" style={{
-            background: `linear-gradient(135deg, ${C.card} 0%, #091624 100%)`,
-            border: `1px solid ${C.teal}30`,
+            background: `linear-gradient(160deg, ${C.card} 0%, #060f1a 100%)`,
+            border: `1px solid ${C.teal}45`,
+            boxShadow: `inset 0 3px 0 ${C.teal}, 0 12px 40px ${C.teal}18`,
           }}>
             <div className="flex items-center gap-2 mb-3">
-              <span className="text-[8px] uppercase tracking-widest font-bold" style={{ color: C.muted }}>Capital Consolidado</span>
+              <span className="text-[8px] uppercase tracking-widest font-bold" style={{ color: C.teal }}>Capital Consolidado</span>
               {connectedBrokers.length > 0 && (
                 <span className="text-[8px] px-1.5 py-0.5 rounded font-mono" style={{ background: `${C.teal}12`, color: C.teal, border: `1px solid ${C.teal}25` }}>
                   {connectedBrokers.length} corretoras
@@ -1307,6 +1331,7 @@ export default function AdminDashboard() {
               fontFamily: "'Barlow Condensed', 'Arial Black', sans-serif",
               fontSize: 'clamp(40px, 5vw, 60px)', fontWeight: 900, lineHeight: 1,
               color: C.text, letterSpacing: '-0.03em',
+              textShadow: `0 0 30px ${C.teal}40`,
             }}>
               ${capitalParaJornada.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
@@ -1325,11 +1350,12 @@ export default function AdminDashboard() {
 
           {/* Card 2: P&L Hoje */}
           <div className="rounded-xl p-5" style={{
-            background: `linear-gradient(135deg, ${C.card} 0%, #091624 100%)`,
-            border: `1px solid ${heroColor}35`,
+            background: `linear-gradient(160deg, ${C.card} 0%, #060f1a 100%)`,
+            border: `1px solid ${heroColor}50`,
+            boxShadow: `inset 0 3px 0 ${heroColor}, 0 12px 40px ${heroColor}18`,
           }}>
             <div className="flex items-center gap-2 mb-3">
-              <span className="text-[8px] uppercase tracking-widest font-bold" style={{ color: C.muted }}>P&amp;L Hoje</span>
+              <span className="text-[8px] uppercase tracking-widest font-bold" style={{ color: heroColor }}>P&amp;L Hoje</span>
               {connectedBrokers.length > 0
                 ? <span className="text-[8px] font-mono flex items-center gap-1" style={{ color: C.teal }}>
                     <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: C.teal }} />ao vivo
@@ -1341,6 +1367,7 @@ export default function AdminDashboard() {
               fontFamily: "'Barlow Condensed', 'Arial Black', sans-serif",
               fontSize: 'clamp(40px, 5vw, 60px)', fontWeight: 900, lineHeight: 1,
               color: heroColor, letterSpacing: '-0.03em',
+              textShadow: `0 0 30px ${heroColor}50`,
             }}>
               {todayPnl >= 0 ? '+' : ''}${Math.abs(todayPnl).toFixed(2)}
             </div>
@@ -1375,8 +1402,12 @@ export default function AdminDashboard() {
           </div>
 
           {/* Card 3: Progresso de Metas */}
-          <div className="rounded-xl p-5" style={{ background: C.card, border: `1px solid ${C.border}` }}>
-            <div className="text-[8px] uppercase tracking-widest font-bold mb-4" style={{ color: C.muted }}>Progresso de Metas</div>
+          <div className="rounded-xl p-5" style={{
+            background: `linear-gradient(160deg, ${C.card} 0%, #060f1a 100%)`,
+            border: `1px solid #a855f745`,
+            boxShadow: `inset 0 3px 0 #a855f7, 0 12px 40px #a855f715`,
+          }}>
+            <div className="text-[8px] uppercase tracking-widest font-bold mb-4" style={{ color: '#a855f7' }}>Progresso de Metas</div>
             <div className="space-y-4">
               {[
                 { key: 'DIÁRIA',  value: todayPnl, target: sessionConfig.dailyGoal,   color: C.teal },
@@ -1436,10 +1467,14 @@ export default function AdminDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
           {/* Operações Recentes */}
-          <div className="rounded-xl overflow-hidden" style={{ background: C.card, border: `1px solid ${C.border}` }}>
+          <div className="rounded-xl overflow-hidden" style={{
+            background: C.card,
+            border: `1px solid ${C.gold}40`,
+            boxShadow: `inset 0 3px 0 ${C.gold}`,
+          }}>
             <div className="px-4 py-3 border-b flex items-center justify-between" style={{ background: C.bg, borderColor: C.border }}>
               <div className="flex items-center gap-3">
-                <span className="text-[9px] uppercase tracking-widest font-bold" style={{ color: C.muted }}>Operações Recentes</span>
+                <span className="text-[9px] uppercase tracking-widest font-bold" style={{ color: C.gold }}>Operações Recentes</span>
                 <div className="flex gap-1">
                   {(['hoje', '7d', '30d'] as const).map(f => (
                     <button key={f} onClick={() => setTradeFilter(f)}
@@ -1465,7 +1500,7 @@ export default function AdminDashboard() {
             ) : (
               <div>
                 <div className="flex gap-2 px-4 py-1.5 text-[8px] uppercase tracking-wider border-b" style={{ color: C.muted, borderColor: C.border }}>
-                  <span className="w-20 shrink-0">Corretora</span>
+                  <span className="w-20 shrink-0">Hora</span>
                   <span className="w-14 shrink-0">Direção</span>
                   <span className="w-20 shrink-0">Entrada</span>
                   <span className="w-10 text-right shrink-0">R:R</span>
@@ -1483,8 +1518,8 @@ export default function AdminDashboard() {
                       borderColor: C.card2,
                       background: t.result === 'win' ? `${C.teal}06` : t.result === 'loss' ? `${C.rose}06` : 'transparent',
                     }}>
-                      <span className="w-20 shrink-0 truncate text-[9px]" style={{ color: C.sub }}>
-                        {primaryBroker?.nome ?? '—'}
+                      <span className="w-20 shrink-0 truncate text-[9px] font-mono" style={{ color: C.sub }}>
+                        {new Date(t.time * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                       </span>
                       <span className="w-14 shrink-0 flex items-center gap-1 text-[9px]">
                         {t.direction === 'buy'
@@ -1534,9 +1569,13 @@ export default function AdminDashboard() {
           </div>
 
           {/* Controle de Sessão */}
-          <div className="rounded-xl overflow-hidden" style={{ background: C.card, border: `1px solid ${C.border}` }}>
+          <div className="rounded-xl overflow-hidden" style={{
+            background: C.card,
+            border: `1px solid ${gate.isLocked ? C.rose : C.teal}40`,
+            boxShadow: `inset 0 3px 0 ${gate.isLocked ? C.rose : C.teal}`,
+          }}>
             <div className="px-4 py-3 border-b" style={{ background: C.bg, borderColor: C.border }}>
-              <span className="text-[9px] uppercase tracking-widest font-bold" style={{ color: C.muted }}>Controle de Sessão</span>
+              <span className="text-[9px] uppercase tracking-widest font-bold" style={{ color: gate.isLocked ? C.rose : C.teal }}>Controle de Sessão</span>
             </div>
             <div className="p-5 space-y-4">
               {/* Status */}
