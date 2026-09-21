@@ -93,6 +93,17 @@ export async function POST(req: NextRequest) {
         .update({ bot_enabled, updated_at: new Date().toISOString() })
         .eq('id', id)
       if (error) throw error
+
+      // Envia comando real ao watchdog no VPS via rafi_bot_commands
+      // O watchdog.py faz poll a cada 15s e age imediatamente: stop mata o processo,
+      // start sobe o executor para o broker com bot_enabled=true.
+      await supa.from('rafi_bot_commands').insert({
+        command:    bot_enabled ? 'start' : 'stop',
+        broker_id:  id,
+        pending:    true,
+        created_at: new Date().toISOString(),
+      })
+
       return NextResponse.json({ ok: true, id, bot_enabled })
     }
 
