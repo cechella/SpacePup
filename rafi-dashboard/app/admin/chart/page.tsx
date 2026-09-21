@@ -171,7 +171,7 @@ export default function ChartPage() {
   const [historyPeriod,      setHistoryPeriod]      = useState<'today' | '7d' | '30d' | '3m'>('today')
   const [historyLoading,     setHistoryLoading]     = useState(false)
   const [historyBroker,      setHistoryBroker]      = useState<string>('')  // '' = todas as corretoras (Auto)
-  const [historyGroups,      setHistoryGroups]      = useState<Array<{ rank: number; brokerId: string; nome: string; trades: typeof metaHistory }>>([])
+  const [historyGroups,      setHistoryGroups]      = useState<Array<{ rank: number; brokerId: string; nome: string; trades: typeof metaHistory; fetchError?: string; httpStatus?: number }>>([])
   const [enabledBrokers,     setEnabledBrokers]     = useState<Array<{ id: string; nome: string }>>([]) // corretoras disponíveis para escolha
   // Posições abertas de TODAS as corretoras ativas (cross-broker live panel)
   const [allBrokerPositions, setAllBrokerPositions] = useState<Array<{
@@ -2642,6 +2642,16 @@ export default function ChartPage() {
                             </span>
                           </td>
                         </tr>
+                        {/* Aviso quando conta MetaAPI está desconectada */}
+                        {group.fetchError && group.trades.length === 0 && (
+                          <tr key={`err-${group.brokerId}`}>
+                            <td colSpan={8} className="px-3 py-2">
+                              <span className="text-[10px] text-amber-400/80">
+                                ⚠ Conta desconectada no MetaAPI — reconecte o MetaAPI para ver o histórico desta corretora
+                              </span>
+                            </td>
+                          </tr>
+                        )}
                         {/* Trades da corretora */}
                         {group.trades.map(deal => {
                           const isBuy  = deal.direction === 'buy'

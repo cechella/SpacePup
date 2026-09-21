@@ -3,8 +3,19 @@ import { createClient } from '@supabase/supabase-js'
 import { getTopBrokerAccountId, getActiveBrokers } from '@/lib/top-broker'
 
 const BASE        = process.env.METAAPI_BASE_URL ?? 'https://mt-client-api-v1.london.agiliumtrade.ai'
+const PROV_BASE   = 'https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai'
 const TOKEN       = process.env.METAAPI_TOKEN!
 const ENV_ACCOUNT = process.env.METAAPI_ACCOUNT_ID!
+
+/** Dispara re-deploy de conta desconectada sem aguardar (fire-and-forget).
+ *  O próximo poll de 60s do frontend vai pegar os deals após re-deploy completar (~15-30s). */
+function triggerRedeploy(accountId: string): void {
+  fetch(`${PROV_BASE}/users/current/accounts/${accountId}/deploy`, {
+    method:  'POST',
+    headers: { 'auth-token': TOKEN },
+    signal:  AbortSignal.timeout(10_000),
+  }).catch(() => { /* silencioso */ })
+}
 
 export const runtime     = 'nodejs'
 export const maxDuration = 30
@@ -107,6 +118,8 @@ export async function GET(req: Request) {
       const results = await Promise.allSettled(
         brokers.map(async (b, idx) => {
           const { deals, httpStatus, fetchError } = await fetchDealsForAccount(b.accountId, from, to)
+          // Conta desconectada (504) → dispara re-deploy em background; próximo poll vai pegar os deals
+          if (httpStatus === 504) triggerRedeploy(b.accountId)
           return {
             rank:       idx + 1,
             brokerId:   b.brokerId,
