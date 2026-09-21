@@ -240,6 +240,105 @@ function MentalRow({ label, d }: { label: string; d: InsightData }) {
   )
 }
 
+// ── Curva de Aprendizado ───────────────────────────────────────────────────────
+function LearningCurve({ labeled }: { labeled: ManualTrade[] }) {
+  if (labeled.length === 0) return (
+    <div className="flex flex-col items-center justify-center h-32 gap-2 text-center">
+      <Brain size={20} className="text-[#30363d]" />
+      <p className="text-[10px] text-[#484f58]">Rotule seu 1º trade W ou L para iniciar a curva</p>
+    </div>
+  )
+
+  const sorted = [...labeled].sort((a, b) => a.time - b.time)
+  const pts: { x: number; y: number; win: boolean }[] = []
+  let w = 0
+  sorted.forEach((t, i) => {
+    if (t.result === 'win') w++
+    pts.push({ x: i, y: Math.round(w / (i + 1) * 100), win: t.result === 'win' })
+  })
+
+  const W = 400, H = 110
+  const PL = 28, PR = 8, PT = 12, PB = 18
+  const xS = (i: number) => PL + (pts.length <= 1 ? (W - PL - PR) / 2 : (i / (pts.length - 1)) * (W - PL - PR))
+  const yS = (v: number) => PT + (1 - v / 100) * (H - PT - PB)
+  const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xS(i).toFixed(1)} ${yS(p.y).toFixed(1)}`).join(' ')
+  const thr = yS(65)
+  const cur = pts[pts.length - 1]
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 110 }}>
+      {[0, 25, 50, 75, 100].map(v => (
+        <line key={v} x1={PL} x2={W - PR} y1={yS(v)} y2={yS(v)} stroke="#1c2128" strokeWidth="1" />
+      ))}
+      {[0, 50, 100].map(v => (
+        <text key={v} x={PL - 4} y={yS(v) + 3} textAnchor="end" fill="#484f58" fontSize="7" fontFamily="monospace">{v}%</text>
+      ))}
+      {/* Meta XGBoost 65% */}
+      <line x1={PL} x2={W - PR} y1={thr} y2={thr} stroke="#3b82f6" strokeWidth="1" strokeDasharray="4,3" opacity="0.7" />
+      <text x={W - PR - 2} y={thr - 3} textAnchor="end" fill="#3b82f6" fontSize="6" fontFamily="monospace" opacity="0.8">meta 65%</text>
+      {/* Linha de aprendizado */}
+      {pts.length > 1 && (
+        <path d={line} fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.8" />
+      )}
+      {/* Pontos */}
+      {pts.map((p, i) => (
+        <circle key={i} cx={xS(i)} cy={yS(p.y)} r="3.5" fill={p.win ? '#10b981' : '#ef4444'} stroke="#0d1117" strokeWidth="1.5" />
+      ))}
+      {/* Valor atual */}
+      {cur && (
+        <text x={xS(pts.length - 1)} y={yS(cur.y) - 6} textAnchor="middle"
+          fill={cur.y >= 65 ? '#10b981' : '#f59e0b'} fontSize="9" fontWeight="700" fontFamily="monospace">
+          {cur.y}%
+        </text>
+      )}
+      {/* Eixo X: nº do trade */}
+      {pts.length > 1 && [0, pts.length - 1].map(i => (
+        <text key={i} x={xS(i)} y={H - 2} textAnchor="middle" fill="#484f58" fontSize="6" fontFamily="monospace">
+          #{i + 1}
+        </text>
+      ))}
+    </svg>
+  )
+}
+
+// ── Descobertas da IA ──────────────────────────────────────────────────────────
+function computeDiscoveries(labeled: ManualTrade[], insights: ReturnType<typeof computeInsights>): { icon: string; text: string; color: string }[] {
+  const out: { icon: string; text: string; color: string }[] = []
+  const { cards, mental } = insights
+
+  // Melhor condição
+  const best = cards.filter(c => c.wr !== null && (c.wins + c.losses) >= 1)
+    .sort((a, b) => (b.wr ?? 0) - (a.wr ?? 0))[0]
+  if (best?.wr != null && best.wr >= 60) {
+    out.push({ icon: '🏆', text: `${best.label}: ${best.wr}% de acerto (${best.wins + best.losses} trade${best.wins + best.losses > 1 ? 's' : ''})`, color: '#10b981' })
+  }
+
+  // Estado mental
+  const gCard = cards.find(c => c.label === 'Estado ótimo')
+  const bCard = cards.find(c => c.label === 'Estado ruim')
+  if (gCard?.wr != null && bCard?.wr != null && gCard.wins + gCard.losses > 0 && bCard.wins + bCard.losses > 0) {
+    const diff = gCard.wr - bCard.wr
+    if (diff >= 10) out.push({ icon: '🧠', text: `Estado ótimo → +${diff}% de acerto vs estado ruim. Seu humor impacta o resultado.`, color: '#aa55ff' })
+  } else if (gCard?.wr != null && gCard.wins + gCard.losses >= 1) {
+    out.push({ icon: '🧠', text: `Estado ótimo: ${gCard.wr}% de acerto. Continue registrando para ver o impacto.`, color: '#aa55ff' })
+  }
+
+  // Sono
+  if (mental.sono.otimo.wins + mental.sono.otimo.losses >= 1) {
+    out.push({ icon: '😴', text: `Sono ótimo → ${mental.sono.otimo.wr}% acerto (${mental.sono.otimo.wins + mental.sono.otimo.losses} trades). Vale dormir bem antes de operar.`, color: '#3b82f6' })
+  }
+
+  // Pouco dado — encoraja
+  if (out.length === 0 && labeled.length >= 1) {
+    out.push({ icon: '📊', text: `${labeled.length} trade rotulado. Continue mapeando — a IA já está aprendendo seu padrão.`, color: '#f59e0b' })
+  }
+  if (out.length === 0) {
+    out.push({ icon: '🚀', text: 'Rotule seu primeiro trade W ou L para a IA começar a aprender.', color: '#484f58' })
+  }
+
+  return out.slice(0, 3)
+}
+
 // ── Pipeline step ────────────────────────────────────────────────────────────
 function PipelineStep({ n, label, desc, active, done }: {
   n: number; label: string; desc: string; active?: boolean; done?: boolean
@@ -376,8 +475,9 @@ export default function Fase2Page() {
   const losses     = labeled.filter(t => t.result === 'loss').length
   const winRate    = labeled.length > 0 ? Math.round(wins / labeled.length * 100) : null
   const confianca  = getConfianca(labeled.length)
-  const insights   = useMemo(() => computeInsights(labeled), [labeled])
-  const all        = [...trades].reverse()
+  const insights    = useMemo(() => computeInsights(labeled), [labeled])
+  const discoveries = useMemo(() => computeDiscoveries(labeled, insights), [labeled, insights])
+  const all         = [...trades].reverse()
 
   if (!mounted) return null
 
@@ -549,6 +649,62 @@ export default function Fase2Page() {
             Vá para Mesa de Operação → mapeie um trade → rotule W ou L → a IA aprende imediatamente
           </div>
         )}
+      </div>
+
+      {/* ── Curva de Aprendizado + Descobertas ─────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        {/* Curva de aprendizado */}
+        <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <TrendingUp size={14} className="text-[#10b981]" />
+            <span className="text-sm font-semibold text-[#f0f6fc]">Curva de Aprendizado</span>
+            <span className="ml-auto text-[9px] text-[#484f58]">
+              cada ponto = 1 trade rotulado
+            </span>
+          </div>
+          <div className="text-[9px] text-[#484f58] mb-3">
+            🟢 WIN &nbsp; 🔴 LOSS &nbsp; <span className="text-[#10b981]">linha = win rate acumulado</span>
+            &nbsp; <span className="text-[#3b82f6]">- - - meta 65%</span>
+          </div>
+          <LearningCurve labeled={labeled} />
+          {labeled.length > 0 && (
+            <div className="mt-2 text-[9px] text-center text-[#484f58]">
+              {labeled.length === 1
+                ? 'Primeiro trade mapeado — a curva começa aqui'
+                : `${labeled.length} trades — a linha mostra sua precisão evoluindo`}
+            </div>
+          )}
+        </div>
+
+        {/* Descobertas da IA */}
+        <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Lightbulb size={14} className="text-[#f59e0b]" />
+            <span className="text-sm font-semibold text-[#f0f6fc]">Descobertas da IA</span>
+            <span className="ml-auto text-[9px] text-[#484f58]">atualiza a cada trade</span>
+          </div>
+          <div className="space-y-3">
+            {discoveries.map((d, i) => (
+              <div key={i} className="flex items-start gap-3 p-3 rounded-xl"
+                style={{ background: `${d.color}08`, border: `1px solid ${d.color}25` }}>
+                <span className="text-base shrink-0 mt-0.5">{d.icon}</span>
+                <p className="text-[10px] leading-relaxed" style={{ color: d.color === '#484f58' ? '#484f58' : '#c9d1d9' }}>
+                  {d.text}
+                </p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 pt-3 border-t border-[#30363d]">
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-pulse" />
+              <span className="text-[9px] text-[#10b981] font-semibold">XGBoost retreina automaticamente</span>
+            </div>
+            <p className="text-[9px] text-[#484f58]">
+              Toda vez que você rotula W ou L na página de histórico, o modelo retreina sozinho — sem você precisar clicar em nada.
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* ── Estado Mental × Win Rate ────────────────────────────────────────── */}

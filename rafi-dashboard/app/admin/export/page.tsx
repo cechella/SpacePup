@@ -285,6 +285,8 @@ export default function ExportPage() {
   async function markResult(id: string, result: 'win' | 'loss') {
     await dbUpdateResult(id, result)
     setTrades(prev => prev.map(t => t.id === id ? { ...t, result } : t))
+    // Dispara retreino automático do XGBoost após cada rotulagem — silencioso
+    fetch('/api/ml/train', { method: 'POST' }).catch(() => {})
   }
 
   function clearAll() {
