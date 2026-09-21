@@ -99,7 +99,6 @@ export async function POST(req: NextRequest) {
       // start sobe o executor para o broker com bot_enabled=true.
       const { error: cmdError } = await supa.from('rafi_bot_commands').insert({
         command:    bot_enabled ? 'start' : 'stop',
-        broker_id:  id,
         pending:    true,
         created_at: new Date().toISOString(),
       })
