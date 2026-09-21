@@ -239,6 +239,7 @@ interface Props {
   freeMargin:       number | null
   livePrice:        number | null
   balance:          number | null
+  brokerCount?:     number          // nº de corretoras no capital consolidado
   discipline:       DisciplineState
   rafiValue:        number | null
   bbExpanding:      boolean | null
@@ -251,6 +252,7 @@ export function SessionSidebar({
   lastPrice, lastCandleTime, externalEntry,
   freeMargin, livePrice,
   balance,
+  brokerCount,
   discipline,
   rafiValue,
   bbExpanding,
@@ -586,6 +588,18 @@ export function SessionSidebar({
               </span>
             ) : null}
           </div>
+
+          {/* Capital consolidado — base de cálculo das metas */}
+          {balance && balance > 0 && (
+            <div className="flex items-center justify-between mb-2.5 pb-2 border-b border-[#1c3050]">
+              <span className="text-[8px] text-[#334455] uppercase tracking-widest">
+                {(brokerCount ?? 1) > 1 ? `Capital · ${brokerCount} corretoras` : 'Capital'}
+              </span>
+              <span className="text-[10px] font-mono font-bold text-[#26c6da]">
+                USD {balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+          )}
 
           {/* Meta diária */}
           <div className="mb-3">

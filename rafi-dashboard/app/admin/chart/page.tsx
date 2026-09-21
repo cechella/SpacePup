@@ -2936,6 +2936,7 @@ export default function ChartPage() {
         freeMargin={metaAccount?.freeMargin ?? null}
         livePrice={livePrice}
         balance={consolidatedBalance ?? metaAccount?.balance ?? null}
+        brokerCount={consolidatedBalance && enabledBrokers.length > 1 ? enabledBrokers.length : undefined}
         discipline={disciplineState}
         rafiValue={currentRafiValue}
         bbExpanding={currentBbExpanding}
