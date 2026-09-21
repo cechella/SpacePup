@@ -97,12 +97,17 @@ export async function POST(req: NextRequest) {
       // Envia comando real ao watchdog no VPS via rafi_bot_commands
       // O watchdog.py faz poll a cada 15s e age imediatamente: stop mata o processo,
       // start sobe o executor para o broker com bot_enabled=true.
-      await supa.from('rafi_bot_commands').insert({
+      const { error: cmdError } = await supa.from('rafi_bot_commands').insert({
         command:    bot_enabled ? 'start' : 'stop',
         broker_id:  id,
         pending:    true,
         created_at: new Date().toISOString(),
       })
+
+      if (cmdError) {
+        console.error('[brokers] Falha ao inserir comando watchdog:', cmdError)
+        return NextResponse.json({ ok: true, id, bot_enabled, warn: cmdError.message })
+      }
 
       return NextResponse.json({ ok: true, id, bot_enabled })
     }
