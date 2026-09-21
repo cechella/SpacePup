@@ -6,7 +6,7 @@ import {
   TrendingUp, TrendingDown, BarChart2, Activity,
   Target, AlertTriangle, ChevronRight, Download,
   Zap, Clock, Award, X as XIcon, Upload,
-  Lock, Radio, Shield, Settings, Wifi, WifiOff,
+  Lock, Radio, Shield, Settings, WifiOff,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { fetchTrades, upsertTrades, updateTradeResult } from '@/lib/trades-db'
@@ -659,83 +659,6 @@ function CapitalJourney({ capitalAtual, cfg }: { capitalAtual: number; cfg: Sess
 }
 
 // ── Cockpit de Sessão ─────────────────────────────────────────────────────────
-function SessionCockpit({ gate, cfg, todayPnlOverride }: { gate: SessionGate; cfg: SessionConfig; todayPnlOverride?: number | null }) {
-  const todayPnlEff = todayPnlOverride ?? gate.todayPnl
-  const dailyPct = todayPnlEff <= 0 ? 0 : Math.min((todayPnlEff / cfg.dailyGoal) * 100, 100)
-  const nowUtc   = new Date()
-  const timeStr  = `${String(nowUtc.getUTCHours()).padStart(2,'0')}:${String(nowUtc.getUTCMinutes()).padStart(2,'0')} UTC`
-
-  return (
-    <div className="grid grid-cols-3 gap-3">
-      <div className="rounded-xl p-4" style={{
-        background: C.card,
-        border: `1px solid ${gate.isLocked ? C.rose + '50' : C.teal + '40'}`,
-      }}>
-        <div className="flex items-center gap-1.5 mb-2">
-          {gate.isLocked
-            ? <Lock size={11} style={{ color: C.rose }} />
-            : <Radio size={11} style={{ color: C.teal }} />
-          }
-          <span className="text-[9px] uppercase tracking-wider" style={{ color: C.muted }}>Sessão</span>
-        </div>
-        <div className="text-xl font-black font-mono" style={{ color: gate.isLocked ? C.rose : C.teal }}>
-          {gate.isLocked ? 'BLOQ' : 'OPEN'}
-        </div>
-        <div className="text-[9px] mt-1" style={{ color: gate.isLocked ? C.rose : C.teal + 'bb' }}>
-          {gate.isLocked ? gate.lockReason : timeStr}
-        </div>
-        {!gate.isLocked && (
-          <div className="text-[8px] mt-0.5" style={{ color: C.muted }}>
-            {cfg.sessionStartUTC}–{cfg.sessionEndUTC} UTC
-          </div>
-        )}
-      </div>
-
-      <div className="rounded-xl p-4" style={{ background: C.card, border: `1px solid ${C.border}` }}>
-        <div className="flex items-center gap-1.5 mb-2">
-          <Target size={11} style={{ color: C.blue }} />
-          <span className="text-[9px] uppercase tracking-wider" style={{ color: C.muted }}>Meta Diária</span>
-        </div>
-        <div className="text-xl font-black font-mono" style={{ color: dailyPct >= 100 ? C.teal : C.text }}>
-          {todayPnlEff >= 0 ? '+' : ''}${todayPnlEff.toFixed(2)}
-        </div>
-        <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ background: C.card2 }}>
-          <div className="h-full rounded-full transition-all duration-700" style={{
-            width: `${dailyPct}%`, background: dailyPct >= 100 ? C.teal : C.blue,
-          }} />
-        </div>
-        <div className="text-[9px] mt-1" style={{ color: C.muted }}>
-          meta ${cfg.dailyGoal.toFixed(2)}{dailyPct >= 100 ? ' ✓' : ''}
-        </div>
-      </div>
-
-      <div className="rounded-xl p-4" style={{
-        background: C.card,
-        border: `1px solid ${gate.lossGate ? C.rose + '50' : C.border}`,
-      }}>
-        <div className="flex items-center gap-1.5 mb-2">
-          <AlertTriangle size={11} style={{ color: gate.lossGate ? C.rose : gate.consecutiveLosses > 0 ? C.gold : C.muted }} />
-          <span className="text-[9px] uppercase tracking-wider" style={{ color: C.muted }}>Perdas Seq.</span>
-        </div>
-        <div className="text-xl font-black font-mono" style={{
-          color: gate.lossGate ? C.rose : gate.consecutiveLosses > 0 ? C.gold : C.teal
-        }}>
-          {gate.consecutiveLosses}/{cfg.maxConsecutiveLosses}
-        </div>
-        <div className="flex gap-1 mt-2">
-          {Array.from({ length: cfg.maxConsecutiveLosses }).map((_, i) => (
-            <div key={i} className="flex-1 h-1.5 rounded-full"
-              style={{ background: i < gate.consecutiveLosses ? C.rose : C.card2 }} />
-          ))}
-        </div>
-        <div className="text-[9px] mt-1" style={{ color: gate.lossGate ? C.rose : C.muted }}>
-          {gate.lossGate ? 'Pare agora' : `${cfg.maxConsecutiveLosses - gate.consecutiveLosses} restante(s)`}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ── Painel de Risco ───────────────────────────────────────────────────────────
 function RiskPanel({ gate, cfg }: { gate: SessionGate; cfg: SessionConfig }) {
   const gaugeProgress = Math.min(gate.weekDrawdownPct / cfg.maxWeeklyDrawdownPct, 1)
@@ -1109,13 +1032,13 @@ export default function AdminDashboard() {
   if (!mounted) return null
 
   return (
-    <div className="min-h-screen p-4 space-y-4" style={{ background: C.bg, fontFamily: 'Inter, sans-serif' }}>
+    <div className="min-h-screen" style={{ background: C.bg, fontFamily: 'Inter, sans-serif' }}>
       {activeSnap && <SnapshotModal src={activeSnap} onClose={() => setActiveSnap(null)} />}
       <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImport} />
 
       {/* Toast */}
       {importMsg && (
-        <div className="fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium shadow-2xl" style={{
+        <div className="fixed top-16 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium shadow-2xl" style={{
           background: importMsg.ok ? `${C.teal}18` : `${C.rose}18`,
           border: `1px solid ${importMsg.ok ? C.teal : C.rose}50`,
           color: importMsg.ok ? C.teal : C.rose,
@@ -1124,342 +1047,410 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-            style={{ background: `linear-gradient(135deg, ${C.gold}30, ${C.gold}10)`, border: `1px solid ${C.gold}40` }}>
-            <Activity size={18} style={{ color: C.gold }} />
-          </div>
-          <div>
-            <h1 className="font-black tracking-tight" style={{
-              color: C.text, fontFamily: "'Barlow Condensed', sans-serif", fontSize: 22, letterSpacing: '-0.02em'
-            }}>RAFI TRADING BOT</h1>
-            <p className="text-[10px]" style={{ color: C.muted }}>
-              EURUSD · {connectedBrokers.length > 1
-                ? `${connectedBrokers.length} corretoras`
-                : connectedBrokers[0]?.nome ?? 'Pepperstone'} · Fase 1A
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full"
-            style={{ background: `${C.gold}15`, border: `1px solid ${C.gold}30`, color: C.gold }}>
-            <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: C.gold }} />
-            Fase 1A — Mapeamento
-          </span>
-          <button onClick={() => importRef.current?.click()}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-semibold transition-all"
-            style={{ background: `${C.teal}18`, border: `1px solid ${C.teal}35`, color: C.teal }}>
-            <Upload size={12} /> Importar
-          </button>
-          <Link href="/admin/chart"
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-semibold transition-all"
-            style={{ background: C.gold, color: C.bg }}>
-            <BarChart2 size={12} /> Mapear Trade
-          </Link>
-          <button onClick={() => { setCfgDraft(sessionConfig); setConfigOpen(o => !o) }}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-semibold transition-all"
-            style={configOpen
-              ? { background: `${C.gold}20`, border: `1px solid ${C.gold}50`, color: C.gold }
-              : { background: C.card, border: `1px solid ${C.border}`, color: C.sub }}>
-            <Settings size={12} /> Config
-          </button>
-        </div>
-      </div>
-
-      {/* ── Status MetaAPI ──────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-mono" style={{
-        background: metaAccount ? `${C.teal}08` : C.card,
-        border: `1px solid ${metaAccount ? C.teal + '30' : C.border}`,
+      {/* ── COMMAND STRIP ──────────────────────────────────────────────────── */}
+      <div className="sticky top-0 z-40 border-b" style={{
+        background: `${C.bg}f2`,
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+        borderColor: C.border,
       }}>
-        {metaLoading && !metaAccount
-          ? <span className="flex items-center gap-1.5" style={{ color: C.muted }}>
-              <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: C.muted }} />
-              Conectando Pepperstone…
-            </span>
-          : metaAccount
-            ? <>
-                <Wifi size={13} style={{ color: C.teal }} className="shrink-0" />
-                <span className="font-semibold" style={{ color: C.teal }}>
-                  {capitalConsolidado > metaAccount.balance
-                    ? `Capital Consolidado · ${connectedBrokers.length} corretoras`
-                    : 'Pepperstone'}
-                </span>
-                <span style={{ color: C.muted }}>·</span>
-                <span style={{ color: C.text }}>Saldo <span className="font-bold" style={{ color: C.teal }}>
-                  ${capitalConsolidado > 0
-                    ? capitalConsolidado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                    : metaAccount.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span></span>
-                <span style={{ color: C.muted }}>·</span>
-                <span style={{ color: C.sub }}>Equity <span style={{ color: C.text }}>
-                  ${metaAccount.equity.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span></span>
-                <span style={{ color: C.muted }}>·</span>
-                <span style={{ color: C.sub }}>Margem livre <span style={{ color: C.blue }}>
-                  ${metaAccount.freeMargin.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span></span>
-                {metaLoading && <span className="ml-1 w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: C.teal }} />}
-                {metaAccount.updatedAt && (
-                  <span className="ml-auto text-[10px]" style={{ color: C.muted }}>
-                    {metaAccount.updatedAt}
-                  </span>
-                )}
-              </>
-            : <>
-                <WifiOff size={13} style={{ color: C.muted }} className="shrink-0" />
-                <span style={{ color: C.muted }}>MetaAPI offline — exibindo dados calculados por trades</span>
-              </>
-        }
-      </div>
-
-      {/* ── Config panel ───────────────────────────────────────────────────── */}
-      {configOpen && (
-        <div className="rounded-xl p-5 space-y-4" style={{ background: C.card, border: `1px solid ${C.gold}35` }}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Settings size={14} style={{ color: C.gold }} />
-              <span className="text-sm font-semibold" style={{ color: C.text }}>Configurações da Sessão</span>
+        <div className="flex items-center gap-3 px-4 h-12">
+          {/* Brand */}
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+              style={{ background: `linear-gradient(135deg, ${C.gold}35, ${C.gold}15)`, border: `1px solid ${C.gold}45` }}>
+              <Activity size={14} style={{ color: C.gold }} />
             </div>
-            <button onClick={() => setConfigOpen(false)} style={{ color: C.muted }}>
-              <XIcon size={14} />
+            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 18, fontWeight: 900, color: C.text, letterSpacing: '-0.01em' }}>
+              RAFI TRADING
+            </span>
+          </div>
+
+          {/* Live status chips */}
+          <div className="flex items-center gap-2 ml-1 text-[10px] font-mono">
+            <span className="px-2 py-0.5 rounded-full" style={{ background: `${C.gold}15`, color: C.gold, border: `1px solid ${C.gold}30` }}>
+              FASE 1A
+            </span>
+            {metaAccount
+              ? <span className="hidden sm:flex items-center gap-1" style={{ color: C.teal }}>
+                  <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: C.teal }} />
+                  {connectedBrokers.length > 1
+                    ? `${connectedBrokers.length} corretoras ao vivo`
+                    : (connectedBrokers[0]?.nome ?? 'Pepperstone') + ' ao vivo'}
+                </span>
+              : <span className="hidden sm:inline" style={{ color: C.muted }}>
+                  <WifiOff size={11} className="inline mr-1" />offline
+                </span>
+            }
+            <span className="hidden md:inline px-2 py-0.5 rounded-full" style={
+              gate.isLocked
+                ? { background: `${C.rose}15`, color: C.rose, border: `1px solid ${C.rose}30` }
+                : { background: `${C.teal}10`, color: C.teal, border: `1px solid ${C.teal}25` }
+            }>
+              {gate.isLocked ? `⊘ ${gate.lockReason}` : '◉ ABERTA'}
+            </span>
+          </div>
+
+          <div className="flex-1" />
+
+          {/* Actions */}
+          <div className="flex items-center gap-1.5">
+            <button onClick={() => importRef.current?.click()}
+              className="flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-lg font-semibold"
+              style={{ background: `${C.teal}15`, border: `1px solid ${C.teal}30`, color: C.teal }}>
+              <Upload size={11} />
+              <span className="hidden sm:inline">Importar</span>
+            </button>
+            <Link href="/admin/chart"
+              className="flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-lg font-bold"
+              style={{ background: C.gold, color: C.bg }}>
+              <BarChart2 size={11} /> Mapear
+            </Link>
+            <button onClick={() => { setCfgDraft(sessionConfig); setConfigOpen(o => !o) }}
+              className="flex items-center gap-1 text-[11px] px-2 py-1.5 rounded-lg"
+              style={configOpen
+                ? { background: `${C.gold}18`, border: `1px solid ${C.gold}40`, color: C.gold }
+                : { background: C.card, border: `1px solid ${C.border}`, color: C.sub }}>
+              <Settings size={12} />
             </button>
           </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-            {[
-              { key: 'capitalInicial',       label: 'Capital inicial ($)',      type: 'number', min: 1 },
-              { key: 'dailyGoal',            label: 'Meta diária ($)',          type: 'number', min: 0 },
-              { key: 'weeklyGoal',           label: 'Meta semanal ($)',         type: 'number', min: 0 },
-              { key: 'monthlyGoal',          label: 'Meta mensal ($)',          type: 'number', min: 0 },
-              { key: 'maxConsecutiveLosses', label: 'Max perdas seguidas',      type: 'number', min: 1 },
-              { key: 'maxWeeklyDrawdownPct', label: 'Drawdown máx semanal (%)', type: 'number', min: 1 },
-              { key: 'sessionStartUTC',      label: 'Início sessão (UTC)',      type: 'text' },
-              { key: 'sessionEndUTC',        label: 'Fim sessão (UTC)',         type: 'text' },
-            ].map(field => (
-              <div key={field.key} className="flex flex-col gap-1">
-                <label className="text-[10px] uppercase tracking-wider" style={{ color: C.muted }}>{field.label}</label>
-                <input type={field.type} min={field.min}
-                  value={(cfgDraft as any)[field.key]}
-                  onChange={e => setCfgDraft(d => ({
-                    ...d,
-                    [field.key]: field.type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value,
-                  }))}
-                  className="rounded-lg px-3 py-2 font-mono text-xs focus:outline-none"
-                  style={{ background: C.bg, border: `1px solid ${C.border}`, color: C.text }} />
-              </div>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-2 pt-1">
-            <button onClick={() => { saveSessionConfig(cfgDraft); setSessionConfig(cfgDraft); setConfigOpen(false) }}
-              className="px-4 py-2 rounded-lg font-bold text-xs transition-colors"
-              style={{ background: C.gold, color: C.bg }}>Salvar</button>
-            <button onClick={() => setConfigOpen(false)}
-              className="px-4 py-2 rounded-lg font-semibold text-xs transition-colors"
-              style={{ background: C.card2, border: `1px solid ${C.border}`, color: C.sub }}>Cancelar</button>
-            <button onClick={() => { saveSessionConfig(SESSION_DEFAULTS); setSessionConfig(SESSION_DEFAULTS); setCfgDraft(SESSION_DEFAULTS) }}
-              className="ml-auto px-3 py-2 rounded-lg font-semibold text-[10px] transition-colors"
-              style={{ border: `1px solid ${C.border}`, color: C.muted }}>Restaurar padrões</button>
-          </div>
         </div>
-      )}
+      </div>
 
-      {/* ── HERO — Desempenho de hoje ───────────────────────────────────────── */}
-      <div className="rounded-2xl p-6 relative overflow-hidden" style={{
-        background: `linear-gradient(135deg, ${C.card} 0%, #0a1928 100%)`,
-        border: `1px solid ${heroColor}30`,
-      }}>
-        {/* Brilho de fundo */}
-        <div className="absolute inset-0 pointer-events-none" style={{
-          background: `radial-gradient(ellipse 60% 80% at 5% 50%, ${heroColor}08, transparent)`,
-        }} />
+      {/* Content area */}
+      <div className="px-4 pt-4 pb-10 space-y-4">
 
-        <div className="relative grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-          {/* Números */}
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-[10px] uppercase tracking-widest" style={{ color: C.muted }}>Desempenho Hoje</span>
-              {connectedBrokers.length > 0
-                ? <span className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ background: `${C.teal}15`, color: C.teal }}>
-                    ● {connectedBrokers.length > 1 ? `${connectedBrokers.length} corretoras ao vivo` : `${connectedBrokers[0].nome} ao vivo`}
-                  </span>
-                : <span className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ background: `${C.muted}15`, color: C.muted }}>trades mapeados</span>
-              }
-            </div>
-            <div className="flex items-end gap-4 flex-wrap">
-              <div style={{
-                fontFamily: "'Barlow Condensed', 'Arial Black', sans-serif",
-                fontSize: 'clamp(52px, 8vw, 80px)',
-                fontWeight: 900,
-                lineHeight: 1,
-                color: heroColor,
-                letterSpacing: '-0.02em',
-              }}>
-                {todayPnl >= 0 ? '+' : ''}${Math.abs(todayPnl).toFixed(2)}
+        {/* ── Config panel ─────────────────────────────────────────────────── */}
+        {configOpen && (
+          <div className="rounded-xl p-5 space-y-4" style={{ background: C.card, border: `1px solid ${C.gold}35` }}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Settings size={14} style={{ color: C.gold }} />
+                <span className="text-sm font-semibold" style={{ color: C.text }}>Configurações da Sessão</span>
               </div>
-              {todayPct !== 0 && (
-                <div className="px-3 py-1.5 rounded-xl font-bold text-xl mb-1" style={{
-                  fontFamily: "'Barlow Condensed', sans-serif",
-                  background: `${heroColor}20`,
-                  color: heroColor,
-                  border: `1px solid ${heroColor}40`,
-                }}>
-                  {todayPct >= 0 ? '+' : ''}{todayPct.toFixed(1)}%
+              <button onClick={() => setConfigOpen(false)} style={{ color: C.muted }}>
+                <XIcon size={14} />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+              {[
+                { key: 'capitalInicial',       label: 'Capital inicial ($)',      type: 'number', min: 1 },
+                { key: 'dailyGoal',            label: 'Meta diária ($)',          type: 'number', min: 0 },
+                { key: 'weeklyGoal',           label: 'Meta semanal ($)',         type: 'number', min: 0 },
+                { key: 'monthlyGoal',          label: 'Meta mensal ($)',          type: 'number', min: 0 },
+                { key: 'maxConsecutiveLosses', label: 'Max perdas seguidas',      type: 'number', min: 1 },
+                { key: 'maxWeeklyDrawdownPct', label: 'Drawdown máx semanal (%)', type: 'number', min: 1 },
+                { key: 'sessionStartUTC',      label: 'Início sessão (UTC)',      type: 'text' },
+                { key: 'sessionEndUTC',        label: 'Fim sessão (UTC)',         type: 'text' },
+              ].map(field => (
+                <div key={field.key} className="flex flex-col gap-1">
+                  <label className="text-[10px] uppercase tracking-wider" style={{ color: C.muted }}>{field.label}</label>
+                  <input type={field.type} min={field.min}
+                    value={(cfgDraft as any)[field.key]}
+                    onChange={e => setCfgDraft(d => ({
+                      ...d,
+                      [field.key]: field.type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value,
+                    }))}
+                    className="rounded-lg px-3 py-2 font-mono text-xs focus:outline-none"
+                    style={{ background: C.bg, border: `1px solid ${C.border}`, color: C.text }} />
                 </div>
-              )}
+              ))}
             </div>
-            <div className="flex items-center gap-4 mt-3 text-sm font-mono flex-wrap">
-              <span style={{ color: C.sub }}>Capital <span style={{ color: C.text, fontWeight: 700 }}>
-                ${capitalParaJornada.toFixed(2)}
-              </span></span>
-              {todayPnl !== 0 && (
-                <span style={{ color: C.sub }}>Win rate <span style={{ color: winRateColor, fontWeight: 700 }}>
-                  {winRate !== null ? `${winRate}%` : '—'}
-                </span></span>
-              )}
+
+            <div className="flex items-center gap-2 pt-1">
+              <button onClick={() => { saveSessionConfig(cfgDraft); setSessionConfig(cfgDraft); setConfigOpen(false) }}
+                className="px-4 py-2 rounded-lg font-bold text-xs"
+                style={{ background: C.gold, color: C.bg }}>Salvar</button>
+              <button onClick={() => setConfigOpen(false)}
+                className="px-4 py-2 rounded-lg font-semibold text-xs"
+                style={{ background: C.card2, border: `1px solid ${C.border}`, color: C.sub }}>Cancelar</button>
+              <button onClick={() => { saveSessionConfig(SESSION_DEFAULTS); setSessionConfig(SESSION_DEFAULTS); setCfgDraft(SESSION_DEFAULTS) }}
+                className="ml-auto px-3 py-2 rounded-lg font-semibold text-[10px]"
+                style={{ border: `1px solid ${C.border}`, color: C.muted }}>Restaurar padrões</button>
             </div>
           </div>
+        )}
 
-          {/* Sparkline */}
-          <div className="min-h-[80px]">
-            <div className="text-[9px] uppercase tracking-wider mb-1" style={{ color: C.muted }}>Curva de Capital</div>
-            <HeroSparkline trades={trades} height={72} />
-          </div>
-        </div>
-      </div>
-
-      {/* ── Comparação de corretoras ───────────────────────────────────────── */}
-      {brokersLive.length > 0 && <BrokerCompareRow brokers={brokersLive} />}
-
-      {/* ── 4 Stat tiles ───────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KPI label="Win Rate"
-          value={winRate !== null ? `${winRate}%` : '—'}
-          sub={`${wins}W · ${losses}L`} color={winRateColor} icon={Award} />
-        <KPI label="R:R Médio"
-          value={avgRR ? `${avgRR}×` : '—'}
-          sub="meta ≥ 1.5×" icon={TrendingUp} color={avgRR && parseFloat(avgRR) >= 1.5 ? C.teal : C.gold} />
-        <KPI label="RAFI ≥ 2.5"
-          value={rafiStrong}
-          sub={`${trades.length > 0 ? Math.round(rafiStrong / trades.length * 100) : 0}% dos trades`}
-          color={C.teal} icon={BarChart2} />
-        <KPI label="Total de Trades"
-          value={trades.length}
-          sub={`${pending} aguardando W/L`} color={C.blue} icon={Target} />
-      </div>
-
-      {/* ── Banner de bloqueio ─────────────────────────────────────────────── */}
-      {gate.isLocked && (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-xl" style={{
-          background: `${C.rose}12`, border: `1px solid ${C.rose}40`
+        {/* ── HERO BAND ────────────────────────────────────────────────────── */}
+        <div className="rounded-2xl overflow-hidden relative" style={{
+          background: `linear-gradient(135deg, ${C.card} 0%, #091624 100%)`,
+          border: `1px solid ${heroColor}28`,
         }}>
-          <Lock size={14} style={{ color: C.rose }} className="shrink-0" />
-          <div>
-            <span className="text-sm font-bold" style={{ color: C.rose }}>Sessão Bloqueada</span>
-            <span className="ml-2 text-xs" style={{ color: `${C.rose}bb` }}>{gate.lockReason}</span>
-          </div>
-        </div>
-      )}
+          {/* Ambient glow */}
+          <div className="absolute inset-0 pointer-events-none" style={{
+            background: `radial-gradient(ellipse 50% 120% at 0% 50%, ${heroColor}09, transparent)`,
+          }} />
 
-      {/* ── Mission Control ─────────────────────────────────────────────────── */}
-      <div className="space-y-3">
-        <CapitalJourney capitalAtual={capitalParaJornada} cfg={sessionConfig} />
-        <SessionCockpit gate={gate} cfg={sessionConfig} todayPnlOverride={todayPnlMeta} />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <RiskPanel gate={gate} cfg={sessionConfig} />
-          <GoalsCascade gate={gate} cfg={sessionConfig} capitalAtual={capitalParaJornada} todayPnlOverride={todayPnlMeta} />
-        </div>
-      </div>
+          <div className="relative flex flex-col md:flex-row">
+            {/* Left: Capital + P&L */}
+            <div className="flex-1 p-6">
+              <div className="grid grid-cols-2 gap-x-8 gap-y-5">
 
-      {/* ── Progresso ML ────────────────────────────────────────────────────── */}
-      <div className="rounded-xl p-5" style={{ background: C.card, border: `1px solid ${C.border}` }}>
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Zap size={14} style={{ color: C.blue }} />
-            <span className="text-sm font-semibold" style={{ color: C.text }}>Progresso para Treinar o ML</span>
-          </div>
-          <span className="text-[10px]" style={{ color: C.muted }}>Meta: {ML_TARGET} trades rotulados</span>
-        </div>
-        <MLProgress current={trades.length} />
-        {trades.length === 0 && (
-          <p className="text-[10px] mt-3 text-center" style={{ color: C.muted }}>
-            Vá para <Link href="/admin/chart" style={{ color: C.blue }} className="hover:underline">Gráfico RAFI</Link> e comece a mapear os setups de hoje.
-          </p>
-        )}
-      </div>
+                {/* Capital Consolidado */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[9px] uppercase tracking-widest" style={{ color: C.muted }}>Capital</span>
+                    {connectedBrokers.length > 1 && (
+                      <span className="text-[8px] px-1.5 py-0.5 rounded font-mono" style={{ background: `${C.teal}12`, color: C.teal, border: `1px solid ${C.teal}25` }}>
+                        {connectedBrokers.length} corretoras
+                      </span>
+                    )}
+                    {metaLoading && <span className="w-1 h-1 rounded-full animate-pulse" style={{ background: C.muted }} />}
+                  </div>
+                  <div style={{
+                    fontFamily: "'Barlow Condensed', 'Arial Black', sans-serif",
+                    fontSize: 'clamp(38px, 5vw, 56px)',
+                    fontWeight: 900, lineHeight: 1,
+                    color: C.text, letterSpacing: '-0.03em',
+                  }}>
+                    ${capitalParaJornada.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  {metaAccount && (
+                    <div className="mt-2 space-y-0.5 text-[10px] font-mono">
+                      <div style={{ color: C.sub }}>
+                        Equity <span style={{ color: C.text }}>${metaAccount.equity.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                      <div style={{ color: C.sub }}>
+                        Margem livre <span style={{ color: C.blue }}>${metaAccount.freeMargin.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
 
-      {/* ── Trades recentes ─────────────────────────────────────────────────── */}
-      <div className="rounded-xl overflow-hidden" style={{ background: C.card, border: `1px solid ${C.border}` }}>
-        <div className="px-4 py-3 border-b flex items-center justify-between" style={{ background: C.bg, borderColor: C.border }}>
-          <span className="text-[10px] uppercase tracking-widest" style={{ color: C.muted }}>Trades Recentes</span>
-          <Link href="/admin/export"
-            className="flex items-center gap-1 text-[9px] hover:underline transition-colors" style={{ color: C.blue }}>
-            Ver todos <ChevronRight size={10} />
-          </Link>
-        </div>
-        {trades.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <BarChart2 size={32} style={{ color: C.border }} className="mb-3" />
-            <p className="text-xs" style={{ color: C.muted }}>Nenhum trade mapeado ainda.</p>
-          </div>
-        ) : (
-          <div>
-            <div className="flex gap-2 px-4 py-2 text-[8px] uppercase tracking-wider border-b" style={{ color: C.muted, borderColor: C.border }}>
-              <span className="w-24 shrink-0">Data/Hora</span>
-              <span className="w-12 shrink-0">Dir</span>
-              <span className="w-20 shrink-0">Entrada</span>
-              <span className="w-14 shrink-0 text-right" style={{ color: C.teal }}>Ganho</span>
-              <span className="w-14 shrink-0 text-right" style={{ color: C.rose }}>Risco</span>
-              <span className="w-9 shrink-0 text-right">R:R</span>
-              <span className="ml-auto">Resultado</span>
+                {/* P&L Hoje */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[9px] uppercase tracking-widest" style={{ color: C.muted }}>P&L Hoje</span>
+                    {connectedBrokers.length > 0
+                      ? <span className="text-[8px] font-mono" style={{ color: C.teal }}>● ao vivo</span>
+                      : <span className="text-[8px] font-mono" style={{ color: C.muted }}>calculado</span>
+                    }
+                  </div>
+                  <div style={{
+                    fontFamily: "'Barlow Condensed', 'Arial Black', sans-serif",
+                    fontSize: 'clamp(38px, 5vw, 56px)',
+                    fontWeight: 900, lineHeight: 1,
+                    color: heroColor, letterSpacing: '-0.03em',
+                  }}>
+                    {todayPnl >= 0 ? '+' : ''}${Math.abs(todayPnl).toFixed(2)}
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    {todayPct !== 0 && (
+                      <span className="font-black font-mono text-sm px-2 py-0.5 rounded" style={{
+                        fontFamily: "'Barlow Condensed', sans-serif",
+                        background: `${heroColor}18`, color: heroColor,
+                        border: `1px solid ${heroColor}35`,
+                      }}>
+                        {todayPct >= 0 ? '+' : ''}{todayPct.toFixed(2)}%
+                      </span>
+                    )}
+                    {winRate !== null && (
+                      <span className="text-[10px] font-mono" style={{ color: C.sub }}>
+                        WR <span style={{ color: winRateColor, fontWeight: 700 }}>{winRate}%</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Sparkline */}
+              <div className="mt-5 pt-4" style={{ borderTop: `1px solid ${C.border}40` }}>
+                <div className="text-[9px] uppercase tracking-wider mb-1.5" style={{ color: `${C.muted}80` }}>
+                  Curva de Capital
+                </div>
+                <HeroSparkline trades={trades} height={60} />
+              </div>
             </div>
-            {recent.map(t => <TradeRow key={t.id} t={t} onLabel={handleLabel} onSnapClick={setActiveSnap} />)}
+
+            {/* Right: KPI grid — 2×2 panel */}
+            <div className="flex-shrink-0 border-t md:border-t-0 md:border-l" style={{ borderColor: `${C.border}80` }}>
+              <div className="grid grid-cols-2 md:grid-cols-1 md:w-44 h-full divide-x md:divide-x-0 md:divide-y" style={{ '--tw-divide-opacity': 1 } as any}>
+                {[
+                  { label: 'Win Rate', val: winRate !== null ? `${winRate}%` : '—', sub: `${wins}W · ${losses}L`, color: winRateColor, Icon: Award },
+                  { label: 'R:R Médio', val: avgRR ? `${avgRR}×` : '—', sub: 'meta ≥ 1.5×', color: avgRR && parseFloat(avgRR) >= 1.5 ? C.teal : C.gold, Icon: TrendingUp },
+                  { label: 'RAFI ≥ 2.5', val: String(rafiStrong), sub: `${trades.length > 0 ? Math.round(rafiStrong / trades.length * 100) : 0}% dos trades`, color: C.teal, Icon: BarChart2 },
+                  { label: 'Trades', val: String(trades.length), sub: `${pending} pendentes`, color: C.blue, Icon: Target },
+                ].map(({ label, val, sub, color, Icon }) => (
+                  <div key={label} className="p-4 flex flex-col gap-1" style={{ borderColor: `${C.border}60` }}>
+                    <div className="flex items-center gap-1 text-[9px] uppercase tracking-widest" style={{ color: C.muted }}>
+                      <Icon size={9} style={{ color }} />
+                      {label}
+                    </div>
+                    <div className="text-2xl font-black font-mono" style={{ color }}>{val}</div>
+                    <div className="text-[9px]" style={{ color: C.muted }}>{sub}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Broker Matrix ─────────────────────────────────────────────────── */}
+        {brokersLive.length > 0 && <BrokerCompareRow brokers={brokersLive} />}
+
+        {/* ── Lock Banner ───────────────────────────────────────────────────── */}
+        {gate.isLocked && (
+          <div className="flex items-center gap-3 px-4 py-3 rounded-xl" style={{
+            background: `${C.rose}12`, border: `1px solid ${C.rose}40`
+          }}>
+            <Lock size={14} style={{ color: C.rose }} className="shrink-0" />
+            <div>
+              <span className="text-sm font-bold" style={{ color: C.rose }}>Sessão Bloqueada</span>
+              <span className="ml-2 text-xs" style={{ color: `${C.rose}bb` }}>{gate.lockReason}</span>
+            </div>
           </div>
         )}
-      </div>
 
-      {/* ── Ações rápidas ───────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Link href="/admin/chart"
-          className="flex items-center gap-3 p-4 rounded-xl transition-all group"
-          style={{ background: C.card, border: `1px solid ${C.border}` }}>
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-            style={{ background: `${C.blue}18` }}>
-            <BarChart2 size={18} style={{ color: C.blue }} />
-          </div>
-          <div>
-            <div className="text-sm font-semibold" style={{ color: C.text }}>Gráfico RAFI</div>
-            <div className="text-[10px]" style={{ color: C.muted }}>Mapear novos trades com OCO</div>
-          </div>
-          <ChevronRight size={14} className="ml-auto" style={{ color: C.muted }} />
-        </Link>
+        {/* ── Capital Journey ────────────────────────────────────────────────── */}
+        <CapitalJourney capitalAtual={capitalParaJornada} cfg={sessionConfig} />
 
-        <Link href="/admin/export"
-          className="flex items-center gap-3 p-4 rounded-xl transition-all group"
-          style={{ background: C.card, border: `1px solid ${C.border}` }}>
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-            style={{ background: `${C.teal}18` }}>
-            <Download size={18} style={{ color: C.teal }} />
-          </div>
-          <div>
-            <div className="text-sm font-semibold" style={{ color: C.text }}>Dataset ML</div>
-            <div className="text-[10px]" style={{ color: C.muted }}>Rotular W/L · exportar CSV</div>
-          </div>
-          <ChevronRight size={14} className="ml-auto" style={{ color: C.muted }} />
-        </Link>
+        {/* ── COCKPIT CONTROL BOARD ─────────────────────────────────────────── */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
-        <div className="flex items-center gap-3 p-4 rounded-xl opacity-40 cursor-not-allowed"
-          style={{ background: C.card, border: `1px solid ${C.border}` }}>
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-            style={{ background: `${C.muted}18` }}>
-            <AlertTriangle size={18} style={{ color: C.muted }} />
+          {/* Col 1 · Metas em Cascata */}
+          <GoalsCascade gate={gate} cfg={sessionConfig} capitalAtual={capitalParaJornada} todayPnlOverride={todayPnlMeta} />
+
+          {/* Col 2 · Gestão de Risco */}
+          <RiskPanel gate={gate} cfg={sessionConfig} />
+
+          {/* Col 3 · Disciplina + Inteligência */}
+          <div className="space-y-3">
+
+            {/* Session status */}
+            <div className="rounded-xl p-4" style={{
+              background: C.card,
+              border: `1px solid ${gate.isLocked ? C.rose + '50' : gate.consecutiveLosses > 0 ? C.gold + '40' : C.teal + '30'}`,
+            }}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-1.5">
+                  {gate.isLocked
+                    ? <Lock size={11} style={{ color: C.rose }} />
+                    : <Radio size={11} style={{ color: C.teal }} className="animate-pulse" />
+                  }
+                  <span className="text-[9px] uppercase tracking-wider" style={{ color: C.muted }}>Sessão</span>
+                </div>
+                <span className="text-lg font-black font-mono" style={{ color: gate.isLocked ? C.rose : C.teal }}>
+                  {gate.isLocked ? 'BLOQ' : 'OPEN'}
+                </span>
+              </div>
+              <div className="text-[9px] mb-3" style={{ color: gate.isLocked ? `${C.rose}cc` : C.muted }}>
+                {gate.isLocked ? gate.lockReason : `${sessionConfig.sessionStartUTC}–${sessionConfig.sessionEndUTC} UTC`}
+              </div>
+              {/* Consecutive losses */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[9px]" style={{ color: C.muted }}>Perdas seguidas</span>
+                  <span className="text-[9px] font-mono font-bold" style={{
+                    color: gate.lossGate ? C.rose : gate.consecutiveLosses > 0 ? C.gold : C.teal
+                  }}>{gate.consecutiveLosses}/{sessionConfig.maxConsecutiveLosses}</span>
+                </div>
+                <div className="flex gap-1">
+                  {Array.from({ length: sessionConfig.maxConsecutiveLosses }).map((_, i) => (
+                    <div key={i} className="flex-1 h-1.5 rounded-full transition-all duration-500"
+                      style={{ background: i < gate.consecutiveLosses ? C.rose : C.card2 }} />
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* AI / ML Progress */}
+            <div className="rounded-xl p-4" style={{ background: C.card, border: `1px solid ${C.border}` }}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Zap size={12} style={{ color: C.blue }} />
+                  <span className="text-[11px] font-semibold" style={{ color: C.text }}>Inteligência Artificial</span>
+                </div>
+                <span className="text-[9px] font-mono" style={{ color: C.muted }}>
+                  {trades.length}/{ML_TARGET}
+                </span>
+              </div>
+              <MLProgress current={trades.length} />
+              {trades.length === 0 && (
+                <p className="text-[10px] mt-2.5 text-center" style={{ color: C.muted }}>
+                  <Link href="/admin/chart" style={{ color: C.blue }} className="hover:underline">Mapear trades</Link>{' '}
+                  para treinar o classificador XGBoost
+                </p>
+              )}
+              {trades.length > 0 && trades.length < ML_TARGET && (
+                <p className="text-[10px] mt-2.5" style={{ color: C.muted }}>
+                  Faltam <span style={{ color: C.gold, fontWeight: 700 }}>{ML_TARGET - trades.length}</span> trades para ativar o filtro ML
+                </p>
+              )}
+            </div>
           </div>
-          <div>
-            <div className="text-sm font-semibold" style={{ color: C.muted }}>Bot Automático</div>
-            <div className="text-[10px]" style={{ color: C.border }}>Disponível após Fase 2 (ML)</div>
+        </div>
+
+        {/* ── Trades Recentes ───────────────────────────────────────────────── */}
+        <div className="rounded-xl overflow-hidden" style={{ background: C.card, border: `1px solid ${C.border}` }}>
+          <div className="px-4 py-3 border-b flex items-center justify-between" style={{ background: C.bg, borderColor: C.border }}>
+            <span className="text-[10px] uppercase tracking-widest" style={{ color: C.muted }}>Trades Recentes</span>
+            <Link href="/admin/export"
+              className="flex items-center gap-1 text-[9px] hover:underline transition-colors" style={{ color: C.blue }}>
+              Ver todos <ChevronRight size={10} />
+            </Link>
+          </div>
+          {trades.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <BarChart2 size={32} style={{ color: C.border }} className="mb-3" />
+              <p className="text-xs" style={{ color: C.muted }}>Nenhum trade mapeado ainda.</p>
+            </div>
+          ) : (
+            <div>
+              <div className="flex gap-2 px-4 py-2 text-[8px] uppercase tracking-wider border-b" style={{ color: C.muted, borderColor: C.border }}>
+                <span className="w-24 shrink-0">Data/Hora</span>
+                <span className="w-12 shrink-0">Dir</span>
+                <span className="w-20 shrink-0">Entrada</span>
+                <span className="w-14 shrink-0 text-right" style={{ color: C.teal }}>Ganho</span>
+                <span className="w-14 shrink-0 text-right" style={{ color: C.rose }}>Risco</span>
+                <span className="w-9 shrink-0 text-right">R:R</span>
+                <span className="ml-auto">Resultado</span>
+              </div>
+              {recent.map(t => <TradeRow key={t.id} t={t} onLabel={handleLabel} onSnapClick={setActiveSnap} />)}
+            </div>
+          )}
+        </div>
+
+        {/* ── Ações Rápidas ─────────────────────────────────────────────────── */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Link href="/admin/chart"
+            className="flex items-center gap-3 p-4 rounded-xl transition-all group"
+            style={{ background: C.card, border: `1px solid ${C.border}` }}>
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+              style={{ background: `${C.blue}18` }}>
+              <BarChart2 size={18} style={{ color: C.blue }} />
+            </div>
+            <div>
+              <div className="text-sm font-semibold" style={{ color: C.text }}>Gráfico RAFI</div>
+              <div className="text-[10px]" style={{ color: C.muted }}>Mapear novos trades com OCO</div>
+            </div>
+            <ChevronRight size={14} className="ml-auto" style={{ color: C.muted }} />
+          </Link>
+
+          <Link href="/admin/export"
+            className="flex items-center gap-3 p-4 rounded-xl transition-all group"
+            style={{ background: C.card, border: `1px solid ${C.border}` }}>
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+              style={{ background: `${C.teal}18` }}>
+              <Download size={18} style={{ color: C.teal }} />
+            </div>
+            <div>
+              <div className="text-sm font-semibold" style={{ color: C.text }}>Dataset ML</div>
+              <div className="text-[10px]" style={{ color: C.muted }}>Rotular W/L · exportar CSV</div>
+            </div>
+            <ChevronRight size={14} className="ml-auto" style={{ color: C.muted }} />
+          </Link>
+
+          <div className="flex items-center gap-3 p-4 rounded-xl opacity-40 cursor-not-allowed"
+            style={{ background: C.card, border: `1px solid ${C.border}` }}>
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+              style={{ background: `${C.muted}18` }}>
+              <AlertTriangle size={18} style={{ color: C.muted }} />
+            </div>
+            <div>
+              <div className="text-sm font-semibold" style={{ color: C.muted }}>Bot Automático</div>
+              <div className="text-[10px]" style={{ color: C.border }}>Disponível após Fase 2 (ML)</div>
+            </div>
           </div>
         </div>
       </div>
