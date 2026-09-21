@@ -83,10 +83,21 @@ function getOverlapContext(unixSec: number): {
   return { overlapPhase, sessionMinute: overlapPhase !== null ? sesMin : null, dayOfWeek }
 }
 
-// Data atual no fuso de Brasília (UTC-3), para flags de meta
+// Data atual no fuso de Brasília (UTC-3), para flags de meta diária
 function brtDateStr() {
   const brt = new Date(Date.now() - 3 * 60 * 60 * 1000)
   return brt.toISOString().slice(0, 10)
+}
+
+// Data da segunda-feira da semana atual em BRT — chave da flag de meta semanal.
+// Muda toda segunda-feira 00:00 BRT (= 03:00 UTC), encerrando a semana anterior.
+function brtWeekMondayStr() {
+  const brt = new Date(Date.now() - 3 * 60 * 60 * 1000)
+  const day = brt.getUTCDay()  // 0=Dom, 1=Seg, ..., 6=Sáb
+  const daysFromMon = day === 0 ? 6 : day - 1
+  const mon = new Date(brt)
+  mon.setUTCDate(brt.getUTCDate() - daysFromMon)
+  return mon.toISOString().slice(0, 10)
 }
 
 const STORAGE_KEY     = 'rafi-trade-log'
@@ -249,23 +260,40 @@ export default function ChartPage() {
     const done  = typeof window !== 'undefined' && localStorage.getItem(CHECKIN_KEY) === today
     if (done) return
 
-    // Meta do dia já atingida — trader não pode mais operar; não pede check-in
-    const goalMet = typeof window !== 'undefined' && localStorage.getItem(`rafi-daily-target-met-${today}`) === 'true'
-    if (goalMet) return
+    // Meta diária já atingida hoje (BRT) — sessão encerrada
+    const dailyGoalMet = typeof window !== 'undefined' && localStorage.getItem(`rafi-daily-target-met-${today}`) === 'true'
+    if (dailyGoalMet) return
 
-    const jsDay = new Date().getUTCDay()
+    // Meta semanal já atingida esta semana — semana encerrada; check-in volta na segunda
+    const weeklyGoalMet = typeof window !== 'undefined' && localStorage.getItem(`rafi-weekly-target-met-${brtWeekMondayStr()}`) === 'true'
+    if (weeklyGoalMet) return
+
+    // Usa dia da semana em BRT para não errar perto da meia-noite (11pm BRT = terça UTC)
+    const brtNow = new Date(Date.now() - 3 * 60 * 60 * 1000)
+    const jsDay = brtNow.getUTCDay()
     const activeDays = getSessionConfig().tradingDays
     if (activeDays.includes(jsDay)) setShowCheckin(true)
   }, [])
 
-  // Ao abrir a página: se a meta já foi cumprida hoje (BRT), mostra overlay imediatamente
-  // sem depender do MetaAPI carregar — persiste até meia-noite de Brasília
+  // Ao abrir a página: se a meta diária já foi cumprida hoje (BRT), mostra overlay
+  // imediatamente, sem depender do MetaAPI carregar — persiste até meia-noite BRT
   useEffect(() => {
     const today = brtDateStr()
     const goalMet = typeof window !== 'undefined' && localStorage.getItem(`rafi-daily-target-met-${today}`) === 'true'
     if (goalMet) {
       setShowDailyOverlay(true)
       prevDailyMetRef.current = true  // evita duplo disparo quando MetaAPI carregar
+    }
+  }, [])
+
+  // Ao abrir a página: se a meta semanal já foi cumprida esta semana (BRT), mostra overlay
+  // imediatamente — persiste até segunda-feira BRT da semana seguinte
+  useEffect(() => {
+    const weekMonday = brtWeekMondayStr()
+    const goalMet = typeof window !== 'undefined' && localStorage.getItem(`rafi-weekly-target-met-${weekMonday}`) === 'true'
+    if (goalMet) {
+      setShowWeeklyOverlay(true)
+      prevWeeklyMetRef.current = true  // evita duplo disparo quando MetaAPI carregar
     }
   }, [])
 
@@ -355,9 +383,10 @@ export default function ChartPage() {
     const dailyMet  = dailyPct  >= DAILY_TARGET
     const weeklyMet = weeklyPct >= WEEKLY_TARGET
 
-    // Persiste flag de meta diária usando data BRT (meia-noite de Brasília = 03:00 UTC)
-    if (dailyMet && typeof window !== 'undefined') {
-      localStorage.setItem(`rafi-daily-target-met-${brtDateStr()}`, 'true')
+    // Persiste flags de meta usando datas BRT (meia-noite BRT = 03:00 UTC)
+    if (typeof window !== 'undefined') {
+      if (dailyMet)  localStorage.setItem(`rafi-daily-target-met-${brtDateStr()}`,           'true')
+      if (weeklyMet) localStorage.setItem(`rafi-weekly-target-met-${brtWeekMondayStr()}`,    'true')
     }
 
     return {
