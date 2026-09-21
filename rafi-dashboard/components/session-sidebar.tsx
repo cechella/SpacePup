@@ -101,8 +101,8 @@ function computeCopilot(
   const malEstado  = withCheckin.filter(t => !isBomEstado(t))
   const bomWins    = bomEstado.filter(t => t.result === 'win').length
   const malWins    = malEstado.filter(t => t.result === 'win').length
-  const bomRate    = bomEstado.length >= 3 ? Math.round((bomWins / bomEstado.length) * 100) : null
-  const malRate    = malEstado.length >= 3 ? Math.round((malWins / malEstado.length) * 100) : null
+  const bomRate    = bomEstado.length >= 1 ? Math.round((bomWins / bomEstado.length) * 100) : null
+  const malRate    = malEstado.length >= 1 ? Math.round((malWins / malEstado.length) * 100) : null
 
   // Estado de hoje
   const hojeEstadoBom = checkin
@@ -166,8 +166,6 @@ function computeCopilot(
         ok: hojeEstadoBom,
       }
     }
-  } else if (withCheckin.length > 0 && withCheckin.length < 3) {
-    mentalFactor = { label: `Estado mental · acumulando dados (${withCheckin.length}/3)`, ok: null }
   }
 
   const factors: CopilotResult['factors'] = [
