@@ -868,12 +868,31 @@ export default function ChartPage() {
     fetchHistory(historyPeriod, historyBroker)
   }, [metaConnected, historyPeriod, historyBroker, fetchHistory])
 
-  // Features 1, 2, 5: poll saldo + posições a cada 5s quando MetaAPI ativo
+  // Features 1, 2, 5: poll saldo + posições quando MetaAPI ativo
+  // Nos primeiros 30s após conectar faz poll a cada 2s (MetaAPI demora para ter stream pronto em todas as contas)
+  // Depois disso cai para 5s normal
   useEffect(() => {
     if (!metaConnected) { setMetaAccount(null); setMetaPositions([]); setAllBrokerPositions([]); setBotAlerts([]); return }
+
     fetchLiveData()
-    const id = setInterval(fetchLiveData, 5_000)
-    return () => clearInterval(id)
+
+    // Poll rápido inicial: 15 ciclos × 2s = 30s de aquecimento
+    let normalIntervalId: ReturnType<typeof setInterval> | null = null
+    let fastCount = 0
+    const fastId = setInterval(() => {
+      fetchLiveData()
+      fastCount++
+      if (fastCount >= 15) {
+        clearInterval(fastId)
+        // Após aquecimento, continua com poll normal de 5s
+        normalIntervalId = setInterval(fetchLiveData, 5_000)
+      }
+    }, 2_000)
+
+    return () => {
+      clearInterval(fastId)
+      if (normalIntervalId) clearInterval(normalIntervalId)
+    }
   }, [metaConnected, fetchLiveData])
 
 
