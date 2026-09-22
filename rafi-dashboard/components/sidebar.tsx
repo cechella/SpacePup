@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, LineChart, Users, Settings,
-  TrendingUp, LogOut, ChevronRight, BarChart2, Download, Brain, Activity, Globe, Trash2,
+  TrendingUp, LogOut, ChevronRight, BarChart2, Download, Brain, Activity, Globe, Trash2, Bot,
 } from 'lucide-react'
 
 interface NavItem { label: string; href: string; icon: React.ElementType; badge?: string }
@@ -15,6 +15,7 @@ const adminNav: NavItem[] = [
   { label: 'Monitor Bot',  href: '/admin/monitor',   icon: Activity, badge: 'LIVE'      },
   { label: 'Mesa de Operação', href: '/admin/chart',  icon: BarChart2                    },
   { label: 'IA / Fase 2',  href: '/admin/fase2',     icon: Brain, badge: 'BETA'         },
+  { label: 'Admin IA',     href: '/admin/ia',        icon: Bot,   badge: 'NEW'          },
   { label: 'Backtest',     href: '/admin/backtest',  icon: BarChart2                    },
   { label: 'Exportar ML',  href: '/admin/export',    icon: Download                     },
   { label: 'Estratégia',   href: '/admin/strategy',  icon: TrendingUp                   },

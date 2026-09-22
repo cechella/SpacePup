@@ -15,7 +15,7 @@ import { cn, formatPrice } from '@/lib/utils'
 import { getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
 import { upsertTrade, fetchTrades, fetchCandles, countCandles } from '@/lib/trades-db'
 import { upsertDailyGoal, fetchDailyGoal, fetchWeeklyGoal } from '@/lib/daily-goals-db'
-import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine, History, ChevronDown, Trash2, Database, Menu } from 'lucide-react'
+import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine, History, ChevronDown, Trash2, Database, Menu, Bot, Power, Sparkles } from 'lucide-react'
 import type { CandleData } from '@/lib/types'
 import { generateTradeSnapshot } from '@/lib/trade-snapshot'
 import { getSessionConfig } from '@/lib/session-config'
@@ -24,6 +24,7 @@ import { IASuggestionModal, type IASuggestion } from '@/components/ia-suggestion
 import { ModoAutonomoModal } from '@/components/modo-autonomo-modal'
 import { ModoAutonomoBanner, type AutonomoTrade } from '@/components/modo-autonomo-banner'
 import { MissaoHojePopup } from '@/components/missao-hoje-popup'
+import { LoopDeAprendizadoPanel } from '@/components/loop-aprendizado-panel'
 
 const RAFIChart = dynamic(
   () => import('@/components/rafi-chart').then(m => m.RAFIChart),
@@ -268,6 +269,11 @@ export default function ChartPage() {
   const autonomoLastRef = useRef<number>(0)  // evita re-execução dentro de 5min
   const META_DIARIA_PCT = 7  // 7% de meta diária
 
+  // Loop de Aprendizado — painel lateral deslizante
+  const [showLoop, setShowLoop] = useState(false)
+  // Kill switch da IA Autônoma (Cron) — sincronizado com rafi_ia_config no Supabase
+  const [iaAutonomaAtiva, setIaAutonomaAtiva] = useState<boolean | null>(null)
+
   // Check-in de estado mental do dia
   const [checkin,     setCheckin]     = useState<CheckinResult | null>(null)
   const [showCheckin, setShowCheckin] = useState(false)
@@ -352,6 +358,14 @@ export default function ChartPage() {
       // Flag stale sem P&L válido — limpa para evitar falso positivo
       try { localStorage.removeItem(`rafi-weekly-target-met-${weekMonday}`) } catch { /* */ }
     }
+  }, [])
+
+  // ── Sincroniza estado do kill switch da IA Autônoma (Cron) com o Supabase ─────
+  useEffect(() => {
+    fetch('/api/ia/status')
+      .then(r => r.json())
+      .then(d => { if (typeof d.ia_autonoma_ativa === 'boolean') setIaAutonomaAtiva(d.ia_autonoma_ativa) })
+      .catch(() => {/* silencioso — fallback null = desconhecido */})
   }, [])
 
   // ── IA Signal Watcher — avalia condições a cada 30s e dispara pop-up ─────────
@@ -2990,6 +3004,48 @@ export default function ChartPage() {
 
             {/* Indicador de capital e lote atual */}
             <div className="flex items-center gap-3">
+              {/* Kill switch da IA Autônoma (Cron) */}
+              <button
+                onClick={async () => {
+                  const next = !iaAutonomaAtiva
+                  setIaAutonomaAtiva(next)
+                  try {
+                    await fetch('/api/ia/status', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ ia_autonoma_ativa: next }),
+                    })
+                  } catch { setIaAutonomaAtiva(!next) }
+                }}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition-all',
+                  iaAutonomaAtiva === true
+                    ? 'bg-violet-500/10 border-violet-500/40 text-violet-300 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-300'
+                    : iaAutonomaAtiva === false
+                    ? 'bg-red-500/8 border-red-500/30 text-red-400 hover:bg-violet-500/10 hover:border-violet-500/40 hover:text-violet-300'
+                    : 'bg-white/5 border-white/10 text-white/30',
+                )}
+                title={
+                  iaAutonomaAtiva === true ? 'IA Autônoma ATIVA — clique para desativar'
+                  : iaAutonomaAtiva === false ? 'IA Autônoma INATIVA — clique para ativar'
+                  : 'Carregando estado da IA...'
+                }
+              >
+                <Bot size={9} />
+                {iaAutonomaAtiva === true ? 'IA ON' : iaAutonomaAtiva === false ? 'IA OFF' : 'IA…'}
+                {iaAutonomaAtiva === true && <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />}
+              </button>
+
+              {/* Botão Loop de Aprendizado */}
+              <button
+                onClick={() => setShowLoop(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold border border-amber-500/30 bg-amber-500/8 text-amber-400 hover:bg-amber-500/15 transition-all"
+                title="Loop de Aprendizado — o que a IA aprendeu"
+              >
+                <Sparkles size={9} />
+                Loop IA
+              </button>
+
               <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#f59e0b]/8 border border-[#f59e0b]/25 text-[10px]">
                 <Layers size={9} className="text-[#f59e0b]" />
                 <span className="text-[#f59e0b] font-bold font-mono">{currentLot.toFixed(2)}L</span>
@@ -3949,7 +4005,7 @@ export default function ChartPage() {
         />
       )}
 
-      {/* Toggle Pausar IA — canto inferior esquerdo, discreto */}
+      {/* Toggle Pausar IA co-piloto — canto inferior esquerdo, discreto */}
       <button
         onClick={() => setIaWatcherActive(v => !v)}
         className={cn(
@@ -3958,11 +4014,25 @@ export default function ChartPage() {
             ? 'bg-[#0d1117] border-[#10b981]/30 text-[#10b981]'
             : 'bg-[#0d1117] border-[#30363d] text-[#484f58]',
         )}
-        title={iaWatcherActive ? 'IA ativa — clique para pausar' : 'IA pausada — clique para reativar'}
+        title={iaWatcherActive ? 'Co-piloto ativo — clique para pausar' : 'Co-piloto pausado — clique para reativar'}
       >
         <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', iaWatcherActive ? 'bg-[#10b981] animate-pulse' : 'bg-[#484f58]')} />
-        {iaWatcherActive ? 'IA ativa' : 'IA pausada'}
+        {iaWatcherActive ? 'Co-piloto ativo' : 'Co-piloto pausado'}
       </button>
+
+      {/* Loop de Aprendizado — painel lateral */}
+      <LoopDeAprendizadoPanel
+        open={showLoop}
+        onClose={() => setShowLoop(false)}
+        checkin={checkin ? {
+          sono:    checkin.sono,
+          energia: checkin.energia,
+          mental:  checkin.mental,
+          humor:   checkin.humor,
+        } : null}
+        capital={consolidatedBalance ?? 100}
+        brokerCount={enabledBrokers.length > 0 ? enabledBrokers.length : 1}
+      />
     </div>
   )
 }
