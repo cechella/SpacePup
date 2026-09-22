@@ -9,6 +9,9 @@ import { createClient } from '@supabase/supabase-js'
 import { calcRAFI, calcBollingerBands } from '@/lib/indicators'
 import type { CandleData } from '@/lib/types'
 
+export const runtime    = 'nodejs'
+export const maxDuration = 60 // segundos — requer plano Pro; no Hobby limita a 10s
+
 const META_BASE  = process.env.METAAPI_MARKET_DATA_URL ?? 'https://mt-market-data-client-api-v1.london.agiliumtrade.ai'
 const META_TOKEN = process.env.METAAPI_TOKEN!
 const ACCOUNT_ID = process.env.METAAPI_ACCOUNT_ID!
@@ -23,12 +26,13 @@ function getSupabase() {
   return createClient(url, key, { auth: { persistSession: false } })
 }
 
-async function fetchMetaCandles(startTime: string, limit = 300): Promise<CandleData[]> {
+// 100 candles M5 = ~8h — suficiente para calcular RAFI e BB Width
+async function fetchMetaCandles(startTime: string, limit = 100): Promise<CandleData[]> {
   const qs = new URLSearchParams({ limit: String(limit), startTime })
   const url = `${META_BASE}/users/current/accounts/${ACCOUNT_ID}/historical-market-data/symbols/EURUSD/timeframes/5m/candles?${qs}`
   const res = await fetch(url, {
     headers: { 'auth-token': META_TOKEN },
-    signal:  AbortSignal.timeout(10_000),
+    signal:  AbortSignal.timeout(25_000),
     cache:   'no-store',
   })
   if (!res.ok) {
@@ -66,14 +70,15 @@ export async function POST() {
       return NextResponse.json({ enriched: 0, total: 0, message: 'Nenhum trade sem RAFI' })
     }
 
-    // Agrupa trades por janelas de 4 horas para minimizar chamadas à MetaAPI
-    // Cada janela busca 300 candles M5 (~25h de contexto) a partir do candle mais recente + 30min
+    // Agrupa trades por janelas de 8 horas para minimizar chamadas à MetaAPI
+    // Cada janela busca 100 candles M5 (~8h de contexto) a partir do candle mais recente + 30min
+    const WINDOW_SEC = 8 * 3600
     const windows = new Map<number, number[]>() // chave: topo da janela em segundos, valor: lista de IDs
 
     for (const trade of missing) {
       const tradeSec  = Number(trade.time)
-      // Arredonda para cima para a próxima janela de 4h
-      const windowTop = (Math.floor(tradeSec / (4 * 3600)) + 1) * (4 * 3600)
+      // Arredonda para cima para a próxima janela de 8h
+      const windowTop = (Math.floor(tradeSec / WINDOW_SEC) + 1) * WINDOW_SEC
       if (!windows.has(windowTop)) windows.set(windowTop, [])
       windows.get(windowTop)!.push(trade.id)
     }
