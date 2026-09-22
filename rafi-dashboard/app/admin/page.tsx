@@ -910,6 +910,8 @@ export default function AdminDashboard() {
   const [metaLoading,    setMetaLoading]    = useState(false)
   const [todayPnlMeta,   setTodayPnlMeta]  = useState<number | null>(null)
   const [brokersLive,    setBrokersLive]    = useState<BrokerLiveData[]>([])
+  // Bug 3: contador real de stops do dia via MetaAPI history (sobrepõe o log manual)
+  const [metaLossesToday, setMetaLossesToday] = useState<number | null>(null)
   const [configOpen,     setConfigOpen]     = useState(false)
   const [cfgDraft,       setCfgDraft]       = useState<SessionConfig>(SESSION_DEFAULTS)
   const [clockStr,       setClockStr]       = useState('')
@@ -990,14 +992,28 @@ export default function AdminDashboard() {
 
         setBrokersLive(live)
 
-        // Compatibilidade: alimenta metaAccount com Pepperstone (ou primeiro conectado)
-        const primary = live.find(b => b.id === 'pepperstone') ?? live.find(b => b.connected)
-        if (primary?.connected) {
-          setMetaAccount({ balance: primary.balance, equity: primary.equity, freeMargin: primary.freeMargin, updatedAt: primary.updatedAt ?? undefined })
+        // Bug 1 — equity/margem consolidados de TODOS os brokers conectados (não só Pepperstone)
+        const connLive = live.filter(b => b.connected)
+        if (connLive.length > 0) {
+          const consolidatedEquity     = connLive.reduce((s, b) => s + b.equity,      0)
+          const consolidatedFreeMargin = connLive.reduce((s, b) => s + b.freeMargin,  0)
+          const consolidatedBalance    = connLive.reduce((s, b) => s + b.balance,     0)
+          const latestUpdatedAt        = connLive.map(b => b.updatedAt).filter(Boolean).sort().at(-1)
+          setMetaAccount({ balance: consolidatedBalance, equity: consolidatedEquity, freeMargin: consolidatedFreeMargin, updatedAt: latestUpdatedAt ?? undefined })
         }
         // P&L total = soma de todos os brokers conectados
-        const sumPnl = live.filter(b => b.connected).reduce((s, b) => s + b.todayPnl, 0)
-        if (live.some(b => b.connected)) setTodayPnlMeta(sumPnl)
+        const sumPnl = connLive.reduce((s, b) => s + b.todayPnl, 0)
+        if (connLive.length > 0) setTodayPnlMeta(sumPnl)
+
+        // Bug 3 — busca stops reais do dia via MetaAPI history (profit < 0)
+        fetch('/api/metaapi/history?period=today&all=true')
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (!data?.history) return
+            const losses = (data.history as any[]).filter(d => (d.profit ?? 0) < 0).length
+            setMetaLossesToday(losses)
+          })
+          .catch(() => {})
 
       } catch {}
       setMetaLoading(false)
@@ -1102,6 +1118,11 @@ export default function AdminDashboard() {
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const gate = useMemo(() => computeSessionGate(trades, sessionConfig), [trades, sessionConfig, tick])
+
+  // Bug 3 — sobrepõe lossesToday com o valor real do MetaAPI quando disponível
+  const effectiveGate = metaLossesToday !== null
+    ? { ...gate, lossesToday: metaLossesToday }
+    : gate
 
   const pnlPotential = useMemo(() => trades
     .filter(t => !t.result || t.result === 'pending')
@@ -1382,8 +1403,12 @@ export default function AdminDashboard() {
                 </span>
               )}
               {winRate !== null && (
-                <span className="text-[9px] font-mono" style={{ color: C.sub }}>
+                <span className="text-[9px] font-mono flex items-center gap-1.5" style={{ color: C.sub }}>
                   Win rate <span style={{ color: winRateColor, fontWeight: 700 }}>{winRate}%</span>
+                  {/* Bug 2 — fonte do win rate é o log manual (trades mapeados no /admin), não o histórico MetaAPI */}
+                  <span className="text-[7px] font-bold uppercase tracking-wider px-1 py-0.5 rounded" style={{
+                    background: `${C.gold}14`, border: `1px solid ${C.gold}35`, color: C.gold,
+                  }}>log manual</span>
                 </span>
               )}
               <span className="text-[9px] font-mono" style={{ color: C.sub }}>
@@ -1450,7 +1475,7 @@ export default function AdminDashboard() {
           <GoalsCascade gate={gate} cfg={sessionConfig} capitalAtual={capitalParaJornada} todayPnlOverride={todayPnlMeta} />
 
           {/* Col 2 · Disciplina & Sessão */}
-          <DisciplinePanel gate={gate} cfg={sessionConfig} />
+          <DisciplinePanel gate={effectiveGate} cfg={sessionConfig} />
 
           {/* Col 3 · Inteligência RAFI */}
           <IntelPanel
