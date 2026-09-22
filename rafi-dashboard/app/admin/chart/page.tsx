@@ -255,6 +255,11 @@ export default function ChartPage() {
     rafi: 0, direction: 'buy', labeledCount: 0,
   })
 
+  // Mapa RAFI+BB por timestamp — permite enriquecer o sync MetaAPI sem stale closure
+  // Chave: tempo em segundos (mesmo formato do MetaAPI deal.time convertido)
+  const rafiEnrichRef  = useRef<Map<number, { rafi: number; dir: 'bull' | 'bear'; bbWidth: number }>>(new Map())
+  const checkinSyncRef = useRef<CheckinResult | null>(null)
+
   // Modo Autônomo — IA opera sozinha quando estado mental está comprometido
   const [showAutonomoModal, setShowAutonomoModal] = useState(false)
   const [autonomoAtivo,     setAutonomoAtivo]     = useState(false)
@@ -1317,20 +1322,49 @@ export default function ChartPage() {
     setHistoryLoading(false)
 
     // Proposta A — sincroniza deals fechados com rafi_trades para alimentar o aprendizado da IA
+    // Enriquece cada deal com RAFI e BB Width do candle mais próximo ao horário de entrada
     if (merged.length > 0) {
+      const rafiMap = rafiEnrichRef.current
+      const ck      = checkinSyncRef.current
+
+      // Encontra o candle M5 mais próximo: arredonda o timestamp do deal para baixo (múltiplo de 300s)
+      function lookupRafi(isoTime: string) {
+        const tsSec = Math.floor(new Date(isoTime).getTime() / 1000)
+        const m5ts  = Math.floor(tsSec / 300) * 300
+        // Tenta exato, depois busca o mais próximo numa janela de ±15min
+        if (rafiMap.has(m5ts)) return rafiMap.get(m5ts)!
+        let best: { rafi: number; dir: 'bull' | 'bear'; bbWidth: number } | undefined
+        let bestDiff = Infinity
+        rafiMap.forEach((v, k) => {
+          const diff = Math.abs(k - m5ts)
+          if (diff < bestDiff && diff <= 900) { best = v; bestDiff = diff }
+        })
+        return best
+      }
+
       fetch('/api/ml/sync-trades', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          deals: merged.map(t => ({
-            id:         t.id,
-            direction:  t.direction,
-            entryPrice: t.entryPrice,
-            price:      t.price,
-            profit:     t.profit,
-            time:       t.time,
-            volume:     t.volume,
-          })),
+          deals: merged.map(t => {
+            const enriched = lookupRafi(t.time ?? '')
+            return {
+              id:              t.id,
+              direction:       t.direction,
+              entryPrice:      t.entryPrice,
+              price:           t.price,
+              profit:          t.profit,
+              time:            t.time,
+              volume:          t.volume,
+              rafi:            enriched?.rafi   ?? null,
+              rafiDir:         enriched?.dir    ?? null,
+              bbWidth:         enriched?.bbWidth ?? null,
+              checkinSono:     ck?.sono     ?? null,
+              checkinEnergia:  ck?.energia  ?? null,
+              checkinMental:   ck?.mental   ?? null,
+              checkinHumor:    ck?.humor    ?? null,
+            }
+          }),
         }),
       }).catch(() => {})
     }
@@ -1830,6 +1864,24 @@ export default function ChartPage() {
       labeledCount: trades.filter(t => t.result === 'win' || t.result === 'loss').length,
     }
   }, [rafiData, trades])
+
+  // Reconstrói mapa RAFI+BB por tempo — usado pelo sync MetaAPI para enriquecer cada deal
+  useEffect(() => {
+    const { upper = [], lower = [] } = bbBands ?? {}
+    const bbMap = new Map<number, number>()
+    upper.forEach((u, i) => {
+      const l = lower[i]?.value ?? 0
+      if (u?.time != null) bbMap.set(u.time, u.value - l)
+    })
+    const m = new Map<number, { rafi: number; dir: 'bull' | 'bear'; bbWidth: number }>()
+    for (const p of rafiData) {
+      m.set(p.time, { rafi: p.value, dir: p.dir, bbWidth: bbMap.get(p.time) ?? 0 })
+    }
+    rafiEnrichRef.current = m
+  }, [rafiData, bbBands])
+
+  // Mantém checkinSyncRef sempre atual para o sync MetaAPI poder ler sem stale closure
+  useEffect(() => { checkinSyncRef.current = checkin }, [checkin])
 
   // RAFI sempre positivo: separa por dir do candle
   const strongBullBars = rafiData.filter(p => p.value >= 2.5).length
