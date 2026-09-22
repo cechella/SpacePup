@@ -1328,10 +1328,9 @@ export default function ChartPage() {
       const ck      = checkinSyncRef.current
 
       // Encontra o candle M5 mais próximo: arredonda o timestamp do deal para baixo (múltiplo de 300s)
-      function lookupRafi(isoTime: string) {
+      const lookupRafi = (isoTime: string) => {
         const tsSec = Math.floor(new Date(isoTime).getTime() / 1000)
         const m5ts  = Math.floor(tsSec / 300) * 300
-        // Tenta exato, depois busca o mais próximo numa janela de ±15min
         if (rafiMap.has(m5ts)) return rafiMap.get(m5ts)!
         let best: { rafi: number; dir: 'bull' | 'bear'; bbWidth: number } | undefined
         let bestDiff = Infinity
