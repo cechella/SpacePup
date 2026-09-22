@@ -1194,18 +1194,35 @@ export default function ChartPage() {
     if (!metaConnected) { setHistoryLoading(false); return }
 
     try {
-      const params = new URLSearchParams({ period })
+      // Para 'today', busca 7 dias e filtra client-side — o endpoint MetaAPI
+      // com janela de poucas horas pode retornar vazio dependendo do broker.
+      // O filtro UTC é idêntico ao usado em targetMetrics para consistência.
+      const restPeriod = period === 'today' ? '7d' : period
+      const todayUTC   = new Date().toISOString().slice(0, 10)
+
+      const params = new URLSearchParams({ period: restPeriod })
       if (broker) { params.set('broker', broker) } else { params.set('all', 'true') }
       const res = await fetch(`/api/metaapi/history?${params}`)
       if (res.ok) {
         const data = await res.json()
         if (!data.error) {
-          setMetaHistory(data.history ?? [])
-          if (data.groups) {
-            setHistoryGroups(data.groups)
+          let history: typeof metaHistory = data.history ?? []
+          let groups: typeof historyGroups | undefined = data.groups
+
+          // Filtra só hoje quando o usuário selecionou o período 'Hoje'
+          if (period === 'today') {
+            history = history.filter(t => (t.time?.slice(0, 10) ?? '') === todayUTC)
+            if (groups) {
+              groups = groups.map(g => ({ ...g, trades: g.trades.filter(t => (t.time?.slice(0, 10) ?? '') === todayUTC) }))
+            }
+          }
+
+          setMetaHistory(history)
+          if (groups) {
+            setHistoryGroups(groups)
           } else {
             const nome = enabledBrokers.find(b => b.id === broker)?.nome ?? broker
-            setHistoryGroups([{ rank: 0, brokerId: broker, nome, trades: data.history ?? [] }])
+            setHistoryGroups([{ rank: 0, brokerId: broker, nome, trades: history }])
           }
         }
       }
