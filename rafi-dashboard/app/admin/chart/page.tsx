@@ -239,7 +239,11 @@ export default function ChartPage() {
   const [toolbarH,    setToolbarH]    = useState<number | null>(null)
   const toolbarHRef = useRef<number>(52)  // estimativa inicial para o drag
   const toolbarElRef = useRef<HTMLDivElement | null>(null)  // mede altura real no DOM
-  const prevPositionsRef = useRef<typeof metaPositions>([])
+  const prevPositionsRef    = useRef<typeof metaPositions>([])
+  // Conta quantas polls consecutivas cada broker retornou 0 posições sem erro.
+  // Só zeramos as posições de um broker após 2 polls consecutivas confirmando 0
+  // (≈6s de grace period para o MetaAPI sincronizar trades abertos manualmente no VPS).
+  const brokerZeroCountRef  = useRef<Record<string, number>>({})
   // IA Suggestion — pop-up de sugestão de entrada
   const [iaSuggestion,     setIaSuggestion]     = useState<IASuggestion | null>(null)
   const [showIASuggestion, setShowIASuggestion] = useState(false)
@@ -1116,16 +1120,38 @@ export default function ChartPage() {
           return newPos
         })
       }
-      // Atualiza posições multi-corretora via REST
-      // Só zera o estado se o account principal também confirmou 0 posições — evita que
-      // uma resposta vazia transitória do MetaAPI apague posições reais do painel (P&L = 0)
+      // Atualiza posições multi-corretora via REST — merge POR BROKER.
+      // Regras:
+      //  1. Broker retornou erro (timeout/rede) → preserva dados anteriores desse broker.
+      //  2. Broker retornou posições → atualiza normalmente.
+      //  3. Broker retornou 0 posições sem erro → só aceita após 2 polls consecutivos
+      //     confirmando 0 (~6s de grace period) para absorver sync delay do MetaAPI
+      //     em trades abertos manualmente no VPS.
       if (allPosRes.status === 'fulfilled' && allPosRes.value.ok) {
         const data = await allPosRes.value.json()
-        const newBrokers = data.brokers ?? []
-        const newCount   = newBrokers.reduce((s: number, b: any) => s + (b.positions?.length ?? 0), 0)
-        if (newCount > 0 || prevPositionsRef.current.length === 0) {
-          setAllBrokerPositions(newBrokers)
-        }
+        const newBrokers: any[] = data.brokers ?? []
+        setAllBrokerPositions(prev => newBrokers.map(nb => {
+          const prevBroker = prev.find(b => b.brokerId === nb.brokerId)
+          // Erro de rede/timeout → mantém dados anteriores
+          if (nb.error) {
+            brokerZeroCountRef.current[nb.brokerId] = 0
+            return prevBroker ?? nb
+          }
+          // Tem posições → atualiza e reseta o contador de zeros
+          if ((nb.positions?.length ?? 0) > 0) {
+            brokerZeroCountRef.current[nb.brokerId] = 0
+            return nb
+          }
+          // Retornou 0 posições: aplica grace period se broker tinha posições antes
+          if ((prevBroker?.positions?.length ?? 0) > 0) {
+            const zeros = (brokerZeroCountRef.current[nb.brokerId] ?? 0) + 1
+            brokerZeroCountRef.current[nb.brokerId] = zeros
+            if (zeros < 2) return prevBroker!  // ainda dentro do grace period
+          }
+          // Confirmado vazio (2+ polls ou broker nunca teve posições)
+          brokerZeroCountRef.current[nb.brokerId] = 0
+          return nb
+        }))
       }
     } catch {}
   }, [])
