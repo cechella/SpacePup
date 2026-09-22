@@ -63,7 +63,7 @@ export async function POST() {
 
     if (fetchErr) throw fetchErr
     if (!missing || missing.length === 0) {
-      return NextResponse.json({ enriched: 0, message: 'Nenhum trade sem RAFI' })
+      return NextResponse.json({ enriched: 0, total: 0, message: 'Nenhum trade sem RAFI' })
     }
 
     // Agrupa trades por janelas de 4 horas para minimizar chamadas à MetaAPI
@@ -92,7 +92,7 @@ export async function POST() {
         const rafiPoints = calcRAFI(candles)
         const bbBands    = calcBollingerBands(candles)
 
-        // Mapa por tempo M5 arredondado
+        // Mapa por tempo M5 arredondado (candle timestamps já têm BROKER_OFFSET aplicado)
         const rafiMap = new Map<number, { rafi: number; dir: 'bull' | 'bear'; bbWidth: number }>()
         const bbUpper = bbBands.upper
         const bbLower = bbBands.lower
@@ -110,7 +110,8 @@ export async function POST() {
           if (!tradeRow) continue
 
           const tradeSec = Number(tradeRow.time)
-          const m5ts     = Math.floor(tradeSec / 300) * 300
+          // Candle timestamps têm BROKER_OFFSET (+3h) — ajusta trade UTC para broker time antes de alinhar ao M5
+          const m5ts     = Math.floor((tradeSec + BROKER_OFFSET) / 300) * 300
 
           // Busca exato ou mais próximo (±15min)
           let enrichData: { rafi: number; dir: 'bull' | 'bear'; bbWidth: number } | undefined = rafiMap.get(m5ts)

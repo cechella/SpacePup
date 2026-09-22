@@ -510,8 +510,10 @@ export default function Fase2Page() {
       const data = await res.json()
       if (data.error) {
         setEnrichMsg(`Erro: ${data.error}`)
-      } else if (data.enriched === 0) {
-        setEnrichMsg('Nenhum trade novo para enriquecer')
+      } else if (data.enriched === 0 && data.total === 0) {
+        setEnrichMsg('Todos os trades já têm RAFI preenchido')
+      } else if (data.enriched === 0 && (data.total ?? 0) > 0) {
+        setEnrichMsg(`${data.total} trades sem RAFI encontrados mas MetaAPI não retornou candles para o período (erros: ${JSON.stringify(data.errors ?? [])})`)
       } else {
         setEnrichMsg(`✓ ${data.enriched} trade${data.enriched > 1 ? 's' : ''} enriquecido${data.enriched > 1 ? 's' : ''} — recarregando…`)
         // Recarrega trades após enriquecimento
