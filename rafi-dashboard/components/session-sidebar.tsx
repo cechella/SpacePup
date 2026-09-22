@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { TradePanel, type ManualTrade } from '@/components/trade-panel'
 import { type CheckinResult } from '@/components/checkin-modal'
 import { GestaoRiscoCard } from '@/components/gestao-risco-card'
 import { cn } from '@/lib/utils'
-import { Clock, Brain, ShieldCheck, Trophy, Target } from 'lucide-react'
+import { Clock, Brain, ShieldCheck, Trophy, Target, ChevronDown, X as XIcon } from 'lucide-react'
 
 export interface TargetMetrics {
   dailyPct:    number   // % lucro hoje
@@ -268,6 +268,38 @@ export function SessionSidebar({
     const id = setInterval(() => setTick(t => t + 1), 30_000)
     return () => clearInterval(id)
   }, [])
+
+  // Missão de Amanhã — expande ao carregar, colapsa em 25s
+  const [missaoExpanded, setMissaoExpanded] = useState(true)
+  const missaoTimerStarted = useRef(false)
+
+  const missaoData = useMemo(() => {
+    if (!targets || !balance || balance <= 0) return null
+    const COMM_PER  = 0.35
+    const brokers   = Math.max(brokerCount ?? 1, 1)
+    const dailyGoal = balance * (targets.DAILY_TARGET / 100)
+    const perBroker = dailyGoal / brokers
+    const suggestLot = (tgt: number): number => {
+      for (const lot of [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50, 0.60, 0.80, 1.00]) {
+        const p = (tgt + COMM_PER) / (lot * 10)
+        if (p >= 4 && p <= 80) return lot
+      }
+      return 0.10
+    }
+    const lot       = suggestLot(perBroker)
+    const pips      = Math.round((perBroker + COMM_PER) / (lot * 10))
+    const stopPips  = Math.round(pips / 1.5)
+    const lossLimit = balance * 0.05
+    return { dailyGoal, perBroker, lot, pips, stopPips, lossLimit, brokers }
+  }, [balance, brokerCount, targets])
+
+  // Inicia o timer de 25s só uma vez, quando o card aparece pela primeira vez
+  useEffect(() => {
+    if (!missaoData || missaoTimerStarted.current) return
+    missaoTimerStarted.current = true
+    const t = setTimeout(() => setMissaoExpanded(false), 25_000)
+    return () => clearTimeout(t)
+  }, [missaoData])
 
   const londonActive  = isActive(LONDON.start, LONDON.end)
   const nyActive      = isActive(NY.start, NY.end)
@@ -705,6 +737,87 @@ export function SessionSidebar({
           DAILY_TARGET={targets.DAILY_TARGET}
           MAX_LOSS={5.0}
         />
+      )}
+
+      {/* ── MISSÃO DE AMANHÃ ─────────────────────────── */}
+      {missaoData && (
+        missaoExpanded ? (
+          <div className="rounded-xl border border-[#e2b04a]/40 bg-[#0f1824] overflow-hidden">
+            <div className="h-0.5 bg-gradient-to-r from-[#e2b04a] to-transparent" />
+            <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[#1c3050]">
+              <span className="text-sm">🎯</span>
+              <div className="flex-1 min-w-0">
+                <div className="text-[9px] font-bold text-[#e2b04a] uppercase tracking-widest">Missão de Amanhã</div>
+                <div className="text-[8px] text-[#334455]">Capital consolidado atual</div>
+              </div>
+              <button
+                onClick={() => setMissaoExpanded(false)}
+                className="text-[#334455] hover:text-[#7a96b8] transition-colors shrink-0"
+              >
+                <XIcon size={12} />
+              </button>
+            </div>
+            <div className="p-3 flex flex-col gap-2">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg p-2.5 border border-[#00e676]/20 bg-[#00e676]/[0.04]">
+                  <div className="text-[7.5px] font-bold text-[#00e676]/70 uppercase tracking-widest mb-1">Alvo / corretora</div>
+                  <div className="font-mono text-[15px] font-bold text-[#00e676]">${missaoData.perBroker.toFixed(2)}</div>
+                  <div className="text-[8px] text-[#334455] mt-0.5">≈ {missaoData.pips} pips bruto</div>
+                </div>
+                <div className="rounded-lg p-2.5 border border-[#e2b04a]/20 bg-[#e2b04a]/[0.04]">
+                  <div className="text-[7.5px] font-bold text-[#e2b04a]/70 uppercase tracking-widest mb-1">Lote sugerido</div>
+                  <div className="font-mono text-[15px] font-bold text-[#e2b04a]">{missaoData.lot.toFixed(2)}L</div>
+                  <div className="text-[8px] text-[#334455] mt-0.5">1 pip = ${(missaoData.lot * 10).toFixed(2)}</div>
+                </div>
+                <div className="rounded-lg p-2.5 border border-[#1c3050] bg-[#131f2e]">
+                  <div className="text-[7.5px] font-bold text-[#334455] uppercase tracking-widest mb-1">Stop máx.</div>
+                  <div className="font-mono text-[15px] font-bold text-[#7a96b8]">{missaoData.stopPips} pips</div>
+                  <div className="text-[8px] text-[#334455] mt-0.5">Risco ≈ ${(missaoData.stopPips * missaoData.lot * 10).toFixed(2)}</div>
+                </div>
+                <div className="rounded-lg p-2.5 border border-[#1c3050] bg-[#131f2e]">
+                  <div className="text-[7.5px] font-bold text-[#334455] uppercase tracking-widest mb-1">R:R mínimo</div>
+                  <div className="font-mono text-[15px] font-bold text-[#7a96b8]">1:1.5</div>
+                  <div className="text-[8px] text-[#334455] mt-0.5">Estratégia RAFI</div>
+                </div>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-[#1c3050] bg-[#131f2e] px-2.5 py-2">
+                <div>
+                  <div className="text-[7.5px] font-bold text-[#334455] uppercase tracking-widest">
+                    Meta consolidada ({targets!.DAILY_TARGET}%)
+                  </div>
+                  <div className="text-[8px] text-[#334455] mt-0.5">
+                    {missaoData.brokers} corretoras × ${missaoData.perBroker.toFixed(2)}
+                  </div>
+                </div>
+                <div className="font-mono text-[13px] font-bold text-[#00e676]">
+                  +${missaoData.dailyGoal.toFixed(2)}
+                </div>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-[#ef4444]/25 bg-[#ef4444]/[0.04] px-2.5 py-2">
+                <div className="text-[7.5px] font-bold text-[#ef4444]/80 uppercase tracking-widest">
+                  ⚠ Limite de perda diária (5%)
+                </div>
+                <div className="font-mono text-[13px] font-bold text-[#ef4444]">
+                  −${missaoData.lossLimit.toFixed(2)}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setMissaoExpanded(true)}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl border border-[#e2b04a]/30 bg-[#0f1824] hover:bg-[#131f2e] hover:border-[#e2b04a]/60 transition-all group text-left"
+          >
+            <span className="text-xs shrink-0">🎯</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-[8px] font-bold text-[#e2b04a]/80 uppercase tracking-widest">Missão de Amanhã</div>
+              <div className="text-[9px] font-mono text-[#7a96b8] mt-0.5">
+                ${missaoData.perBroker.toFixed(2)}/broker · {missaoData.lot.toFixed(2)}L · {missaoData.pips} pips
+              </div>
+            </div>
+            <ChevronDown size={11} className="text-[#334455] group-hover:text-[#7a96b8] transition-colors shrink-0" />
+          </button>
+        )
       )}
 
       {/* ── JORNADA $100 → $1M ───────────────────────── */}
