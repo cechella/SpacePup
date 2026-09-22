@@ -7,14 +7,14 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { calcRAFI, calcBollingerBands } from '@/lib/indicators'
+import { getTopBroker } from '@/lib/top-broker'
 import type { CandleData } from '@/lib/types'
 
-export const runtime    = 'nodejs'
+export const runtime     = 'nodejs'
 export const maxDuration = 60 // segundos — requer plano Pro; no Hobby limita a 10s
 
 const META_BASE  = process.env.METAAPI_MARKET_DATA_URL ?? 'https://mt-market-data-client-api-v1.london.agiliumtrade.ai'
 const META_TOKEN = process.env.METAAPI_TOKEN!
-const ACCOUNT_ID = process.env.METAAPI_ACCOUNT_ID!
 
 // Offset do broker Pepperstone: UTC+3 (mesmo que o candle/route.ts principal)
 const BROKER_OFFSET = 3 * 3600
@@ -27,9 +27,9 @@ function getSupabase() {
 }
 
 // 100 candles M5 = ~8h — suficiente para calcular RAFI e BB Width
-async function fetchMetaCandles(startTime: string, limit = 100): Promise<CandleData[]> {
+async function fetchMetaCandles(accountId: string, symbol: string, startTime: string, limit = 100): Promise<CandleData[]> {
   const qs = new URLSearchParams({ limit: String(limit), startTime })
-  const url = `${META_BASE}/users/current/accounts/${ACCOUNT_ID}/historical-market-data/symbols/EURUSD/timeframes/5m/candles?${qs}`
+  const url = `${META_BASE}/users/current/accounts/${accountId}/historical-market-data/symbols/${symbol}/timeframes/5m/candles?${qs}`
   const res = await fetch(url, {
     headers: { 'auth-token': META_TOKEN },
     signal:  AbortSignal.timeout(25_000),
@@ -56,6 +56,9 @@ async function fetchMetaCandles(startTime: string, limit = 100): Promise<CandleD
 export async function POST() {
   try {
     const supa = getSupabase()
+
+    // Usa a mesma conta ativa que a rota principal de candles
+    const broker = await getTopBroker()
 
     // Busca trades sem RAFI no Supabase
     const { data: missing, error: fetchErr } = await supa
@@ -90,7 +93,7 @@ export async function POST() {
       try {
         // startTime = top da janela + 30min de buffer (MetaAPI busca candles ANTES disso)
         const startIso = new Date((windowTop + 1800) * 1000).toISOString()
-        const candles  = await fetchMetaCandles(startIso, 300)
+        const candles  = await fetchMetaCandles(broker.accountId, broker.symbol, startIso)
 
         if (candles.length < 14) continue // mínimo para calcular RAFI
 
