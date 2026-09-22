@@ -885,21 +885,6 @@ export function SessionSidebar({
         </div>
       </div>
 
-      {/* ── MAPEAR TRADE ─────────────────────────────── */}
-      <div className="flex-1 min-h-0">
-        <TradePanel
-          trades={trades}
-          onAdd={onAdd}
-          onRemove={onRemove}
-          onUpdate={onUpdate}
-          lastPrice={lastPrice}
-          lastCandleTime={lastCandleTime}
-          externalEntry={externalEntry}
-          freeMargin={freeMargin}
-          livePrice={livePrice}
-          locked={targets?.locked ?? false}
-        />
-      </div>
     </div>
   )
 }
