@@ -306,12 +306,18 @@ export default function ChartPage() {
 
   // Ao abrir a página: se a meta semanal já foi cumprida esta semana (BRT), mostra overlay
   // imediatamente — persiste até segunda-feira BRT da semana seguinte
+  // Nota: o Supabase irá confirmar/limpar este flag em seguida via checkGoalsFromSupabase
   useEffect(() => {
     const weekMonday = brtWeekMondayStr()
-    const goalMet = typeof window !== 'undefined' && localStorage.getItem(`rafi-weekly-target-met-${weekMonday}`) === 'true'
-    if (goalMet) {
+    const stored = typeof window !== 'undefined' ? localStorage.getItem(`rafi-weekly-target-met-${weekMonday}`) : null
+    const storedPnl = typeof window !== 'undefined' ? parseFloat(localStorage.getItem(`rafi-weekly-pnl-${weekMonday}`) ?? '0') : 0
+    // Só restaura do localStorage se houver P&L real salvo junto com a flag
+    if (stored === 'true' && storedPnl > 0) {
       setShowWeeklyOverlay(true)
       prevWeeklyMetRef.current = true  // evita duplo disparo quando MetaAPI carregar
+    } else if (stored === 'true' && storedPnl <= 0) {
+      // Flag stale sem P&L válido — limpa para evitar falso positivo
+      try { localStorage.removeItem(`rafi-weekly-target-met-${weekMonday}`) } catch { /* */ }
     }
   }, [])
 
@@ -532,12 +538,19 @@ export default function ChartPage() {
 
         // Verifica meta semanal (qualquer dia da semana pode ter batido a meta)
         const weekly = await fetchWeeklyGoal(weekMonday)
-        if (weekly?.weeklyMet) {
+        if (weekly?.weeklyMet && weekly.weeklyPnl > 0) {
           localStorage.setItem(`rafi-weekly-target-met-${weekMonday}`, 'true')
+          localStorage.setItem(`rafi-weekly-pnl-${weekMonday}`, String(weekly.weeklyPnl))
           setSupabaseGoalData({ dailyPct: weekly.dailyPct, dailyPnl: weekly.dailyPnl, weeklyPct: weekly.weeklyPct, weeklyPnl: weekly.weeklyPnl })
           setShowWeeklyOverlay(true)
           setShowCheckin(false)
           prevWeeklyMetRef.current = true
+        } else if (!weekly?.weeklyMet || (weekly.weeklyPnl ?? 0) <= 0) {
+          // Nenhum registro válido no Supabase — limpa flag stale do localStorage
+          try {
+            localStorage.removeItem(`rafi-weekly-target-met-${weekMonday}`)
+            localStorage.removeItem(`rafi-weekly-pnl-${weekMonday}`)
+          } catch { /* */ }
         }
       } catch { /* Supabase indisponível — fallback silencioso para localStorage */ }
     }
@@ -648,7 +661,10 @@ export default function ChartPage() {
     // Persiste flags de meta usando datas BRT (meia-noite BRT = 03:00 UTC)
     if (typeof window !== 'undefined') {
       if (dailyMet)  localStorage.setItem(`rafi-daily-target-met-${brtDateStr()}`,           'true')
-      if (weeklyMet) localStorage.setItem(`rafi-weekly-target-met-${brtWeekMondayStr()}`,    'true')
+      if (weeklyMet && weekPnl > 0) {
+        localStorage.setItem(`rafi-weekly-target-met-${brtWeekMondayStr()}`, 'true')
+        localStorage.setItem(`rafi-weekly-pnl-${brtWeekMondayStr()}`, String(weekPnl))
+      }
     }
 
     return {

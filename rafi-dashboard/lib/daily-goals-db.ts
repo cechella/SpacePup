@@ -59,6 +59,7 @@ export async function fetchWeeklyGoal(weekMonday: string): Promise<DailyGoalReco
     .select('*')
     .eq('week_monday', weekMonday)
     .eq('weekly_met', true)
+    .gt('weekly_pct', 0)   // ignora registros corrompidos com valores zerados
     .order('date', { ascending: false })
     .limit(1)
     .maybeSingle()
