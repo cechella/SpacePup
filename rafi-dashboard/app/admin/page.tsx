@@ -1200,6 +1200,7 @@ export default function AdminDashboard() {
   const nextMilestone     = nextMilestoneIdx >= 0 ? JOURNEY_MILESTONES[nextMilestoneIdx] : JOURNEY_MILESTONES[JOURNEY_MILESTONES.length - 1]
   const ratio7030         = useMemo(() => compute7030(capitalParaJornada), [capitalParaJornada])
   const fBRL              = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const dynamicDailyGoal  = capitalParaJornada > 0 ? capitalParaJornada * 0.07 : 0
 
   if (!mounted) return null
 
@@ -1452,7 +1453,7 @@ export default function AdminDashboard() {
           {[
             { label: 'Win Rate',    val: winRate !== null ? `${winRate}%` : '—',                         sub: `${wins}W · ${losses}L`,          color: winRateColor },
             { label: 'R:R Médio',   val: avgRR ? `${avgRR}×` : '—',                                     sub: 'meta ≥ 1,5×',                    color: avgRR && parseFloat(avgRR) >= 1.5 ? C.teal : C.gold },
-            { label: 'Meta Diária', val: sessionConfig.dailyGoal > 0 ? `$${sessionConfig.dailyGoal.toFixed(2)}` : '—', sub: `+7% = $${(capitalParaJornada * 0.07).toFixed(2)}`, color: gate.dailyGoalMet ? C.teal : C.blue },
+            { label: 'Meta Diária', val: dynamicDailyGoal > 0 ? `$${fBRL(dynamicDailyGoal)}` : '—', sub: `+7% do capital consolidado`, color: gate.todayPnl >= dynamicDailyGoal && dynamicDailyGoal > 0 ? C.teal : C.blue },
             { label: 'Meta Semanal',val: `$${(ratio7030.weeklyProfit).toFixed(2)}`,                       sub: '+35% projetado (5×7%)',           color: C.blue },
           ].map(({ label, val, sub, color }) => (
             <div key={label} className="rounded-xl p-4" style={{ background: '#06101e', border: '1px solid #142840' }}>
@@ -1579,7 +1580,7 @@ export default function AdminDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
           {/* Col 1 · Metas em Cascata */}
-          <GoalsCascade gate={gate} cfg={sessionConfig} capitalAtual={capitalParaJornada} todayPnlOverride={todayPnlMeta} />
+          <GoalsCascade gate={gate} cfg={{ ...sessionConfig, dailyGoal: dynamicDailyGoal }} capitalAtual={capitalParaJornada} todayPnlOverride={todayPnlMeta} />
 
           {/* Col 2 · Disciplina & Sessão */}
           <DisciplinePanel gate={effectiveGate} cfg={sessionConfig} />
