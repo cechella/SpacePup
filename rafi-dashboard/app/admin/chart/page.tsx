@@ -1184,7 +1184,10 @@ export default function ChartPage() {
       }
     } catch { /* silencioso — fallback para MetaAPI abaixo */ }
 
-    // ── Fallback: MetaAPI REST (quando bridge não está rodando) ───────────────
+    // ── Fallback: MetaAPI REST (apenas quando MetaAPI está conectado) ──────────
+    // Quando desconectado, Supabase é a única fonte — não tentar MetaAPI REST
+    if (!metaConnected) { setHistoryLoading(false); return }
+
     try {
       const params = new URLSearchParams({ period })
       if (broker) { params.set('broker', broker) } else { params.set('all', 'true') }
@@ -1203,7 +1206,7 @@ export default function ChartPage() {
       }
     } catch {}
     setHistoryLoading(false)
-  }, [enabledBrokers])
+  }, [enabledBrokers, metaConnected])
 
   // Feature 2: fecha posição individual via MetaAPI
   const handleClosePosition = useCallback(async (positionId: string) => {
@@ -1367,11 +1370,10 @@ export default function ChartPage() {
     return () => clearInterval(iv)
   }, [])
 
-  // Histórico: carrega ao conectar ou ao mudar período/corretora; limpa ao desconectar
-  // Quando bridge está ativo: resposta instantânea via Supabase.
-  // Quando não está: fallback para MetaAPI com poll a cada 60s (indexação com atraso).
+  // Histórico: sempre carrega do Supabase (rafi_deals) — independente de MetaAPI estar conectado.
+  // Quando MetaAPI está ON: Supabase primeiro (instantâneo via bridge), MetaAPI como fallback.
+  // Quando MetaAPI está OFF: Supabase apenas — MetaAPI REST é ignorado no fetchHistory.
   useEffect(() => {
-    if (!metaConnected) { setMetaHistory([]); return }
     fetchHistory(historyPeriod, historyBroker)
     const id = setInterval(() => fetchHistory(historyPeriod, historyBroker), 60_000)
     return () => clearInterval(id)
