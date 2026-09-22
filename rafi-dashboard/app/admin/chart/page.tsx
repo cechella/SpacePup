@@ -250,6 +250,10 @@ export default function ChartPage() {
   const [showIASuggestion, setShowIASuggestion] = useState(false)
   const [iaWatcherActive,  setIaWatcherActive]  = useState(true)
   const iaLastSuggestRef = useRef<number>(0)  // evita re-disparar a mesma sugestão dentro de 5min
+  // Contexto de sinal — ref atualizada via useEffect para leitura segura dentro de intervalos
+  const signalCtxRef = useRef<{ rafi: number; direction: 'buy' | 'sell'; labeledCount: number }>({
+    rafi: 0, direction: 'buy', labeledCount: 0,
+  })
 
   // Modo Autônomo — IA opera sozinha quando estado mental está comprometido
   const [showAutonomoModal, setShowAutonomoModal] = useState(false)
@@ -363,22 +367,15 @@ export default function ChartPage() {
       const nowSec = Math.floor(Date.now() / 1000)
       const horaUtc = new Date().getUTCHours()
 
-      // Pega o último valor de RAFI calculado (referência direta ao estado atual)
-      // e o último candle M5 para determinar direção natural do mercado
-      const storedTrades = typeof window !== 'undefined'
-        ? JSON.parse(localStorage.getItem('rafi-trade-log') ?? '[]')
-        : []
-      const labeledCount = Array.isArray(storedTrades)
-        ? storedTrades.filter((t: { result?: string }) => t.result === 'win' || t.result === 'loss').length
-        : 0
+      const { rafi, direction, labeledCount } = signalCtxRef.current
 
       try {
         const res = await fetch('/api/ml/signal', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            rafi:          0,          // frontend vai sobrepor com valor atual quando disponível
-            direction:     'buy',      // será determinado pela API com base nos trades recentes
+            rafi,
+            direction,
             currentPrice:  price,
             horaUtc,
             capital:       consolidatedBalance ?? 100,
@@ -431,24 +428,19 @@ export default function ChartPage() {
 
       if (Date.now() - autonomoLastRef.current < 5 * 60 * 1000) return  // cooldown 5 min
 
-      const stored = typeof window !== 'undefined'
-        ? JSON.parse(localStorage.getItem('rafi-trade-log') ?? '[]')
-        : []
-      const labeledCount = Array.isArray(stored)
-        ? stored.filter((t: { result?: string }) => t.result === 'win' || t.result === 'loss').length
-        : 0
+      const { rafi: rafiCtx, direction: dirCtx, labeledCount: lcCtx } = signalCtxRef.current
 
       try {
         const res = await fetch('/api/ml/signal', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            rafi:          0,
-            direction:     'buy',
+            rafi:          rafiCtx,
+            direction:     dirCtx,
             currentPrice:  price,
             horaUtc:       new Date().getUTCHours(),
             capital,
-            labeled_count: labeledCount,
+            labeled_count: lcCtx,
             checkinSono:    checkin?.sono    ?? null,
             checkinEnergia: checkin?.energia ?? null,
             checkinMental:  checkin?.mental  ?? null,
@@ -1319,6 +1311,25 @@ export default function ChartPage() {
     }
 
     setHistoryLoading(false)
+
+    // Proposta A — sincroniza deals fechados com rafi_trades para alimentar o aprendizado da IA
+    if (merged.length > 0) {
+      fetch('/api/ml/sync-trades', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deals: merged.map(t => ({
+            id:         t.id,
+            direction:  t.direction,
+            entryPrice: t.entryPrice,
+            price:      t.price,
+            profit:     t.profit,
+            time:       t.time,
+            volume:     t.volume,
+          })),
+        }),
+      }).catch(() => {})
+    }
   }, [enabledBrokers, metaConnected])
 
   // Feature 2: fecha posição individual via MetaAPI
@@ -1805,6 +1816,16 @@ export default function ChartPage() {
     const w2 = (upper[upper.length - 1]?.value ?? 0) - (lower[lower.length - 1]?.value ?? 0)
     return w2 > w1
   }, [bbBands])
+
+  // Atualiza contexto de sinal sempre que RAFI ou trades rotulados mudam
+  useEffect(() => {
+    const last = rafiData[rafiData.length - 1]
+    signalCtxRef.current = {
+      rafi:         last?.value ?? 0,
+      direction:    (last as any)?.dir === 'bull' ? 'buy' : 'sell',
+      labeledCount: trades.filter(t => t.result === 'win' || t.result === 'loss').length,
+    }
+  }, [rafiData, trades])
 
   // RAFI sempre positivo: separa por dir do candle
   const strongBullBars = rafiData.filter(p => p.value >= 2.5).length
