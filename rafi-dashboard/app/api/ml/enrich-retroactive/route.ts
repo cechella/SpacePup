@@ -138,7 +138,9 @@ export async function POST() {
           const { error: updErr } = await supa
             .from('rafi_trades')
             .update({
-              rafi:       enrichData.rafi,
+              // RAFI sempre positivo (magnitude 0-5), como o indicador original.
+              // rafi_dir guarda a direção (bull/bear) separadamente.
+              rafi:       Math.abs(enrichData.rafi),
               rafi_dir:   enrichData.dir,
               bb_width:   enrichData.bbWidth,
               updated_at: new Date().toISOString(),

@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
           result:          d.profit > 0 ? 'win' : 'loss',
           pnl_usd:         d.profit,
           entry_type:      'bot',
-          rafi:            d.rafi    ?? null,
+          rafi:            d.rafi != null ? Math.abs(d.rafi) : null,
           rafi_dir:        d.rafiDir ?? null,
           bb_width:        d.bbWidth ?? null,
           checkin_sono:    ck.sono,
@@ -151,7 +151,7 @@ export async function POST(req: NextRequest) {
       const { error } = await supa
         .from('rafi_trades')
         .update({
-          rafi:            d.rafi    ?? null,
+          rafi:            d.rafi != null ? Math.abs(d.rafi) : null,
           rafi_dir:        d.rafiDir ?? null,
           bb_width:        d.bbWidth ?? null,
           updated_at:      new Date().toISOString(),
