@@ -1105,18 +1105,20 @@ export default function ChartPage() {
               })),
               ...a,
             ].slice(0, 4))
-            // Atualiza histórico e refaz poll de posições quando uma fecha
-            // O segundo fetchLiveData confirma que a posição sumiu do broker antes do próximo ciclo de 5s
+            // Posição fechada: refaz poll a 1s, 3s e 6s para garantir que desaparece do painel
             if (closed.length > 0) {
-              setTimeout(() => fetchLiveData(),          1_000)
-              setTimeout(() => fetchHistory(historyPeriod), 3_000)
+              setTimeout(() => fetchLiveData(),            1_000)
+              setTimeout(() => fetchLiveData(),            3_000)
+              setTimeout(() => fetchHistory(historyPeriod), 6_000)
             }
           }
           prevPositionsRef.current = newPos
           return newPos
         })
       }
-      if (allPosRes.status === 'fulfilled' && allPosRes.value.ok && !supaRtActiveRef.current) {
+      // Atualiza posições multi-corretora sempre via REST — não depende do bridge Supabase
+      // O Realtime do bridge ainda funciona como suplemento rápido quando ativo
+      if (allPosRes.status === 'fulfilled' && allPosRes.value.ok) {
         const data = await allPosRes.value.json()
         setAllBrokerPositions(data.brokers ?? [])
       }
@@ -1496,8 +1498,8 @@ export default function ChartPage() {
       fastCount++
       if (fastCount >= 15) {
         clearInterval(fastId)
-        // Após aquecimento, continua com poll normal de 5s
-        normalIntervalId = setInterval(fetchLiveData, 5_000)
+        // Após aquecimento, continua com poll normal de 3s
+        normalIntervalId = setInterval(fetchLiveData, 3_000)
       }
     }, 2_000)
 
