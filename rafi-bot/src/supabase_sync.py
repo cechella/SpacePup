@@ -409,7 +409,7 @@ def verificar_comando_avancado() -> Optional[dict]:
             .select('id,command')
             .eq('pending', True)
             .in_('command', ['close_position', 'close_all', 'buy_manual', 'sell_manual',
-                             'start', 'restart'])
+                             'start', 'restart', 'treinar_xgboost'])
             .order('created_at')
             .limit(1)
             .execute()

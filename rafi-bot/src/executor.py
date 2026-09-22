@@ -1573,7 +1573,12 @@ class RafiBot:
         """Processa comandos avançados recebidos do dashboard (fechar, ordem manual, start/restart)."""
         comando = cmd.get('command')
 
-        if comando == 'start':
+        if comando == 'treinar_xgboost':
+            logger.info("Comando TREINAR_XGBOOST recebido — iniciando retreino em background...")
+            self._iniciar_retreino_xgboost()
+            return
+
+        elif comando == 'start':
             logger.info("Comando START recebido — bot já está em execução.")
             return
 
@@ -1633,6 +1638,56 @@ class RafiBot:
             indice_forca = calcular_indice_forca(df, periodo=14)  # igual ao backtest (default)
             bb = calcular_bollinger(df, periodo=int(self.cfg.get('bb_periodo', 8)), desvios=2.0)
             self._executar_sinal(sinal_dict, df, indice_forca, bb)
+
+    def _iniciar_retreino_xgboost(self) -> None:
+        """
+        Lança o retreino XGBoost em thread separada para não bloquear o loop do bot.
+        Chamado automaticamente a cada trade rotulado via comando 'treinar_xgboost'.
+        """
+        import threading
+
+        def _retreinar():
+            try:
+                from src.ml.train import treinar_com_supabase
+                from src.ml.predictor import recarregar_modelo
+
+                supa_url = os.getenv('SUPABASE_URL', '')
+                supa_key = os.getenv('SUPABASE_KEY', os.getenv('SUPABASE_SERVICE_ROLE_KEY', ''))
+
+                if not supa_url or not supa_key:
+                    logger.warning("[XGBoost] SUPABASE_URL/KEY não configuradas — retreino ignorado")
+                    return
+
+                metricas = treinar_com_supabase(
+                    supa_url=supa_url,
+                    supa_key=supa_key,
+                    verbose=True,
+                )
+
+                if metricas.get('status') == 'ok':
+                    recarregar_modelo()
+                    publicar_log(
+                        f"[XGBoost] Retreino concluído — {metricas.get('n_trades')} trades | "
+                        f"WR filtrado: {metricas.get('wr_filtrado', 0):.1%} | "
+                        f"AUC: {metricas.get('auc_roc', 0):.3f}",
+                        level='info',
+                    )
+                    logger.info(
+                        f"[XGBoost] ✓ Modelo atualizado — "
+                        f"{metricas.get('n_trades')} trades, "
+                        f"WR→{metricas.get('wr_filtrado', 0):.1%}, "
+                        f"AUC {metricas.get('auc_roc', 0):.3f}"
+                    )
+                elif metricas.get('status') == 'aguardando':
+                    logger.info(
+                        f"[XGBoost] {metricas.get('n_trades')} trades rotulados "
+                        f"— aguardando 10 para treinar"
+                    )
+            except Exception as e:
+                logger.error(f"[XGBoost] Erro no retreino: {e}")
+
+        t = threading.Thread(target=_retreinar, daemon=True, name='xgboost-retrain')
+        t.start()
 
     def _publicar_historico_inicial(self, df) -> None:
         """Publica os últimos candles no Supabase para preencher o gráfico na inicialização."""

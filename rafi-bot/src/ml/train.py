@@ -183,9 +183,11 @@ def treinar(
     wr_raw  = n_wins / n_total if n_total else 0
     print(f"  → Win rate bruto: {wr_raw:.1%}  ({n_wins} wins / {n_total - n_wins} losses)")
 
-    if n_total < 50:
-        print("⚠ AVISO: menos de 50 trades — modelo não terá poder preditivo.")
-        print("  O XGBoost precisa de pelo menos 300 trades para ser confiável.")
+    if n_total < 10:
+        print(f"⚠ Apenas {n_total} trades rotulados — aguardando 10 para treinar.")
+        return {}
+    if n_total < 30:
+        print(f"⚠ {n_total} trades — modelo inicial (melhora com mais dados).")
 
     # ── 2. Pesos temporais ────────────────────────────────────────────────────
     pesos = calcular_pesos_temporais(df['timestamp'])
@@ -318,3 +320,214 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TREINAMENTO DIRETO COM SUPABASE — chamado pelo executor quando recebe o
+# comando 'treinar_xgboost' do dashboard (a cada novo trade rotulado).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def treinar_com_supabase(
+    supa_url:  str,
+    supa_key:  str,
+    threshold: float = 0.65,
+    verbose:   bool  = True,
+) -> dict:
+    """
+    Carrega trades rotulados do Supabase, treina XGBoost e salva:
+      - modelo.pkl localmente (para predictor.py)
+      - importâncias das features de volta no Supabase (rafi_feature_importances)
+
+    Retorna dict com métricas, ou {} se houver menos de 10 trades.
+
+    Fluxo completo (a cada trade rotulado):
+      Dashboard rotula trade → POST /api/ml/train → rafi_bot_commands.insert
+      → executor.py detecta 'treinar_xgboost' → chama esta função
+      → modelo.pkl atualizado → predictor.py recarrega
+    """
+    try:
+        from xgboost import XGBClassifier
+        from sklearn.model_selection import cross_val_score
+    except ImportError:
+        print("ERRO: pip install xgboost scikit-learn")
+        return {}
+
+    try:
+        from supabase import create_client
+    except ImportError:
+        print("ERRO: pip install supabase")
+        return {}
+
+    from src.ml.feature_builder import (
+        FEATURE_NAMES_SUPA,
+        N_FEATURES_SUPA,
+        extrair_features_supabase,
+    )
+
+    supa = create_client(supa_url, supa_key)
+
+    # ── 1. Carrega trades rotulados do Supabase ───────────────────────────────
+    res = (
+        supa.table('rafi_trades')
+        .select('id,time,result,direction,rafi,rafi_dir,bb_width,'
+                'checkin_sono,checkin_energia,checkin_mental,checkin_humor')
+        .in_('result', ['win', 'loss'])
+        .order('time', desc=False)
+        .execute()
+    )
+    trades = res.data or []
+    n_total = len(trades)
+
+    if verbose:
+        print(f"\n[XGBoost] {n_total} trades rotulados carregados do Supabase")
+
+    if n_total < 10:
+        if verbose:
+            print(f"[XGBoost] Aguardando 10 trades rotulados (atual: {n_total}) — treino adiado")
+        return {'status': 'aguardando', 'n_trades': n_total}
+
+    # ── 2. Monta features com win rate rolling ────────────────────────────────
+    X_rows = []
+    y_rows = []
+
+    wins_acumulados = 0
+    for i, row in enumerate(trades):
+        # Win rate rolling: proporção de wins ANTES deste trade (sem lookahead)
+        wr_rolling = wins_acumulados / i if i > 0 else 0.5
+        feats = extrair_features_supabase(row, wr_rolling=wr_rolling)
+        X_rows.append(feats)
+        label = 1 if row['result'] == 'win' else 0
+        y_rows.append(label)
+        wins_acumulados += label
+
+    import numpy as np
+    X = np.array(X_rows, dtype=float)
+    y = np.array(y_rows, dtype=int)
+
+    n_wins = int(y.sum())
+    wr_raw = n_wins / n_total
+    if verbose:
+        print(f"[XGBoost] Win rate bruto: {wr_raw:.1%} ({n_wins}W / {n_total - n_wins}L)")
+        if n_total < 30:
+            print(f"[XGBoost] Modelo inicial com {n_total} trades — melhora com mais dados")
+
+    # ── 3. Pesos temporais (trades recentes pesam mais) ───────────────────────
+    now_ts   = datetime.now(tz=timezone.utc).timestamp()
+    trade_ts = np.array([int(t.get('time', now_ts)) for t in trades], dtype=float)
+    dias_atras = np.clip((now_ts - trade_ts) / 86400.0, 0, None)
+    pesos = DECAY_RATE ** dias_atras
+    pesos = pesos / pesos.mean()
+
+    # ── 4. Hiperparâmetros ajustados para poucos dados ────────────────────────
+    # Com < 30 trades: árvores mais rasas, mais regularização
+    params = dict(XGB_PARAMS)
+    if n_total < 30:
+        params['max_depth']        = 2
+        params['n_estimators']     = 100
+        params['min_child_weight'] = 1
+    elif n_total < 60:
+        params['max_depth']        = 3
+        params['n_estimators']     = 150
+        params['min_child_weight'] = 2
+
+    # ── 5. Treina ─────────────────────────────────────────────────────────────
+    modelo = XGBClassifier(**params)
+    modelo.fit(X, y, sample_weight=pesos)
+
+    # ── 6. Avaliação walk-forward (split 80/20) ───────────────────────────────
+    metricas: dict = {}
+    split = int(n_total * 0.80)
+    X_oos, y_oos = X[split:], y[split:]
+
+    if len(X_oos) >= 5:
+        probs_oos = modelo.predict_proba(X_oos)[:, 1]
+        mask = probs_oos >= threshold
+        n_filtrados = int(mask.sum())
+        wr_filtrado = float(y_oos[mask].mean()) if n_filtrados else 0.0
+
+        from sklearn.metrics import roc_auc_score
+        auc = float(roc_auc_score(y_oos, probs_oos)) if len(np.unique(y_oos)) > 1 else 0.5
+
+        metricas = {
+            'n_total':       n_total,
+            'wr_raw':        round(wr_raw, 4),
+            'n_oos':         len(y_oos),
+            'n_filtrados':   n_filtrados,
+            'wr_filtrado':   round(wr_filtrado, 4),
+            'auc_roc':       round(auc, 4),
+            'threshold':     threshold,
+        }
+
+        if verbose:
+            print(f"[XGBoost] OOS {len(y_oos)} trades | filtrados {n_filtrados} "
+                  f"| WR→{wr_filtrado:.1%} | AUC {auc:.3f}")
+
+    # ── 7. Importância das features ───────────────────────────────────────────
+    importancias = modelo.feature_importances_.tolist()
+    ranking = sorted(
+        zip(FEATURE_NAMES_SUPA, importancias),
+        key=lambda x: -x[1],
+    )
+    if verbose:
+        print("[XGBoost] Top features:")
+        for nome, imp in ranking[:5]:
+            print(f"  {nome:<20} {'█' * int(imp * 30)} {imp:.3f}")
+
+    # ── 8. Salva modelo localmente ────────────────────────────────────────────
+    pacote = {
+        'modelo':        modelo,
+        'feature_names': FEATURE_NAMES_SUPA,
+        'n_features':    N_FEATURES_SUPA,
+        'threshold':     threshold,
+        'treinado_em':   datetime.now(tz=timezone.utc).isoformat(),
+        'n_trades':      n_total,
+        'wr_historico':  wr_raw,
+        'metricas':      metricas,
+        'xgb_params':    params,
+        'fonte':         'supabase',
+    }
+    MODELO_OUT.parent.mkdir(parents=True, exist_ok=True)
+    with open(MODELO_OUT, 'wb') as f:
+        pickle.dump(pacote, f)
+    if verbose:
+        print(f"[XGBoost] Modelo salvo → {MODELO_OUT}")
+
+    # ── 9. Publica importâncias de volta no Supabase ──────────────────────────
+    try:
+        agora = datetime.now(tz=timezone.utc).isoformat()
+        rows_imp = [
+            {
+                'feature':    nome,
+                'importance': round(imp, 6),
+                'rank':       i + 1,
+                'n_trades':   n_total,
+                'updated_at': agora,
+            }
+            for i, (nome, imp) in enumerate(ranking)
+        ]
+        # Upsert por feature (substitui linha existente)
+        supa.table('rafi_feature_importances').upsert(
+            rows_imp,
+            on_conflict='feature',
+        ).execute()
+
+        # Salva métricas do treino
+        supa.table('rafi_ml_models').upsert(
+            [{
+                'id':          'xgboost_v1',
+                'n_trades':    n_total,
+                'wr_raw':      round(wr_raw, 4),
+                'wr_filtrado': round(metricas.get('wr_filtrado', 0), 4),
+                'auc_roc':     round(metricas.get('auc_roc', 0), 4),
+                'threshold':   threshold,
+                'treinado_em': agora,
+            }],
+            on_conflict='id',
+        ).execute()
+        if verbose:
+            print("[XGBoost] Importâncias publicadas no Supabase ✓")
+    except Exception as e:
+        print(f"[XGBoost] Aviso: não foi possível publicar no Supabase: {e}")
+
+    metricas['status'] = 'ok'
+    return metricas

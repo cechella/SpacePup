@@ -30,6 +30,25 @@ FEATURE_NAMES = [
 
 N_FEATURES = len(FEATURE_NAMES)  # 12
 
+# ── Features para treinamento com dados do Supabase (rafi_trades) ────────────
+# Essas features são extraídas das colunas armazenadas — sem precisar de candles.
+FEATURE_NAMES_SUPA = [
+    'rafi',            # magnitude 0–5 (sempre positivo)
+    'rafi_dir',        # 1=bull, 0=bear
+    'bb_width',        # largura das Bollinger Bands no momento do trade
+    'direction',       # 1=buy, 0=sell
+    'hora_utc',        # 0–23
+    'sessao',          # 0=Ásia 1=Londres 2=NY 3=Overlap
+    'dia_semana',      # 0=Segunda … 4=Sexta
+    'checkin_sono',    # 2=bem 1=regular 0=mal 1=null(neutro)
+    'checkin_energia', # 2=boa 1=regular 0=baixa 1=null
+    'checkin_mental',  # 2=bom 1=regular 0=ruim 1=null
+    'checkin_humor',   # 2=feliz 1=neutro 0=triste 1=null
+    'wr_rolling',      # win rate rolling dos últimos N trades (0.5 se sem dados)
+]
+
+N_FEATURES_SUPA = len(FEATURE_NAMES_SUPA)  # 12
+
 
 def sessao_do_horario(hora_utc: int) -> int:
     """
@@ -152,4 +171,62 @@ def extrair_features(
         float(direcao),
         float(wr_rolling20),
         float(rr_ratio),
+    ]
+
+
+# ── Helpers para features Supabase ───────────────────────────────────────────
+
+_SONO_MAP     = {'bem': 2, 'regular': 1, 'mal': 0}
+_ENERGIA_MAP  = {'boa': 2, 'regular': 1, 'baixa': 0}
+_MENTAL_MAP   = {'bom': 2, 'regular': 1, 'ruim': 0}
+_HUMOR_MAP    = {'feliz': 2, 'neutro': 1, 'triste': 0}
+
+
+def _enc(valor: str | None, mapa: dict) -> float:
+    """Codifica variável ordinal; retorna 1.0 (neutro) se null/desconhecido."""
+    if valor is None:
+        return 1.0
+    return float(mapa.get(str(valor).strip().lower(), 1.0))
+
+
+def extrair_features_supabase(
+    row: dict,
+    wr_rolling: float = 0.5,
+) -> list:
+    """
+    Extrai FEATURE_NAMES_SUPA (12 features) de uma linha da tabela rafi_trades.
+
+    Parâmetros:
+        row        : dict com chaves rafi, rafi_dir, bb_width, direction, time,
+                     checkin_sono, checkin_energia, checkin_mental, checkin_humor
+        wr_rolling : win rate rolling calculado externamente (0.5 se sem dados)
+
+    Retorna lista de 12 floats na ordem FEATURE_NAMES_SUPA.
+    """
+    import datetime as _dt
+
+    # ── Rafi + direção ────────────────────────────────────────────────────────
+    rafi      = float(row.get('rafi') or 0.0)
+    rafi_dir  = 1.0 if str(row.get('rafi_dir') or 'bull').lower() == 'bull' else 0.0
+    bb_width  = float(row.get('bb_width') or 0.0)
+    direction = 1.0 if str(row.get('direction') or 'buy').lower() == 'buy' else 0.0
+
+    # ── Tempo ─────────────────────────────────────────────────────────────────
+    ts = int(row.get('time') or 0)
+    dt = _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc) if ts else _dt.datetime.now(_dt.timezone.utc)
+    hora_utc   = float(dt.hour)
+    sessao     = float(sessao_do_horario(dt.hour))
+    dia_semana = float(dt.weekday())
+
+    # ── Check-in ──────────────────────────────────────────────────────────────
+    ck_sono    = _enc(row.get('checkin_sono'),    _SONO_MAP)
+    ck_energia = _enc(row.get('checkin_energia'), _ENERGIA_MAP)
+    ck_mental  = _enc(row.get('checkin_mental'),  _MENTAL_MAP)
+    ck_humor   = _enc(row.get('checkin_humor'),   _HUMOR_MAP)
+
+    return [
+        rafi, rafi_dir, bb_width, direction,
+        hora_utc, sessao, dia_semana,
+        ck_sono, ck_energia, ck_mental, ck_humor,
+        float(wr_rolling),
     ]
