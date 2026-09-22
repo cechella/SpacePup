@@ -23,6 +23,7 @@ import { createClient as createSupabaseClient } from '@/lib/supabase'
 import { IASuggestionModal, type IASuggestion } from '@/components/ia-suggestion-modal'
 import { ModoAutonomoModal } from '@/components/modo-autonomo-modal'
 import { ModoAutonomoBanner, type AutonomoTrade } from '@/components/modo-autonomo-banner'
+import { MissaoHojePopup } from '@/components/missao-hoje-popup'
 
 const RAFIChart = dynamic(
   () => import('@/components/rafi-chart').then(m => m.RAFIChart),
@@ -2078,6 +2079,16 @@ export default function ChartPage() {
 
       {/* ── Check-in de estado mental ── */}
       {showCheckin && <CheckinModal onComplete={handleCheckinComplete} />}
+
+      {/* ── Missão de Hoje — popup diário com meta e plano de lotes ── */}
+      {!showCheckin && !showDailyOverlay && !showWeeklyOverlay && (
+        <MissaoHojePopup
+          balance={consolidatedBalance}
+          brokerCount={enabledBrokers.length > 0 ? enabledBrokers.length : 4}
+          dailyTarget={DAILY_TARGET}
+          brokerNames={enabledBrokers.length > 0 ? enabledBrokers.map(b => b.nome) : undefined}
+        />
+      )}
 
       {/* ── Overlay: meta diária atingida ── */}
       {showDailyOverlay && (
