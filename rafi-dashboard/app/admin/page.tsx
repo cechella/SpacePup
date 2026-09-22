@@ -11,6 +11,8 @@ import {
 import { cn } from '@/lib/utils'
 import { fetchTrades, upsertTrades, updateTradeResult } from '@/lib/trades-db'
 import { getSessionConfig, saveSessionConfig, SESSION_DEFAULTS, type SessionConfig } from '@/lib/session-config'
+import { EpicJourneyBar, logPct, JOURNEY_MILESTONES } from '@/components/epic-journey-bar'
+import { MissaoHojePopup } from '@/components/missao-hoje-popup'
 
 // ─── Palette tokens ──────────────────────────────────────────────────────────
 const C = {
@@ -897,6 +899,15 @@ function IntelPanel({ trades, winRate, avgRR, rafiStrong, winsCount, lossesCount
   )
 }
 
+// ── 70/30 rule calculator ─────────────────────────────────────────────────────
+function compute7030(capital: number) {
+  const weeklyProfit = capital * 0.35   // 7%/dia × 5 dias
+  const reinvest     = weeklyProfit * 0.70
+  const withdraw     = weeklyProfit * 0.30
+  const weekAfter    = capital + reinvest
+  return { weeklyProfit, reinvest, withdraw, weekAfter }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function AdminDashboard() {
@@ -915,8 +926,8 @@ export default function AdminDashboard() {
   const [configOpen,     setConfigOpen]     = useState(false)
   const [cfgDraft,       setCfgDraft]       = useState<SessionConfig>(SESSION_DEFAULTS)
   const [clockStr,       setClockStr]       = useState('')
-  const [tradeFilter,    setTradeFilter]    = useState<'hoje' | '7d' | '30d'>('hoje')
-  const importRef                           = useRef<HTMLInputElement>(null)
+  const [tradeFilter, setTradeFilter] = useState<'hoje' | '7d' | '30d'>('hoje')
+  const importRef                     = useRef<HTMLInputElement>(null)
 
   // Injeta fontes premium via Google Fonts
   useEffect(() => {
@@ -924,7 +935,7 @@ export default function AdminDashboard() {
     const link = document.createElement('link')
     link.id   = 'rafi-fonts'
     link.rel  = 'stylesheet'
-    link.href = 'https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;900&family=Inter:wght@400;500;600;700&display=swap'
+    link.href = 'https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;900&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;700;800;900&display=swap'
     document.head.appendChild(link)
   }, [])
 
@@ -1183,11 +1194,27 @@ export default function AdminDashboard() {
 
   const primaryBroker = brokersLive.find(b => b.connected)
 
+  // Epic Journey computed values
+  const curPct            = useMemo(() => logPct(capitalParaJornada), [capitalParaJornada])
+  const nextMilestoneIdx  = JOURNEY_MILESTONES.findIndex(m => capitalParaJornada < m.val)
+  const nextMilestone     = nextMilestoneIdx >= 0 ? JOURNEY_MILESTONES[nextMilestoneIdx] : JOURNEY_MILESTONES[JOURNEY_MILESTONES.length - 1]
+  const ratio7030         = useMemo(() => compute7030(capitalParaJornada), [capitalParaJornada])
+  const fBRL              = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
   if (!mounted) return null
 
   return (
     <div className="min-h-screen" style={{ background: C.bg, fontFamily: 'Inter, sans-serif' }}>
       {activeSnap && <SnapshotModal src={activeSnap} onClose={() => setActiveSnap(null)} />}
+
+      {/* Popup diário do dashboard — gerencia estado próprio via localStorage */}
+      <MissaoHojePopup
+        balance={capitalParaJornada > 0 ? capitalParaJornada : null}
+        brokerCount={connectedBrokers.length > 0 ? connectedBrokers.length : 4}
+        dailyTarget={7.0}
+        brokerNames={connectedBrokers.length > 0 ? connectedBrokers.map(b => b.nome) : ['IC Markets', 'Exness', 'Pepperstone', 'Tickmill']}
+      />
+
       <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImport} />
 
       {/* Toast */}
@@ -1331,142 +1358,222 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* ── HERO BAND (3 cards) ───────────────────────────────────────────── */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {/* ── HERO: Capital + Journey stats ─────────────────────────────────── */}
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
 
-          {/* Card 1: Capital Consolidado */}
-          <div className="rounded-xl p-5" style={{
-            background: `linear-gradient(160deg, ${C.card} 0%, #060f1a 100%)`,
-            border: `1px solid ${C.teal}45`,
-            boxShadow: `inset 0 3px 0 ${C.teal}, 0 12px 40px ${C.teal}18`,
+          {/* Capital Card — 2 colunas */}
+          <div className="md:col-span-2 rounded-2xl p-6" style={{
+            background: 'linear-gradient(135deg, #06101e 0%, #020a16 100%)',
+            border: '1px solid rgba(240,192,64,.25)',
+            boxShadow: '0 0 40px rgba(240,192,64,.06), inset 0 3px 0 rgba(240,192,64,.5)',
           }}>
             <div className="flex items-center gap-2 mb-3">
-              <span className="text-[8px] uppercase tracking-widest font-bold" style={{ color: C.teal }}>Capital Consolidado</span>
+              <span style={{ fontSize: 7, fontWeight: 800, letterSpacing: '.18em', textTransform: 'uppercase', color: '#f0c040', opacity: .7 }}>
+                Capital Consolidado
+              </span>
               {connectedBrokers.length > 0 && (
-                <span className="text-[8px] px-1.5 py-0.5 rounded font-mono" style={{ background: `${C.teal}12`, color: C.teal, border: `1px solid ${C.teal}25` }}>
+                <span style={{ fontSize: 7, fontWeight: 700, background: 'rgba(240,192,64,.1)', border: '1px solid rgba(240,192,64,.25)', color: '#f0c040', borderRadius: 20, padding: '2px 7px' }}>
                   {connectedBrokers.length} corretoras
                 </span>
               )}
               {metaLoading && <span className="w-1.5 h-1.5 rounded-full animate-pulse shrink-0" style={{ background: C.muted }} />}
             </div>
             <div style={{
-              fontFamily: "'Barlow Condensed', 'Arial Black', sans-serif",
-              fontSize: 'clamp(40px, 5vw, 60px)', fontWeight: 900, lineHeight: 1,
-              color: C.text, letterSpacing: '-0.03em',
-              textShadow: `0 0 30px ${C.teal}40`,
+              fontFamily: "'Space Grotesk', 'Barlow Condensed', sans-serif",
+              fontSize: 'clamp(36px, 4.5vw, 58px)', fontWeight: 900, lineHeight: 1,
+              color: '#f0c040', letterSpacing: '-0.03em',
+              textShadow: '0 0 40px rgba(240,192,64,.3)',
+              fontVariantNumeric: 'tabular-nums',
             }}>
-              ${capitalParaJornada.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ${fBRL(capitalParaJornada)}
             </div>
             {connectedBrokers.length > 1 && (
-              <div className="mt-2 text-[9px] font-mono" style={{ color: C.sub }}>
+              <div className="mt-2 text-[9px] font-mono" style={{ color: '#5878a0' }}>
                 {connectedBrokers.map(b => `${b.nome} $${b.balance.toFixed(2)}`).join(' · ')}
               </div>
             )}
             {metaAccount && (
-              <div className="mt-1.5 flex items-center gap-4 text-[9px] font-mono">
-                <span style={{ color: C.sub }}>Equity ao vivo: <span style={{ color: C.text }}>${metaAccount.equity.toFixed(2)}</span></span>
-                <span style={{ color: C.sub }}>Margem livre: <span style={{ color: C.blue }}>${metaAccount.freeMargin.toFixed(2)}</span></span>
+              <div className="mt-1.5 flex items-center gap-4" style={{ fontSize: 9, fontFamily: 'monospace', color: '#5878a0' }}>
+                <span>Equity <span style={{ color: '#c8e2ff' }}>${metaAccount.equity.toFixed(2)}</span></span>
+                <span>Margem livre <span style={{ color: '#4488ff' }}>${metaAccount.freeMargin.toFixed(2)}</span></span>
               </div>
             )}
           </div>
 
-          {/* Card 2: P&L Hoje */}
-          <div className="rounded-xl p-5" style={{
-            background: `linear-gradient(160deg, ${C.card} 0%, #060f1a 100%)`,
-            border: `1px solid ${heroColor}50`,
-            boxShadow: `inset 0 3px 0 ${heroColor}, 0 12px 40px ${heroColor}18`,
+          {/* Mini tile: Jornada % */}
+          <div className="rounded-2xl p-4 flex flex-col justify-between" style={{
+            background: '#06101e', border: '1px solid #142840',
           }}>
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-[8px] uppercase tracking-widest font-bold" style={{ color: heroColor }}>P&amp;L Hoje</span>
-              {connectedBrokers.length > 0
-                ? <span className="text-[8px] font-mono flex items-center gap-1" style={{ color: C.teal }}>
-                    <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: C.teal }} />ao vivo
-                  </span>
-                : <span className="text-[8px] font-mono" style={{ color: C.muted }}>calculado</span>
-              }
+            <div style={{ fontSize: 7, fontWeight: 800, letterSpacing: '.18em', textTransform: 'uppercase', color: '#5878a0', marginBottom: 6 }}>
+              Jornada
             </div>
-            <div style={{
-              fontFamily: "'Barlow Condensed', 'Arial Black', sans-serif",
-              fontSize: 'clamp(40px, 5vw, 60px)', fontWeight: 900, lineHeight: 1,
-              color: heroColor, letterSpacing: '-0.03em',
-              textShadow: `0 0 30px ${heroColor}50`,
-            }}>
+            <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 32, fontWeight: 900, color: '#f0c040', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+              {curPct.toFixed(1)}<span style={{ fontSize: 16, fontWeight: 700, color: '#5878a0' }}>%</span>
+            </div>
+            <div style={{ fontSize: 8, color: '#5878a0', marginTop: 6 }}>escala logarítmica</div>
+          </div>
+
+          {/* Mini tile: Próxima meta */}
+          <div className="rounded-2xl p-4 flex flex-col justify-between" style={{
+            background: '#06101e', border: '1px solid #142840',
+          }}>
+            <div style={{ fontSize: 7, fontWeight: 800, letterSpacing: '.18em', textTransform: 'uppercase', color: '#5878a0', marginBottom: 6 }}>
+              Próxima Meta
+            </div>
+            <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 28, fontWeight: 900, color: '#00e5ff', lineHeight: 1 }}>
+              {nextMilestone.label}
+            </div>
+            <div style={{ fontSize: 8, color: '#5878a0', marginTop: 6 }}>
+              {nextMilestone.dateStr ? nextMilestone.dateStr : nextMilestone.emoji || '→'}
+            </div>
+          </div>
+
+          {/* Mini tile: P&L hoje */}
+          <div className="rounded-2xl p-4 flex flex-col justify-between" style={{
+            background: '#06101e', border: `1px solid ${heroColor}30`,
+          }}>
+            <div style={{ fontSize: 7, fontWeight: 800, letterSpacing: '.18em', textTransform: 'uppercase', color: '#5878a0', marginBottom: 6 }}>
+              P&amp;L Hoje
+            </div>
+            <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 28, fontWeight: 900, color: heroColor, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
               {todayPnl >= 0 ? '+' : ''}${Math.abs(todayPnl).toFixed(2)}
             </div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
-              {todayPct !== 0 && (
-                <span className="font-black font-mono px-2 py-0.5 rounded text-sm" style={{
-                  fontFamily: "'Barlow Condensed', sans-serif",
-                  background: `${heroColor}20`, color: heroColor, border: `1px solid ${heroColor}40`,
-                }}>
-                  {todayPct >= 0 ? '+' : ''}{todayPct.toFixed(2)}%
-                </span>
-              )}
-              {winRate !== null && (
-                <span className="text-[9px] font-mono flex items-center gap-1.5" style={{ color: C.sub }}>
-                  Win rate <span style={{ color: winRateColor, fontWeight: 700 }}>{winRate}%</span>
-                  {/* Bug 2 — fonte do win rate é o log manual (trades mapeados no /admin), não o histórico MetaAPI */}
-                  <span className="text-[7px] font-bold uppercase tracking-wider px-1 py-0.5 rounded" style={{
-                    background: `${C.gold}14`, border: `1px solid ${C.gold}35`, color: C.gold,
-                  }}>log manual</span>
-                </span>
-              )}
-              <span className="text-[9px] font-mono" style={{ color: C.sub }}>
-                Ops <span style={{ color: C.text, fontWeight: 700 }}>{wins + losses}</span>
-              </span>
-              {avgRR && (
-                <span className="text-[9px] font-mono" style={{ color: C.sub }}>
-                  R:R médio <span style={{ color: parseFloat(avgRR) >= 1.5 ? C.teal : C.gold, fontWeight: 700 }}>{avgRR}×</span>
-                </span>
-              )}
+            <div style={{ fontSize: 8, color: heroColor === C.teal ? C.teal : C.rose, marginTop: 6 }}>
+              {todayPct !== 0 ? `${todayPct >= 0 ? '+' : ''}${todayPct.toFixed(2)}% do capital` : 'nenhum trade hoje'}
             </div>
-            {gate.dailyGoalMet && (
-              <div className="mt-2 text-[9px]" style={{ color: C.teal }}>
-                ✓ Meta diária batida · sessão encerrada
-              </div>
-            )}
           </div>
+        </div>
 
-          {/* Card 3: Progresso de Metas */}
-          <div className="rounded-xl p-5" style={{
-            background: `linear-gradient(160deg, ${C.card} 0%, #060f1a 100%)`,
-            border: `1px solid #a855f745`,
-            boxShadow: `inset 0 3px 0 #a855f7, 0 12px 40px #a855f715`,
-          }}>
-            <div className="text-[8px] uppercase tracking-widest font-bold mb-4" style={{ color: '#a855f7' }}>Progresso de Metas</div>
-            <div className="space-y-4">
-              {[
-                { key: 'DIÁRIA',  value: todayPnl, target: sessionConfig.dailyGoal,   color: C.teal },
-                { key: 'SEMANAL', value: gate.weekPnl,  target: sessionConfig.weeklyGoal,  color: C.blue },
-                { key: 'MENSAL',  value: gate.monthPnl, target: sessionConfig.monthlyGoal, color: '#a855f7' },
-              ].map(g => {
-                const pct = g.value <= 0 ? 0 : Math.min(g.value / g.target * 100, 100)
-                const met = pct >= 100
-                const pctStr = sessionConfig.capitalInicial > 0 ? `${g.value >= 0 ? '+' : ''}${(g.value / sessionConfig.capitalInicial * 100).toFixed(1)}%` : ''
+        {/* ── EPIC JOURNEY BAR ──────────────────────────────────────────────── */}
+        <EpicJourneyBar capital={capitalParaJornada} />
+
+        {/* ── Stats tiles ───────────────────────────────────────────────────── */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[
+            { label: 'Win Rate',    val: winRate !== null ? `${winRate}%` : '—',                         sub: `${wins}W · ${losses}L`,          color: winRateColor },
+            { label: 'R:R Médio',   val: avgRR ? `${avgRR}×` : '—',                                     sub: 'meta ≥ 1,5×',                    color: avgRR && parseFloat(avgRR) >= 1.5 ? C.teal : C.gold },
+            { label: 'Meta Diária', val: sessionConfig.dailyGoal > 0 ? `$${sessionConfig.dailyGoal.toFixed(2)}` : '—', sub: `+7% = $${(capitalParaJornada * 0.07).toFixed(2)}`, color: gate.dailyGoalMet ? C.teal : C.blue },
+            { label: 'Meta Semanal',val: `$${(ratio7030.weeklyProfit).toFixed(2)}`,                       sub: '+35% projetado (5×7%)',           color: C.blue },
+          ].map(({ label, val, sub, color }) => (
+            <div key={label} className="rounded-xl p-4" style={{ background: '#06101e', border: '1px solid #142840' }}>
+              <div style={{ fontSize: 7, fontWeight: 800, letterSpacing: '.16em', textTransform: 'uppercase', color: '#5878a0', marginBottom: 6 }}>{label}</div>
+              <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 26, fontWeight: 900, color, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{val}</div>
+              <div style={{ fontSize: 8, color: '#5878a0', marginTop: 5 }}>{sub}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Marco a Marco · 70/30 · Corretoras ───────────────────────────── */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+          {/* Col 1: Próximos marcos */}
+          <div className="rounded-xl overflow-hidden" style={{ background: '#06101e', border: '1px solid #142840' }}>
+            <div className="px-4 py-3 border-b" style={{ borderColor: '#142840' }}>
+              <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: '.16em', textTransform: 'uppercase', color: '#00e5ff' }}>Marco a Marco</span>
+            </div>
+            <div className="p-4 space-y-2">
+              {JOURNEY_MILESTONES.filter(m => m.val > (capitalParaJornada * 0.5) || m.val >= capitalParaJornada).slice(0, 6).map(m => {
+                const done      = capitalParaJornada >= m.val
+                const isNext    = !done && m === nextMilestone
+                const remaining = Math.max(0, m.val - capitalParaJornada)
+                const pct       = done ? 100 : Math.min((capitalParaJornada / m.val) * 100, 100)
                 return (
-                  <div key={g.key}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[8px] uppercase tracking-widest" style={{ color: C.muted }}>{g.key}</span>
-                      <span className="text-[9px] font-mono font-bold" style={{ color: met ? C.teal : g.color }}>
-                        {pctStr}{met ? ' ✓' : ''}
-                      </span>
+                  <div key={m.val} className="flex items-center gap-3">
+                    <div style={{ width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, border: done ? '2px solid #00e676' : isNext ? '2px solid #00e5ff' : '1px solid #142840', background: done ? 'rgba(0,230,118,.08)' : isNext ? 'rgba(0,229,255,.06)' : 'rgba(9,24,40,.8)', flexShrink: 0 }}>
+                      {m.size === 'mini' ? <span style={{ width: 4, height: 4, borderRadius: '50%', background: done ? '#00e676' : '#1e3450', display: 'block' }} /> : m.emoji || '·'}
                     </div>
-                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.card2 }}>
-                      <div className="h-full rounded-full transition-all duration-700" style={{
-                        width: `${Math.max(0, pct).toFixed(1)}%`, background: met ? C.teal : g.color,
-                        opacity: pct <= 0 ? 0.3 : 1,
-                      }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span style={{ fontSize: 10, fontWeight: 700, color: done ? '#00e676' : isNext ? '#00e5ff' : '#5878a0', fontFamily: "'Space Grotesk', sans-serif" }}>{m.label}</span>
+                        {isNext && <span style={{ fontSize: 6, fontWeight: 900, background: '#00e5ff', color: '#001a22', borderRadius: 3, padding: '1px 5px' }}>PRÓXIMO</span>}
+                        {done && <span style={{ fontSize: 9, color: '#00e676' }}>✓</span>}
+                      </div>
+                      <div style={{ height: 3, borderRadius: 2, background: '#142840', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${pct}%`, background: done ? '#00e676' : isNext ? '#00e5ff' : '#1e3450', borderRadius: 2 }} />
+                      </div>
+                      {!done && <div style={{ fontSize: 7, color: '#5878a0', marginTop: 2 }}>faltam ${remaining.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}{m.dateStr ? ` · ${m.dateStr}` : ''}</div>}
                     </div>
-                    {met && <div className="text-[8px] mt-0.5" style={{ color: C.teal }}>✓ meta {g.key.toLowerCase()} cumprida</div>}
                   </div>
                 )
               })}
             </div>
           </div>
-        </div>
 
-        {/* ── Broker Matrix ─────────────────────────────────────────────────── */}
-        {brokersLive.length > 0 && <BrokerCompareRow brokers={brokersLive} />}
+          {/* Col 2: Regra 70/30 */}
+          <div className="rounded-xl overflow-hidden" style={{ background: '#06101e', border: '1px solid rgba(240,192,64,.18)' }}>
+            <div className="px-4 py-3 border-b" style={{ borderColor: 'rgba(240,192,64,.15)' }}>
+              <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: '.16em', textTransform: 'uppercase', color: '#f0c040' }}>Regra 70/30 · Esta Semana</span>
+            </div>
+            <div className="p-4">
+              <div className="mb-4">
+                <div style={{ fontSize: 7, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.12em', color: '#5878a0', marginBottom: 4 }}>Meta +35% na semana (5×7%)</div>
+                <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 36, fontWeight: 900, color: '#f0c040', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                  +${fBRL(ratio7030.weeklyProfit)}
+                </div>
+              </div>
+              <div style={{ height: 1, background: '#142840', margin: '12px 0' }} />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div style={{ fontSize: 7, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.12em', color: '#5878a0', marginBottom: 3 }}>Reinvestir 70%</div>
+                  <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 20, fontWeight: 800, color: '#00e5ff', fontVariantNumeric: 'tabular-nums' }}>+${fBRL(ratio7030.reinvest)}</div>
+                  <div style={{ fontSize: 8, color: '#5878a0', marginTop: 2 }}>capital vira ${fBRL(ratio7030.weekAfter)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 7, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.12em', color: '#5878a0', marginBottom: 3 }}>Sacar 30%</div>
+                  <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 20, fontWeight: 800, color: '#00e676', fontVariantNumeric: 'tabular-nums' }}>+${fBRL(ratio7030.withdraw)}</div>
+                  <div style={{ fontSize: 8, color: '#5878a0', marginTop: 2 }}>toda sexta-feira</div>
+                </div>
+              </div>
+              <div style={{ marginTop: 12, padding: '8px 12px', background: 'rgba(240,192,64,.06)', border: '1px solid rgba(240,192,64,.15)', borderRadius: 8 }}>
+                <div style={{ fontSize: 7, color: '#5878a0', marginBottom: 2 }}>Patrimônio gerado até $1M</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#f0c040' }}>~$1.420.000 total</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Col 3: Corretoras ao vivo */}
+          <div className="rounded-xl overflow-hidden" style={{ background: '#06101e', border: '1px solid #142840' }}>
+            <div className="px-4 py-3 border-b" style={{ borderColor: '#142840' }}>
+              <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: '.16em', textTransform: 'uppercase', color: '#5878a0' }}>Corretoras</span>
+            </div>
+            {brokersLive.length > 0 ? (
+              <div className="p-3 space-y-2">
+                {brokersLive.map(b => {
+                  const meta     = getBrokerMeta(b.id)
+                  const pnlColor = b.todayPnl > 0 ? C.teal : b.todayPnl < 0 ? C.rose : C.sub
+                  return (
+                    <div key={b.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg" style={{ background: b.connected ? `${meta.color}08` : '#040e1c', border: `1px solid ${b.connected ? meta.color + '25' : '#142840'}` }}>
+                      <div className="w-7 h-7 rounded-lg flex items-center justify-center font-black text-[10px] shrink-0" style={{ background: `${meta.color}20`, color: meta.color, border: `1px solid ${meta.color}35` }}>
+                        {meta.label}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="flex items-center justify-between">
+                          <span style={{ fontSize: 10, fontWeight: 700, color: '#c8e2ff' }}>{b.nome || b.id}</span>
+                          {b.connected
+                            ? <span style={{ fontSize: 8, color: meta.color }}>● ao vivo</span>
+                            : <span style={{ fontSize: 8, color: '#5878a0' }}>offline</span>
+                          }
+                        </div>
+                        <div className="flex items-center justify-between mt-0.5">
+                          <span style={{ fontSize: 9, fontFamily: 'monospace', color: b.connected ? '#c8e2ff' : '#5878a0' }}>
+                            {b.connected ? `$${b.balance.toFixed(2)}` : '—'}
+                          </span>
+                          {b.connected && (
+                            <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: pnlColor }}>
+                              {b.todayPnl >= 0 ? '+' : ''}${b.todayPnl.toFixed(2)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="p-4 text-center" style={{ color: '#5878a0', fontSize: 10 }}>Conectando às corretoras…</div>
+            )}
+          </div>
+        </div>
 
         {/* ── COCKPIT CONTROL BOARD ─────────────────────────────────────────── */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
