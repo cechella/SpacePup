@@ -37,6 +37,7 @@ export async function fetchDailyGoal(date: string): Promise<DailyGoalRecord | nu
     .from('rafi_daily_goals')
     .select('*')
     .eq('date', date)
+    .gt('daily_pct', 0)   // ignora registros corrompidos com valores zerados
     .maybeSingle()
   if (error || !data) return null
   return {

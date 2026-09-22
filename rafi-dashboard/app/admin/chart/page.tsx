@@ -295,12 +295,18 @@ export default function ChartPage() {
 
   // Ao abrir a página: se a meta diária já foi cumprida hoje (BRT), mostra overlay
   // imediatamente, sem depender do MetaAPI carregar — persiste até meia-noite BRT
+  // Nota: o Supabase irá confirmar/limpar este flag em seguida via checkGoalsFromSupabase
   useEffect(() => {
     const today = brtDateStr()
-    const goalMet = typeof window !== 'undefined' && localStorage.getItem(`rafi-daily-target-met-${today}`) === 'true'
-    if (goalMet) {
+    const stored    = typeof window !== 'undefined' ? localStorage.getItem(`rafi-daily-target-met-${today}`) : null
+    const storedPnl = typeof window !== 'undefined' ? parseFloat(localStorage.getItem(`rafi-daily-pnl-${today}`) ?? '0') : 0
+    // Só restaura do localStorage se houver P&L real salvo junto com a flag
+    if (stored === 'true' && storedPnl > 0) {
       setShowDailyOverlay(true)
       prevDailyMetRef.current = true  // evita duplo disparo quando MetaAPI carregar
+    } else if (stored === 'true' && storedPnl <= 0) {
+      // Flag stale sem P&L válido — limpa para evitar falso positivo
+      try { localStorage.removeItem(`rafi-daily-target-met-${today}`) } catch { /* */ }
     }
   }, [])
 
@@ -528,12 +534,19 @@ export default function ChartPage() {
 
         // Verifica meta diária
         const daily = await fetchDailyGoal(today)
-        if (daily?.dailyMet) {
+        if (daily?.dailyMet && daily.dailyPnl > 0) {
           localStorage.setItem(`rafi-daily-target-met-${today}`, 'true')
+          localStorage.setItem(`rafi-daily-pnl-${today}`, String(daily.dailyPnl))
           setSupabaseGoalData({ dailyPct: daily.dailyPct, dailyPnl: daily.dailyPnl, weeklyPct: daily.weeklyPct, weeklyPnl: daily.weeklyPnl })
           setShowDailyOverlay(true)
           setShowCheckin(false)
           prevDailyMetRef.current = true
+        } else if (!daily?.dailyMet || (daily.dailyPnl ?? 0) <= 0) {
+          // Nenhum registro válido no Supabase — limpa flag stale do localStorage
+          try {
+            localStorage.removeItem(`rafi-daily-target-met-${today}`)
+            localStorage.removeItem(`rafi-daily-pnl-${today}`)
+          } catch { /* */ }
         }
 
         // Verifica meta semanal (qualquer dia da semana pode ter batido a meta)
@@ -660,7 +673,10 @@ export default function ChartPage() {
 
     // Persiste flags de meta usando datas BRT (meia-noite BRT = 03:00 UTC)
     if (typeof window !== 'undefined') {
-      if (dailyMet)  localStorage.setItem(`rafi-daily-target-met-${brtDateStr()}`,           'true')
+      if (dailyMet && todayPnl > 0) {
+        localStorage.setItem(`rafi-daily-target-met-${brtDateStr()}`, 'true')
+        localStorage.setItem(`rafi-daily-pnl-${brtDateStr()}`, String(todayPnl))
+      }
       if (weeklyMet && weekPnl > 0) {
         localStorage.setItem(`rafi-weekly-target-met-${brtWeekMondayStr()}`, 'true')
         localStorage.setItem(`rafi-weekly-pnl-${brtWeekMondayStr()}`, String(weekPnl))
