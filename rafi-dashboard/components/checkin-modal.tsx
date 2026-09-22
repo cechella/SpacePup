@@ -95,7 +95,7 @@ export function CheckinModal({ onComplete }: Props) {
       const db = createClient()
       const { data, error } = await db
         .from('rafi_checkins')
-        .insert({
+        .upsert({
           sono:          result.sono,
           energia:       result.energia,
           mental:        result.mental,
@@ -103,7 +103,7 @@ export function CheckinModal({ onComplete }: Props) {
           score_penalty: penalty,
           blocked,
           date:          new Date().toISOString().slice(0, 10),
-        })
+        }, { onConflict: 'date' })
         .select('id')
         .single()
       if (error) console.error('[Checkin] Supabase insert error:', error.message)
