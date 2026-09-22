@@ -727,18 +727,6 @@ export function SessionSidebar({
         </div>
       )}
 
-      {/* ── GESTÃO DE RISCO ──────────────────────────── */}
-      {targets && balance && balance > 0 && liveDailyPct !== undefined && liveDailyPnl !== undefined && (
-        <GestaoRiscoCard
-          dailyPct={liveDailyPct}
-          dailyPnl={liveDailyPnl}
-          capital={balance}
-          numBrokers={brokerCount ?? 1}
-          DAILY_TARGET={targets.DAILY_TARGET}
-          MAX_LOSS={5.0}
-        />
-      )}
-
       {/* ── MISSÃO DE AMANHÃ ─────────────────────────── */}
       {missaoData && (
         missaoExpanded ? (
@@ -818,6 +806,18 @@ export function SessionSidebar({
             <ChevronDown size={11} className="text-[#334455] group-hover:text-[#7a96b8] transition-colors shrink-0" />
           </button>
         )
+      )}
+
+      {/* ── GESTÃO DE RISCO ──────────────────────────── */}
+      {targets && balance && balance > 0 && liveDailyPct !== undefined && liveDailyPnl !== undefined && (
+        <GestaoRiscoCard
+          dailyPct={liveDailyPct}
+          dailyPnl={liveDailyPnl}
+          capital={balance}
+          numBrokers={brokerCount ?? 1}
+          DAILY_TARGET={targets.DAILY_TARGET}
+          MAX_LOSS={5.0}
+        />
       )}
 
       {/* ── JORNADA $100 → $1M ───────────────────────── */}
