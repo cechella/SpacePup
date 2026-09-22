@@ -2,7 +2,9 @@
  * POST /api/ml/sync-trades
  * Recebe deals fechados do MetaAPI e sincroniza com rafi_trades no Supabase.
  * Só insere trades novos (verifica IDs existentes) e nunca sobrescreve check-in manual.
- * Enriquece cada deal com RAFI, BB Width e check-in quando enviados pelo cliente.
+ * Enriquece cada deal com RAFI, BB Width e check-in:
+ *   1. Usa o check-in enviado pelo cliente (quando a página estava aberta)
+ *   2. Se não veio do cliente, busca em rafi_checkins pela data UTC do trade (automático)
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -25,11 +27,24 @@ interface DealInput {
   checkinHumor?:   string | null
 }
 
+interface CheckinRow {
+  date:    string
+  sono:    string | null
+  energia: string | null
+  mental:  string | null
+  humor:   string | null
+}
+
 function getClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   if (!url || !key) throw new Error('Supabase não configurado')
   return createClient(url, key, { auth: { persistSession: false } })
+}
+
+// Converte timestamp ISO do MetaAPI para data UTC no formato 'YYYY-MM-DD'
+function isoToDateStr(iso: string): string {
+  return new Date(iso).toISOString().slice(0, 10)
 }
 
 export async function POST(req: NextRequest) {
@@ -41,6 +56,44 @@ export async function POST(req: NextRequest) {
 
     const supa = getClient()
     const ids  = deals.map(d => d.id)
+
+    // Coleta datas únicas de deals sem check-in para buscar no rafi_checkins
+    const datesNeeded = new Set<string>()
+    for (const d of deals) {
+      if (!d.checkinSono && d.time) datesNeeded.add(isoToDateStr(d.time))
+    }
+
+    // Busca check-ins do banco para as datas necessárias
+    const checkinsByDate = new Map<string, CheckinRow>()
+    if (datesNeeded.size > 0) {
+      const { data: ckRows } = await supa
+        .from('rafi_checkins')
+        .select('date, sono, energia, mental, humor')
+        .in('date', Array.from(datesNeeded))
+      for (const row of ckRows ?? []) {
+        checkinsByDate.set(row.date, row as CheckinRow)
+      }
+    }
+
+    // Resolve o check-in de um deal: usa o enviado pelo cliente; se null, busca no banco
+    const resolveCheckin = (d: DealInput) => {
+      if (d.checkinSono) {
+        return {
+          sono:    d.checkinSono    ?? null,
+          energia: d.checkinEnergia ?? null,
+          mental:  d.checkinMental  ?? null,
+          humor:   d.checkinHumor   ?? null,
+        }
+      }
+      const dateKey = d.time ? isoToDateStr(d.time) : null
+      const ck = dateKey ? checkinsByDate.get(dateKey) : null
+      return {
+        sono:    ck?.sono    ?? null,
+        energia: ck?.energia ?? null,
+        mental:  ck?.mental  ?? null,
+        humor:   ck?.humor   ?? null,
+      }
+    }
 
     // Verifica quais IDs já existem — nunca sobrescreve registro completo com check-in manual
     const { data: existing } = await supa
@@ -63,28 +116,31 @@ export async function POST(req: NextRequest) {
 
     // Insere trades novos com todos os campos disponíveis
     if (novos.length > 0) {
-      const rows = novos.map(d => ({
-        id:              d.id,
-        direction:       d.direction,
-        entry:           d.entryPrice ?? d.price,
-        stop_loss:       0,
-        take_profit:     0,
-        label:           'MetaAPI-Auto',
-        time:            Math.floor(new Date(d.time).getTime() / 1000),
-        lot:             d.volume,
-        leverage:        1000,
-        result:          d.profit > 0 ? 'win' : 'loss',
-        pnl_usd:         d.profit,
-        entry_type:      'bot',
-        rafi:            d.rafi            ?? null,
-        rafi_dir:        d.rafiDir         ?? null,
-        bb_width:        d.bbWidth         ?? null,
-        checkin_sono:    d.checkinSono     ?? null,
-        checkin_energia: d.checkinEnergia  ?? null,
-        checkin_mental:  d.checkinMental   ?? null,
-        checkin_humor:   d.checkinHumor    ?? null,
-        updated_at:      new Date().toISOString(),
-      }))
+      const rows = novos.map(d => {
+        const ck = resolveCheckin(d)
+        return {
+          id:              d.id,
+          direction:       d.direction,
+          entry:           d.entryPrice ?? d.price,
+          stop_loss:       0,
+          take_profit:     0,
+          label:           'MetaAPI-Auto',
+          time:            Math.floor(new Date(d.time).getTime() / 1000),
+          lot:             d.volume,
+          leverage:        1000,
+          result:          d.profit > 0 ? 'win' : 'loss',
+          pnl_usd:         d.profit,
+          entry_type:      'bot',
+          rafi:            d.rafi    ?? null,
+          rafi_dir:        d.rafiDir ?? null,
+          bb_width:        d.bbWidth ?? null,
+          checkin_sono:    ck.sono,
+          checkin_energia: ck.energia,
+          checkin_mental:  ck.mental,
+          checkin_humor:   ck.humor,
+          updated_at:      new Date().toISOString(),
+        }
+      })
       const { error } = await supa.from('rafi_trades').insert(rows)
       if (error) throw error
     }
