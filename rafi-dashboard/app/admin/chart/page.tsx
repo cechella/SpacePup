@@ -674,12 +674,15 @@ export default function ChartPage() {
       })
       .reduce((s, t) => s + (t.profit ?? 0), 0)
 
-    // Capital base: consolidado (todas corretoras) > Pepperstone > fallback
-    const bal          = consolidatedBalance ?? metaAccount?.balance ?? 100
+    // Capital base: usa EXCLUSIVAMENTE o saldo consolidado (todas as corretoras).
+    // Não cai para metaAccount.balance (só Pepperstone) pois isso infla o % artificialmente
+    // e dispara o popup semanal incorretamente no dia 1 da semana.
+    // Enquanto consolidatedBalance é null (carregando), os % ficam 0 → nenhum popup dispara.
+    const bal          = consolidatedBalance ?? 0
     const startBal     = Math.max(bal - todayPnl, 1)
     const weekStartBal = Math.max(bal - weekPnl,  1)
-    const dailyPct     = (todayPnl / startBal) * 100
-    const weeklyPct    = (weekPnl  / weekStartBal) * 100
+    const dailyPct     = bal > 0 ? (todayPnl / startBal) * 100    : 0
+    const weeklyPct    = bal > 0 ? (weekPnl  / weekStartBal) * 100 : 0
 
     // Quantidade de dias desta semana que bateram a meta (chaves localStorage)
     let daysHit = 0
@@ -720,10 +723,10 @@ export default function ChartPage() {
     }
   }, [metaHistory, metaAccount, consolidatedBalance])
 
-  // Dispara overlay quando a meta é atingida pela primeira vez nesta sessão.
-  // Aguarda saldo real (consolidado ou MetaAPI) para evitar falso positivo com
-  // o fallback de $100 que inflaria o % antes dos dados carregarem.
-  const balanceLoaded = consolidatedBalance !== null || (metaAccount?.balance ?? 0) > 0
+  // Dispara overlay somente quando temos o saldo consolidado de TODOS os brokers.
+  // Usar só Pepperstone (metaAccount) inflaria o % (ex: $37/$71 = 52% vs real $37/$370 = 10%)
+  // e dispararia o popup semanal incorretamente no primeiro dia da semana.
+  const balanceLoaded = consolidatedBalance !== null && consolidatedBalance > 0
 
   useEffect(() => {
     if (!balanceLoaded) return
