@@ -492,6 +492,8 @@ function FeatImportance({ label, pct, color }: { label: string; pct: number; col
 export default function Fase2Page() {
   const [trades, setTrades] = useState<ManualTrade[]>([])
   const [mounted, setMounted] = useState(false)
+  const [enriching, setEnriching] = useState(false)
+  const [enrichMsg, setEnrichMsg] = useState<string | null>(null)
 
   useEffect(() => {
     setMounted(true)
@@ -499,6 +501,29 @@ export default function Fase2Page() {
       .then(data => { if (data.length > 0) setTrades(data as ManualTrade[]) })
       .catch(() => {})
   }, [])
+
+  async function handleEnrich() {
+    setEnriching(true)
+    setEnrichMsg(null)
+    try {
+      const res  = await fetch('/api/ml/enrich-retroactive', { method: 'POST' })
+      const data = await res.json()
+      if (data.error) {
+        setEnrichMsg(`Erro: ${data.error}`)
+      } else if (data.enriched === 0) {
+        setEnrichMsg('Nenhum trade novo para enriquecer')
+      } else {
+        setEnrichMsg(`✓ ${data.enriched} trade${data.enriched > 1 ? 's' : ''} enriquecido${data.enriched > 1 ? 's' : ''} — recarregando…`)
+        // Recarrega trades após enriquecimento
+        const fresh = await fetchTrades()
+        if (fresh.length > 0) setTrades(fresh as ManualTrade[])
+      }
+    } catch {
+      setEnrichMsg('Erro ao conectar com MetaAPI')
+    } finally {
+      setEnriching(false)
+    }
+  }
 
   const labeled     = useMemo(() => trades.filter(t => t.result === 'win' || t.result === 'loss'), [trades])
   const wins        = labeled.filter(t => t.result === 'win').length
@@ -540,6 +565,22 @@ export default function Fase2Page() {
             {confianca.label} — {labeled.length} trades
           </span>
           <button
+            onClick={handleEnrich}
+            disabled={enriching}
+            title="Busca candles históricos no MetaAPI e calcula RAFI/BB Width para trades que ainda não têm esses dados"
+            className={cn(
+              'flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border font-semibold transition-all',
+              enriching
+                ? 'bg-[#21262d] border-[#30363d] text-[#484f58] cursor-not-allowed'
+                : 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b] hover:bg-[#f59e0b]/20',
+            )}
+          >
+            {enriching
+              ? <><span className="w-3 h-3 border-2 border-[#f59e0b]/30 border-t-[#f59e0b] rounded-full animate-spin" /> Buscando…</>
+              : <><Activity size={12} /> Enriquecer RAFI</>
+            }
+          </button>
+          <button
             onClick={() => labeled.length > 0 && exportCSV(trades)}
             disabled={labeled.length === 0}
             className={cn(
@@ -554,6 +595,20 @@ export default function Fase2Page() {
           </button>
         </div>
       </div>
+
+      {/* Feedback do enriquecimento retroativo */}
+      {enrichMsg && (
+        <div className={cn(
+          'text-xs px-3 py-2 rounded-lg border',
+          enrichMsg.startsWith('✓')
+            ? 'bg-[#10b981]/10 border-[#10b981]/25 text-[#10b981]'
+            : enrichMsg.startsWith('Erro')
+            ? 'bg-[#ef4444]/10 border-[#ef4444]/25 text-[#ef4444]'
+            : 'bg-[#484f58]/10 border-[#30363d] text-[#8b949e]',
+        )}>
+          {enrichMsg}
+        </div>
+      )}
 
       {/* ── Progresso + Pipeline ──────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">

@@ -14,8 +14,9 @@ export const runtime = 'nodejs'
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
-  const timeframe = searchParams.get('timeframe') || 'M5'
-  const limit     = parseInt(searchParams.get('limit') || '100', 10)
+  const timeframe  = searchParams.get('timeframe') || 'M5'
+  const limit      = parseInt(searchParams.get('limit') || '100', 10)
+  const startTime  = searchParams.get('startTime') // ISO 8601 — busca `limit` candles ANTES deste momento
 
   const tf             = TF_MAP[timeframe] ?? TF_MAP['M5']
   const top            = await getTopBroker()
@@ -23,7 +24,9 @@ export async function GET(req: Request) {
   const symbol         = top.symbol  // EURUSDz para Exness, EURUSD para outros
 
   try {
-    const url = `${BASE}/users/current/accounts/${ACCOUNT}/historical-market-data/symbols/${symbol}/timeframes/${tf.rest}/candles?limit=${limit}`
+    const qs  = new URLSearchParams({ limit: String(limit) })
+    if (startTime) qs.set('startTime', startTime)
+    const url = `${BASE}/users/current/accounts/${ACCOUNT}/historical-market-data/symbols/${symbol}/timeframes/${tf.rest}/candles?${qs}`
 
     const res = await fetch(url, {
       headers: { 'auth-token': TOKEN },
