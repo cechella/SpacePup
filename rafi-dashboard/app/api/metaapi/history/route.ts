@@ -34,9 +34,10 @@ function periodToFrom(period: string): Date {
   const now = new Date()
   switch (period) {
     case 'today': {
-      const d = new Date(now)
-      d.setUTCHours(0, 0, 0, 0)
-      return d
+      // Meia-noite BRT (UTC-3) = 03:00 UTC da mesma data BRT
+      const brtNow  = new Date(now.getTime() - 3 * 60 * 60 * 1000)
+      const brtDate = brtNow.toISOString().slice(0, 10) // "2026-09-21"
+      return new Date(`${brtDate}T03:00:00.000Z`)
     }
     case '30d': return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
     case '3m':  return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)

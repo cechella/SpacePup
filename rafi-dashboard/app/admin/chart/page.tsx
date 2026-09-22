@@ -638,23 +638,27 @@ export default function ChartPage() {
 
   // Calcula progresso de metas diária e semanal a partir do histórico MetaAPI
   const targetMetrics = useMemo((): TargetMetrics => {
-    const today = new Date().toISOString().slice(0, 10)
+    // Usa data BRT (UTC-3) para evitar virada de dia UTC às 21h/22h BRT
+    const today = brtDateStr()
+    // Converte timestamp UTC de trade para data BRT
+    const toBrtDate = (iso: string) =>
+      new Date(new Date(iso).getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
-    // Início da semana (segunda-feira)
-    const d = new Date()
-    const jsDay = d.getUTCDay()
+    // Início da semana em BRT (segunda-feira)
+    const brtNow = new Date(Date.now() - 3 * 60 * 60 * 1000)
+    const jsDay = brtNow.getUTCDay()
     const daysFromMon = jsDay === 0 ? 6 : jsDay - 1
-    const mon = new Date(d)
-    mon.setUTCDate(d.getUTCDate() - daysFromMon)
+    const mon = new Date(brtNow)
+    mon.setUTCDate(brtNow.getUTCDate() - daysFromMon)
     const weekStart = mon.toISOString().slice(0, 10)
 
     const todayPnl = metaHistory
-      .filter(t => (t.time?.slice(0, 10) ?? '') === today)
+      .filter(t => toBrtDate(t.time ?? '') === today)
       .reduce((s, t) => s + (t.profit ?? 0), 0)
 
     const weekPnl = metaHistory
       .filter(t => {
-        const dd = t.time?.slice(0, 10) ?? ''
+        const dd = toBrtDate(t.time ?? '')
         return dd >= weekStart && dd <= today
       })
       .reduce((s, t) => s + (t.profit ?? 0), 0)
@@ -1190,7 +1194,10 @@ export default function ChartPage() {
       // com janela de poucas horas pode retornar vazio dependendo do broker.
       // O filtro UTC é idêntico ao usado em targetMetrics para consistência.
       const restPeriod = period === 'today' ? '7d' : period
-      const todayUTC   = new Date().toISOString().slice(0, 10)
+      // Data BRT para filtro client-side: evita perder trades feitos antes das 03:00 UTC
+      const todayBRT = brtDateStr()
+      const toBrtDate = (iso: string) =>
+        new Date(new Date(iso).getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
       const params = new URLSearchParams({ period: restPeriod })
       if (broker) { params.set('broker', broker) } else { params.set('all', 'true') }
@@ -1201,11 +1208,11 @@ export default function ChartPage() {
           let history: typeof metaHistory = data.history ?? []
           let groups: typeof historyGroups | undefined = data.groups
 
-          // Filtra só hoje quando o usuário selecionou o período 'Hoje'
+          // Filtra só hoje (em BRT) quando o usuário selecionou o período 'Hoje'
           if (period === 'today') {
-            history = history.filter(t => (t.time?.slice(0, 10) ?? '') === todayUTC)
+            history = history.filter(t => toBrtDate(t.time ?? '') === todayBRT)
             if (groups) {
-              groups = groups.map(g => ({ ...g, trades: g.trades.filter(t => (t.time?.slice(0, 10) ?? '') === todayUTC) }))
+              groups = groups.map(g => ({ ...g, trades: g.trades.filter(t => toBrtDate(t.time ?? '') === todayBRT) }))
             }
           }
 
