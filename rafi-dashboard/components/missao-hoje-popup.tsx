@@ -74,6 +74,11 @@ export function MissaoHojePopup({
 
   function confirm() {
     try { localStorage.setItem(MISSAO_KEY, brtDateStr()) } catch {}
+    setDismissed(true)
+    setVisible(false)
+  }
+
+  function fechar() {
     setVisible(false)
   }
 
@@ -222,31 +227,46 @@ export function MissaoHojePopup({
           </div>
         </div>
 
-        {/* Botão de confirmação */}
-        <div className="px-[18px] pb-[15px]">
+        {/* Botões */}
+        <div className="px-[18px] pb-[15px] flex flex-col gap-2">
           <button
             onClick={confirm}
             className="w-full rounded-[10px] flex items-center justify-center gap-2 transition-all hover:opacity-90 hover:-translate-y-px active:translate-y-0"
             style={{
-              padding:     13,
-              border:      'none',
-              cursor:      'pointer',
-              fontFamily:  'inherit',
-              fontSize:    13,
-              fontWeight:  800,
+              padding:       13,
+              border:        'none',
+              cursor:        'pointer',
+              fontFamily:    'inherit',
+              fontSize:      13,
+              fontWeight:    800,
               letterSpacing: '0.03em',
-              background:  'linear-gradient(135deg,#e2b04a,#bf8820)',
-              color:       '#0a0700',
+              background:    'linear-gradient(135deg,#e2b04a,#bf8820)',
+              color:         '#0a0700',
             }}
           >
-            ✓&nbsp;&nbsp;Entendido — vou executar esse plano
+            ✓&nbsp;&nbsp;Entendi, vou lá vencer
+          </button>
+          <button
+            onClick={fechar}
+            className="w-full rounded-[10px] flex items-center justify-center transition-all hover:opacity-70"
+            style={{
+              padding:       9,
+              border:        '1px solid #1c3050',
+              cursor:        'pointer',
+              fontFamily:    'inherit',
+              fontSize:      11,
+              fontWeight:    600,
+              background:    'transparent',
+              color:         '#4a6080',
+            }}
+          >
+            Fechar
           </button>
         </div>
 
         <div className="text-center px-[18px] pb-3" style={{ fontSize: 8.5, color: '#334455', lineHeight: 1.5 }}>
-          Este popup aparece{' '}
-          <strong style={{ color: '#7a96b8' }}>uma vez por dia</strong>.
-          {' '}Amanhã retorna com os valores atualizados.
+          Confirme o plano para não aparecer mais hoje.{' '}
+          <strong style={{ color: '#7a96b8' }}>Fechar</strong>{' '}volta a cada atualização.
         </div>
       </div>
     </div>
