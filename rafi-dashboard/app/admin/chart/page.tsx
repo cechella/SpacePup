@@ -9,6 +9,7 @@ import { TradePanel, type ManualTrade } from '@/components/trade-panel'
 import { SessionSidebar, type TargetMetrics } from '@/components/session-sidebar'
 import { CheckinModal, type CheckinResult } from '@/components/checkin-modal'
 import { MetasOverlay } from '@/components/metas-overlay'
+import { LiveMetaPopup } from '@/components/live-meta-popup'
 import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
 import { getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
@@ -227,6 +228,12 @@ export default function ChartPage() {
   // Zerar Tudo — confirmação inline e estado de loading
   const [closeAllConfirm, setCloseAllConfirm] = useState(false)
   const [closingAll,      setClosingAll]      = useState(false)
+  // Pop-up "Meta Ao Vivo" — dispara quando liveDailyPct bate DAILY_TARGET com posições abertas
+  const [showLiveMetaPopup,  setShowLiveMetaPopup]  = useState(false)
+  const [liveMetaSnapshot,   setLiveMetaSnapshot]   = useState<{ pct: number; pnl: number; bal: number } | null>(null)
+  const [liveMetaClosing,    setLiveMetaClosing]    = useState(false)
+  const [liveMetaClosed,     setLiveMetaClosed]     = useState(false)
+  const prevLiveMetaFiredRef = useRef(false)
   // Altura da toolbar interna (colapsável arrastando para cima)
   // null = altura natural (auto); 0 = colapsada
   const [toolbarH,    setToolbarH]    = useState<number | null>(null)
@@ -1275,6 +1282,18 @@ export default function ChartPage() {
     setCloseAllConfirm(false)
   }, [handleClosePosition])
 
+  // Fecha todas as posições a partir do pop-up de meta ao vivo
+  const handleLiveMetaCloseAll = useCallback(async () => {
+    setLiveMetaClosing(true)
+    const positions = [...metaPositionsRef.current]
+    for (const pos of positions) {
+      await handleClosePosition(pos.id)
+    }
+    setLiveMetaClosing(false)
+    setLiveMetaClosed(true)
+    setTimeout(() => setShowLiveMetaPopup(false), 3000)
+  }, [handleClosePosition])
+
   // Modifica SL/TP de uma posição aberta via MetaAPI — replica para todas as corretoras ativas
   const handleModifyPosition = useCallback(async (positionId: string, sl: string, tp: string) => {
     const stopLoss   = parseFloat(sl)
@@ -1671,6 +1690,25 @@ export default function ChartPage() {
     return (liveDailyPnl / startBal) * 100
   }, [liveDailyPnl, consolidatedBalance, metaAccount, targetMetrics.dailyPnl])
 
+  // Pop-up ao vivo: dispara quando liveDailyPct bate a meta E há posição aberta
+  // Aparece apenas uma vez por dia (localStorage) e só com saldo carregado
+  useEffect(() => {
+    if (!balanceLoaded) return
+    if (prevLiveMetaFiredRef.current) return
+    if (liveDailyPct < DAILY_TARGET) return
+    if (totalPositionCount <= 0) return  // só faz sentido com posição aberta
+    const today = brtDateStr()
+    try { if (localStorage.getItem(`rafi-live-meta-${today}`) === 'true') return } catch {}
+    prevLiveMetaFiredRef.current = true
+    try { localStorage.setItem(`rafi-live-meta-${today}`, 'true') } catch {}
+    const bal = consolidatedBalance ?? metaAccount?.balance ?? 100
+    setLiveMetaSnapshot({ pct: liveDailyPct, pnl: liveDailyPnl, bal })
+    setLiveMetaClosing(false)
+    setLiveMetaClosed(false)
+    setShowLiveMetaPopup(true)
+    setShowCheckin(false)
+  }, [liveDailyPct, totalPositionCount, balanceLoaded])
+
   // Equity ao vivo: saldo fixo + P&L calculado tick a tick via preço SSE
   // Evita o atraso do poll de 5s — exibe o capital total em tempo real
   const liveEquity = useMemo(() => {
@@ -2001,6 +2039,23 @@ export default function ChartPage() {
           daysHit={targetMetrics.daysHit}
           currency={metaAccount?.currency ?? 'USD'}
           onClose={() => setShowWeeklyOverlay(false)}
+        />
+      )}
+
+      {/* ── Pop-up Meta Ao Vivo ── */}
+      {showLiveMetaPopup && liveMetaSnapshot && (
+        <LiveMetaPopup
+          pct={liveMetaSnapshot.pct}
+          pnl={liveMetaSnapshot.pnl}
+          bal={liveMetaSnapshot.bal}
+          target={DAILY_TARGET}
+          positionCount={totalPositionCount}
+          brokerCount={allBrokerPositions.filter(b => b.positions.length > 0).length}
+          currency={metaAccount?.currency ?? 'USD'}
+          closing={liveMetaClosing}
+          closed={liveMetaClosed}
+          onCloseAll={handleLiveMetaCloseAll}
+          onDismiss={() => setShowLiveMetaPopup(false)}
         />
       )}
 
