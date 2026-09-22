@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { TradePanel, type ManualTrade } from '@/components/trade-panel'
 import { type CheckinResult } from '@/components/checkin-modal'
+import { GestaoRiscoCard } from '@/components/gestao-risco-card'
 import { cn } from '@/lib/utils'
 import { Clock, Brain, ShieldCheck, Trophy, Target } from 'lucide-react'
 
@@ -243,6 +244,8 @@ interface Props {
   bbExpanding:      boolean | null
   checkin:          CheckinResult | null
   targets:          TargetMetrics | null
+  liveDailyPct?:    number          // % diário ao vivo (fechado + flutuante)
+  liveDailyPnl?:    number          // $ diário ao vivo (fechado + flutuante)
 }
 
 export function SessionSidebar({
@@ -256,6 +259,8 @@ export function SessionSidebar({
   bbExpanding,
   checkin,
   targets,
+  liveDailyPct,
+  liveDailyPnl,
 }: Props) {
   // Tick a cada 30s para atualizar countdowns
   const [, setTick] = useState(0)
@@ -688,6 +693,18 @@ export function SessionSidebar({
             })}
           </div>
         </div>
+      )}
+
+      {/* ── GESTÃO DE RISCO ──────────────────────────── */}
+      {targets && balance && balance > 0 && liveDailyPct !== undefined && liveDailyPnl !== undefined && (
+        <GestaoRiscoCard
+          dailyPct={liveDailyPct}
+          dailyPnl={liveDailyPnl}
+          capital={balance}
+          numBrokers={brokerCount ?? 1}
+          DAILY_TARGET={targets.DAILY_TARGET}
+          MAX_LOSS={5.0}
+        />
       )}
 
       {/* ── JORNADA $100 → $1M ───────────────────────── */}

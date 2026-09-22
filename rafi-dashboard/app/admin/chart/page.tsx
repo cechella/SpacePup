@@ -1116,11 +1116,16 @@ export default function ChartPage() {
           return newPos
         })
       }
-      // Atualiza posições multi-corretora sempre via REST — não depende do bridge Supabase
-      // O Realtime do bridge ainda funciona como suplemento rápido quando ativo
+      // Atualiza posições multi-corretora via REST
+      // Só zera o estado se o account principal também confirmou 0 posições — evita que
+      // uma resposta vazia transitória do MetaAPI apague posições reais do painel (P&L = 0)
       if (allPosRes.status === 'fulfilled' && allPosRes.value.ok) {
         const data = await allPosRes.value.json()
-        setAllBrokerPositions(data.brokers ?? [])
+        const newBrokers = data.brokers ?? []
+        const newCount   = newBrokers.reduce((s: number, b: any) => s + (b.positions?.length ?? 0), 0)
+        if (newCount > 0 || prevPositionsRef.current.length === 0) {
+          setAllBrokerPositions(newBrokers)
+        }
       }
     } catch {}
   }, [])
@@ -3462,6 +3467,8 @@ export default function ChartPage() {
         bbExpanding={currentBbExpanding}
         checkin={checkin}
         targets={metaConnected ? targetMetrics : null}
+        liveDailyPct={metaConnected ? liveDailyPct : undefined}
+        liveDailyPnl={metaConnected ? liveDailyPnl : undefined}
       />
 
       {/* ── Barra de abas mobile ──────────────────────────────────────── */}
