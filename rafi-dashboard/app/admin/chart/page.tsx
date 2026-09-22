@@ -769,6 +769,35 @@ export default function ChartPage() {
     prevWeeklyMetRef.current = targetMetrics.weeklyMet
   }, [targetMetrics.weeklyMet, balanceLoaded])
 
+  // Guarda semanal: fecha overlay e corrige Supabase/localStorage quando o saldo real
+  // (consolidado de todas as corretoras) mostra que a meta semanal NÃO foi atingida.
+  // Necessário porque o Supabase pode conter weeklyMet=true gravado com saldo parcial
+  // (só Pepperstone) antes das demais corretoras carregarem — dado stale que reabre o
+  // overlay em todo carregamento de página até ser corrigido.
+  useEffect(() => {
+    if (!balanceLoaded) return
+    if (showWeeklyOverlay && !targetMetrics.weeklyMet) {
+      setShowWeeklyOverlay(false)
+      // Limpa localStorage para não reabrir na próxima sessão
+      try {
+        const wk = brtWeekMondayStr()
+        localStorage.removeItem(`rafi-weekly-target-met-${wk}`)
+        localStorage.removeItem(`rafi-weekly-pnl-${wk}`)
+      } catch { /* */ }
+      // Corrige o registro no Supabase (evita reabrir no próximo carregamento via checkGoalsFromSupabase)
+      upsertDailyGoal({
+        date:       brtDateStr(),
+        dailyPct:   targetMetrics.dailyPct,
+        dailyPnl:   targetMetrics.dailyPnl,
+        dailyMet:   targetMetrics.dailyMet,
+        weeklyPct:  targetMetrics.weeklyPct,
+        weeklyPnl:  targetMetrics.weeklyPnl,
+        weeklyMet:  false,
+        weekMonday: brtWeekMondayStr(),
+      }).catch(() => {/* falha silenciosa */})
+    }
+  }, [balanceLoaded, showWeeklyOverlay, targetMetrics.weeklyMet])
+
   // Inicializa altura do gráfico e detecta desktop
   useEffect(() => {
     setIsDesktop(window.innerWidth >= 768)
