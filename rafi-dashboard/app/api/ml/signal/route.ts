@@ -6,8 +6,26 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const SL_PIPS = 3    // 0.0003 — stop 3 pips
-const TP_PIPS = 10   // 0.0010 — alvo 10 pips → R:R 1:3.3
+// Lotes padrão disponíveis nas corretoras
+const LOT_STEPS = [0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50, 0.60, 0.80, 1.00]
+const COMM_PER  = 0.35  // comissão estimada por corretora por lote
+
+// Calcula lote e pips para bater a meta diária da corretora em 1 trade
+function calcLotFromMeta(capital: number, brokerCount: number, dailyTargetPct: number) {
+  const n          = Math.max(brokerCount, 1)
+  const dailyGoal  = capital * (dailyTargetPct / 100)
+  const perBroker  = dailyGoal / n
+
+  let lot = 0.10
+  for (const l of LOT_STEPS) {
+    const p = (perBroker + COMM_PER) / (l * 10)
+    if (p >= 4 && p <= 80) { lot = l; break }
+  }
+
+  const tpPips = Math.max(Math.round((perBroker + COMM_PER) / (lot * 10)), 4)
+  const slPips = Math.max(Math.round(tpPips / 1.5), 3)  // R:R mínimo 1:1.5, mínimo 3 pips
+  return { lot, tpPips, slPips, perBroker }
+}
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -40,18 +58,20 @@ function calcLot(capital: number, slPips: number): number {
 }
 
 interface SignalBody {
-  rafi:          number
-  bbWidth?:      number
-  direction:     'buy' | 'sell'
-  currentPrice:  number
-  horaUtc:       number
-  diaSemana?:    number
-  capital?:      number
-  checkinSono?:  string | null
+  rafi:            number
+  bbWidth?:        number
+  direction:       'buy' | 'sell'
+  currentPrice:    number
+  horaUtc:         number
+  diaSemana?:      number
+  capital?:        number
+  brokerCount?:    number  // nº de corretoras ativas — para dividir a meta diária
+  dailyTargetPct?: number  // meta diária em % (padrão 7)
+  checkinSono?:    string | null
   checkinEnergia?: string | null
-  checkinMental?: string | null
-  checkinHumor?:  string | null
-  labeled_count:  number  // total de trades rotulados — ativa IA apenas com ≥ 10
+  checkinMental?:  string | null
+  checkinHumor?:   string | null
+  labeled_count:   number  // total de trades rotulados — ativa IA apenas com ≥ 10
 }
 
 export async function POST(req: NextRequest) {
@@ -59,7 +79,8 @@ export async function POST(req: NextRequest) {
     const body: SignalBody = await req.json()
     const {
       rafi, direction, currentPrice, horaUtc,
-      capital = 100, labeled_count,
+      capital = 100, brokerCount = 1, dailyTargetPct = 7,
+      labeled_count,
       checkinSono, checkinEnergia, checkinMental, checkinHumor,
     } = body
 
@@ -131,21 +152,24 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    const p = (v: number) => Math.round(v * 100000) / 100000
-    const slOff = SL_PIPS * 0.0001
-    const tpOff = TP_PIPS * 0.0001
+    // Lote calculado para bater a meta diária (7%) dividida pelas corretoras ativas
+    const { lot, tpPips, slPips, perBroker } = calcLotFromMeta(capital, brokerCount, dailyTargetPct)
 
-    const entry    = p(currentPrice)
-    const stopLoss = direction === 'buy' ? p(currentPrice - slOff) : p(currentPrice + slOff)
+    const p    = (v: number) => Math.round(v * 100000) / 100000
+    const slOff = slPips * 0.0001
+    const tpOff = tpPips * 0.0001
+
+    const entry      = p(currentPrice)
+    const stopLoss   = direction === 'buy' ? p(currentPrice - slOff) : p(currentPrice + slOff)
     const takeProfit = direction === 'buy' ? p(currentPrice + tpOff) : p(currentPrice - tpOff)
-    const lot = calcLot(capital, SL_PIPS)
-    const rr  = (TP_PIPS / SL_PIPS).toFixed(1)
+    const rr         = (tpPips / slPips).toFixed(1)
 
     // Motivo legível para o trader
     const usouSessao = comSessao.length >= 3
     const sessaoStr  = usouSessao ? ` · sessão ${minhaSessao}` : ''
     const estadoStr  = bomEstado ? '' : ' ⚠ estado mental afetará resultado'
-    const motivo = `RAFI ${meuBucket} (${rafi.toFixed(2)})${sessaoStr} · ${wins}/${total} trades similares${estadoStr}`
+    const metaStr    = `meta +$${perBroker.toFixed(2)}/corretora`
+    const motivo = `RAFI ${meuBucket} (${rafi.toFixed(2)})${sessaoStr} · ${wins}/${total} similares · ${metaStr}${estadoStr}`
 
     // Trades similares recentes para exibir na UI (máx 5, mais recentes primeiro)
     const recentes = [...grupo]
@@ -165,15 +189,18 @@ export async function POST(req: NextRequest) {
       takeProfit,
       lot,
       rr,
-      slPips:        SL_PIPS,
-      tpPips:        TP_PIPS,
+      slPips,
+      tpPips,
+      perBroker,     // lucro alvo por corretora ($)
       probability:   Math.round(prob * 100),
       similar_count: total,
       wins,
       motivo,
       recentes,
-      confiante:     prob >= 0.65,  // true = full confidence badge; false = "modelo inicial"
+      confiante:     prob >= 0.65,
       capital,
+      brokerCount,
+      dailyTargetPct,
     })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)

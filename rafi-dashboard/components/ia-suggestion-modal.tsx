@@ -5,21 +5,24 @@ import { Brain, TrendingUp, TrendingDown, X, Zap, CheckCircle, AlertTriangle } f
 import { cn } from '@/lib/utils'
 
 export interface IASuggestion {
-  direction:     'buy' | 'sell'
-  entry:         number
-  stopLoss:      number
-  takeProfit:    number
-  lot:           number
-  rr:            string
-  slPips:        number
-  tpPips:        number
-  probability:   number   // 0–100
-  similar_count: number
-  wins:          number
-  motivo:        string
-  recentes:      Array<{ result: string; rafi: string; hora: string }>
-  confiante:     boolean  // true = ≥65%; false = 55–64% (modelo inicial)
-  capital:       number
+  direction:      'buy' | 'sell'
+  entry:          number
+  stopLoss:       number
+  takeProfit:     number
+  lot:            number
+  rr:             string
+  slPips:         number
+  tpPips:         number
+  perBroker?:     number   // lucro alvo por corretora ($)
+  brokerCount?:   number
+  dailyTargetPct?: number
+  probability:    number   // 0–100
+  similar_count:  number
+  wins:           number
+  motivo:         string
+  recentes:       Array<{ result: string; rafi: string; hora: string }>
+  confiante:      boolean  // true = ≥65%; false = 55–64% (modelo inicial)
+  capital:        number
 }
 
 interface Props {
@@ -137,8 +140,8 @@ export function IASuggestionModal({ suggestion: s, onAuthorize, onDismiss, timeo
           <span className="text-[#10b981] font-bold">{s.takeProfit.toFixed(5)} (+{s.tpPips}p)</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-[#484f58]">Risco</span>
-          <span className="text-[#f0f6fc]">1% · ${(s.capital * 0.01).toFixed(0)}</span>
+          <span className="text-[#484f58]">Meta/corretora</span>
+          <span className="text-[#10b981]">+${s.perBroker != null ? s.perBroker.toFixed(2) : (s.capital * 0.07).toFixed(2)}</span>
         </div>
       </div>
 
