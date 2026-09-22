@@ -269,7 +269,7 @@ export function SessionSidebar({
     return () => clearInterval(id)
   }, [])
 
-  // Missão de Amanhã — persiste último dado válido para evitar flickering
+  // Missão de Amanhã — dados e estado totalmente persistidos no localStorage
   type MissaoData = {
     dailyGoal: number; perBroker: number; lot: number; pips: number
     stopPips: number; lossLimit: number; brokers: number; DAILY_TARGET: number
@@ -278,12 +278,16 @@ export function SessionSidebar({
   const [missaoExpanded, setMissaoExpanded] = useState(true)
   const missaoTimerStarted = useRef(false)
 
-  // Restaura estado colapsado do localStorage na montagem
+  // Na montagem: restaura dados e estado do localStorage (sobrevive remount do componente pai)
   useEffect(() => {
-    try { if (localStorage.getItem('missao-v1-collapsed') === '1') setMissaoExpanded(false) } catch {}
+    try {
+      const saved = localStorage.getItem('missao-v2-data')
+      if (saved) setMissaoData(JSON.parse(saved))
+      if (localStorage.getItem('missao-v1-collapsed') === '1') setMissaoExpanded(false)
+    } catch {}
   }, [])
 
-  // Recalcula quando balance/brokerCount/target mudam — mas SÓ sobrescreve quando válido
+  // Recalcula quando balance/brokerCount/target mudam — SÓ atualiza quando balance válido
   useEffect(() => {
     if (!balance || balance <= 0) return
     const DAILY_TARGET = targets?.DAILY_TARGET ?? 7.0
@@ -302,7 +306,9 @@ export function SessionSidebar({
     const pips      = Math.round((perBroker + COMM_PER) / (lot * 10))
     const stopPips  = Math.round(pips / 1.5)
     const lossLimit = balance * 0.05
-    setMissaoData({ dailyGoal, perBroker, lot, pips, stopPips, lossLimit, brokers, DAILY_TARGET })
+    const data: MissaoData = { dailyGoal, perBroker, lot, pips, stopPips, lossLimit, brokers, DAILY_TARGET }
+    setMissaoData(data)
+    try { localStorage.setItem('missao-v2-data', JSON.stringify(data)) } catch {}
   }, [balance, brokerCount, targets?.DAILY_TARGET])
 
   const collapseMissao = () => {
