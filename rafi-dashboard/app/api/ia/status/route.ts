@@ -1,11 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
-
 // Campos atualizáveis via POST
 type IAConfigUpdate = {
   ia_autonoma_ativa?: boolean
@@ -16,8 +11,16 @@ type IAConfigUpdate = {
   threshold_confianca?: number
 }
 
+function getClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!url || !key) throw new Error('Supabase não configurado')
+  return createClient(url, key, { auth: { persistSession: false } })
+}
+
 export async function GET() {
-  const { data, error } = await supabase
+  const supa = getClient()
+  const { data, error } = await supa
     .from('rafi_ia_config')
     .select('*')
     .eq('id', 'default')
@@ -44,7 +47,8 @@ export async function POST(req: NextRequest) {
     if (key in body) patch[key] = body[key]
   }
 
-  const { data, error } = await supabase
+  const supa = getClient()
+  const { data, error } = await supa
     .from('rafi_ia_config')
     .update(patch)
     .eq('id', 'default')

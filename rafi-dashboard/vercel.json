@@ -5,7 +5,7 @@
       "schedule": "0 2 * * *"
     },
     {
-      "path": "/api/ml/auto-scan",
+      "path": "/api/ml/auto-scan-b",
       "schedule": "0 7 * * *"
     }
   ]
