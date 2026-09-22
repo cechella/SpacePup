@@ -1113,78 +1113,70 @@ export default function ChartPage() {
   }, [])
 
   // Histórico: busca trades fechados pelo período e corretora selecionados
-  // Tenta Supabase (rafi_deals) primeiro — instantâneo quando bridge está rodando.
+  // Fonte primária: /api/deals (usa service role key, ignora RLS).
   // Fallback: MetaAPI REST quando Supabase está vazio (bridge não instalado ainda).
   const fetchHistory = useCallback(async (period = '7d', broker = '') => {
     setHistoryLoading(true)
     try {
-      // ── Supabase (fonte primária) ──────────────────────────────────────────
-      const fromISO = (() => {
-        const now = new Date()
-        switch (period) {
-          case 'today': { const d = new Date(now); d.setUTCHours(0, 0, 0, 0); return d.toISOString() }
-          case '30d': return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
-          case '3m':  return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString()
-          default:    return new Date(now.getTime() -  7 * 24 * 60 * 60 * 1000).toISOString()
-        }
-      })()
+      // ── Supabase via API server-side (service role key — ignora RLS) ──────
+      const dealsParams = new URLSearchParams({ period })
+      if (broker) dealsParams.set('broker', broker)
+      const dealsRes = await fetch(`/api/deals?${dealsParams}`)
+      if (dealsRes.ok) {
+        const { deals: rawDeals } = await dealsRes.json()
 
-      const supa = createSupabaseClient()
-      let query = supa.from('rafi_deals').select('*').gte('time', fromISO).order('time', { ascending: false })
-      if (broker) query = query.eq('broker_id', broker)
-      const { data: rawDeals } = await query
+        if (rawDeals && rawDeals.length > 0) {
+          // Reconstrói entry_price: mapeia ENTRY_IN por position_id
+          const entryByPos: Record<string, number> = {}
+          rawDeals
+            .filter((d: any) => d.entry_type === 'DEAL_ENTRY_IN' && d.price && d.position_id)
+            .forEach((d: any) => { entryByPos[d.position_id] = d.price })
 
-      if (rawDeals && rawDeals.length > 0) {
-        // Reconstrói entry_price: mapeia ENTRY_IN por position_id
-        const entryByPos: Record<string, number> = {}
-        rawDeals
-          .filter((d: any) => d.entry_type === 'DEAL_ENTRY_IN' && d.price && d.position_id)
-          .forEach((d: any) => { entryByPos[d.position_id] = d.price })
+          const closedDeals = rawDeals.filter((d: any) => d.entry_type === 'DEAL_ENTRY_OUT')
 
-        const closedDeals = rawDeals.filter((d: any) => d.entry_type === 'DEAL_ENTRY_OUT')
+          // Se Supabase só tem registros ENTRY_IN (posições abertas, sem fechamentos),
+          // cai para MetaAPI REST para buscar os deals fechados do período
+          if (closedDeals.length > 0) {
+            const toTrade = (d: any) => ({
+              id:         d.id,
+              symbol:     d.symbol,
+              type:       d.deal_type,
+              direction:  (d.direction ?? (d.deal_type === 'DEAL_TYPE_SELL' ? 'buy' : 'sell')) as 'buy' | 'sell',
+              volume:     d.volume,
+              price:      d.price,
+              entryPrice: entryByPos[d.position_id] ?? null,
+              profit:     d.profit ?? 0,
+              time:       typeof d.time === 'string' ? d.time : new Date(d.time).toISOString(),
+              comment:    d.comment ?? '',
+              positionId: d.position_id ?? null,
+            })
 
-        // Se Supabase só tem registros ENTRY_IN (posições abertas, sem fechamentos),
-        // cai para MetaAPI REST para buscar os deals fechados do período
-        if (closedDeals.length > 0) {
-          const toTrade = (d: any) => ({
-            id:         d.id,
-            symbol:     d.symbol,
-            type:       d.deal_type,
-            direction:  (d.direction ?? (d.deal_type === 'DEAL_TYPE_SELL' ? 'buy' : 'sell')) as 'buy' | 'sell',
-            volume:     d.volume,
-            price:      d.price,
-            entryPrice: entryByPos[d.position_id] ?? null,
-            profit:     d.profit ?? 0,
-            time:       typeof d.time === 'string' ? d.time : new Date(d.time).toISOString(),
-            comment:    d.comment ?? '',
-            positionId: d.position_id ?? null,
-          })
+            const history = closedDeals.map(toTrade)
+            setMetaHistory(history)
 
-          const history = closedDeals.map(toTrade)
-          setMetaHistory(history)
-
-          if (broker) {
-            const nome = enabledBrokers.find(b => b.id === broker)?.nome ?? broker
-            setHistoryGroups([{ rank: 0, brokerId: broker, nome, trades: history }])
-          } else {
-            // Agrupa por broker_id preservando a ordem de enabledBrokers
-            const brokerDeals: Record<string, typeof history> = {}
-            for (const trade of history) {
-              const raw = rawDeals.find((x: any) => x.id === trade.id)
-              if (!raw) continue
-              if (!brokerDeals[raw.broker_id]) brokerDeals[raw.broker_id] = []
-              brokerDeals[raw.broker_id].push(trade)
+            if (broker) {
+              const nome = enabledBrokers.find(b => b.id === broker)?.nome ?? broker
+              setHistoryGroups([{ rank: 0, brokerId: broker, nome, trades: history }])
+            } else {
+              // Agrupa por broker_id preservando a ordem de enabledBrokers
+              const brokerDeals: Record<string, typeof history> = {}
+              for (const trade of history) {
+                const raw = rawDeals.find((x: any) => x.id === trade.id)
+                if (!raw) continue
+                if (!brokerDeals[raw.broker_id]) brokerDeals[raw.broker_id] = []
+                brokerDeals[raw.broker_id].push(trade)
+              }
+              const groups = enabledBrokers.map((b, idx) => ({
+                rank:     idx + 1,
+                brokerId: b.id,
+                nome:     b.nome,
+                trades:   brokerDeals[b.id] ?? [],
+              }))
+              setHistoryGroups(groups)
             }
-            const groups = enabledBrokers.map((b, idx) => ({
-              rank:     idx + 1,
-              brokerId: b.id,
-              nome:     b.nome,
-              trades:   brokerDeals[b.id] ?? [],
-            }))
-            setHistoryGroups(groups)
+            setHistoryLoading(false)
+            return
           }
-          setHistoryLoading(false)
-          return
         }
       }
     } catch { /* silencioso — fallback para MetaAPI abaixo */ }
