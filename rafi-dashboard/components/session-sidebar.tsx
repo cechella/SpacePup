@@ -274,10 +274,11 @@ export function SessionSidebar({
   const missaoTimerStarted = useRef(false)
 
   const missaoData = useMemo(() => {
-    if (!targets || !balance || balance <= 0) return null
+    if (!balance || balance <= 0) return null
+    const DAILY_TARGET = targets?.DAILY_TARGET ?? 7.0
     const COMM_PER  = 0.35
     const brokers   = Math.max(brokerCount ?? 1, 1)
-    const dailyGoal = balance * (targets.DAILY_TARGET / 100)
+    const dailyGoal = balance * (DAILY_TARGET / 100)
     const perBroker = dailyGoal / brokers
     const suggestLot = (tgt: number): number => {
       for (const lot of [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50, 0.60, 0.80, 1.00]) {
@@ -290,8 +291,8 @@ export function SessionSidebar({
     const pips      = Math.round((perBroker + COMM_PER) / (lot * 10))
     const stopPips  = Math.round(pips / 1.5)
     const lossLimit = balance * 0.05
-    return { dailyGoal, perBroker, lot, pips, stopPips, lossLimit, brokers }
-  }, [balance, brokerCount, targets])
+    return { dailyGoal, perBroker, lot, pips, stopPips, lossLimit, brokers, DAILY_TARGET }
+  }, [balance, brokerCount, targets?.DAILY_TARGET])
 
   // Inicia o timer de 25s só uma vez, quando o card aparece pela primeira vez
   useEffect(() => {
@@ -505,7 +506,7 @@ export function SessionSidebar({
               <div className="flex items-center justify-between rounded-lg border border-[#1c3050] bg-[#131f2e] px-2.5 py-2">
                 <div>
                   <div className="text-[7.5px] font-bold text-[#334455] uppercase tracking-widest">
-                    Meta consolidada ({targets!.DAILY_TARGET}%)
+                    Meta consolidada ({missaoData.DAILY_TARGET}%)
                   </div>
                   <div className="text-[8px] text-[#334455] mt-0.5">
                     {missaoData.brokers} corretoras × ${missaoData.perBroker.toFixed(2)}
