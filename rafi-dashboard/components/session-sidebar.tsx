@@ -269,12 +269,23 @@ export function SessionSidebar({
     return () => clearInterval(id)
   }, [])
 
-  // Missão de Amanhã — expande ao carregar, colapsa em 25s
+  // Missão de Amanhã — persiste último dado válido para evitar flickering
+  type MissaoData = {
+    dailyGoal: number; perBroker: number; lot: number; pips: number
+    stopPips: number; lossLimit: number; brokers: number; DAILY_TARGET: number
+  }
+  const [missaoData, setMissaoData] = useState<MissaoData | null>(null)
   const [missaoExpanded, setMissaoExpanded] = useState(true)
   const missaoTimerStarted = useRef(false)
 
-  const missaoData = useMemo(() => {
-    if (!balance || balance <= 0) return null
+  // Restaura estado colapsado do localStorage na montagem
+  useEffect(() => {
+    try { if (localStorage.getItem('missao-v1-collapsed') === '1') setMissaoExpanded(false) } catch {}
+  }, [])
+
+  // Recalcula quando balance/brokerCount/target mudam — mas SÓ sobrescreve quando válido
+  useEffect(() => {
+    if (!balance || balance <= 0) return
     const DAILY_TARGET = targets?.DAILY_TARGET ?? 7.0
     const COMM_PER  = 0.35
     const brokers   = Math.max(brokerCount ?? 1, 1)
@@ -291,14 +302,23 @@ export function SessionSidebar({
     const pips      = Math.round((perBroker + COMM_PER) / (lot * 10))
     const stopPips  = Math.round(pips / 1.5)
     const lossLimit = balance * 0.05
-    return { dailyGoal, perBroker, lot, pips, stopPips, lossLimit, brokers, DAILY_TARGET }
+    setMissaoData({ dailyGoal, perBroker, lot, pips, stopPips, lossLimit, brokers, DAILY_TARGET })
   }, [balance, brokerCount, targets?.DAILY_TARGET])
+
+  const collapseMissao = () => {
+    setMissaoExpanded(false)
+    try { localStorage.setItem('missao-v1-collapsed', '1') } catch {}
+  }
+  const expandMissao = () => {
+    setMissaoExpanded(true)
+    try { localStorage.removeItem('missao-v1-collapsed') } catch {}
+  }
 
   // Inicia o timer de 25s só uma vez, quando o card aparece pela primeira vez
   useEffect(() => {
     if (!missaoData || missaoTimerStarted.current) return
     missaoTimerStarted.current = true
-    const t = setTimeout(() => setMissaoExpanded(false), 25_000)
+    const t = setTimeout(() => collapseMissao(), 25_000)
     return () => clearTimeout(t)
   }, [missaoData])
 
@@ -474,7 +494,7 @@ export function SessionSidebar({
                 <div className="text-[8px] text-[#334455]">Capital consolidado atual</div>
               </div>
               <button
-                onClick={() => setMissaoExpanded(false)}
+                onClick={collapseMissao}
                 className="text-[#334455] hover:text-[#7a96b8] transition-colors shrink-0"
               >
                 <XIcon size={12} />
@@ -528,7 +548,7 @@ export function SessionSidebar({
           </div>
         ) : (
           <button
-            onClick={() => setMissaoExpanded(true)}
+            onClick={expandMissao}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-xl border border-[#e2b04a]/30 bg-[#0f1824] hover:bg-[#131f2e] hover:border-[#e2b04a]/60 transition-all group text-left"
           >
             <span className="text-xs shrink-0">🎯</span>
