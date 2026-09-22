@@ -12,7 +12,7 @@ import { logBrokerEvent } from '@/lib/broker-health'
 import type { CandleData } from '@/lib/types'
 
 export const runtime = 'nodejs'
-export const maxDuration = 60  // segundos — Vercel Pro/Hobby permite até 60s
+export const maxDuration = 10  // Vercel Hobby: máximo 10s por serverless function
 
 const MARKET_DATA_BASE = process.env.METAAPI_MARKET_DATA_URL
   ?? 'https://mt-market-data-client-api-v1.london.agiliumtrade.ai'
