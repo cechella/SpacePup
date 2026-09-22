@@ -1662,6 +1662,15 @@ export default function ChartPage() {
     })
   }, [liveTopBrokerId, liveTopBrokerNome])
 
+  // P&L diário em tempo real = fechados hoje + flutuante das posições abertas
+  // Atualiza a cada tick de preço (~300ms) — usado na barra "Dia %" para mostrar progresso real
+  const liveDailyPnl = targetMetrics.dailyPnl + liveTotalPnl
+  const liveDailyPct = useMemo(() => {
+    const bal = consolidatedBalance ?? metaAccount?.balance ?? 100
+    const startBal = Math.max(bal - targetMetrics.dailyPnl, 1)
+    return (liveDailyPnl / startBal) * 100
+  }, [liveDailyPnl, consolidatedBalance, metaAccount, targetMetrics.dailyPnl])
+
   // Equity ao vivo: saldo fixo + P&L calculado tick a tick via preço SSE
   // Evita o atraso do poll de 5s — exibe o capital total em tempo real
   const liveEquity = useMemo(() => {
@@ -2321,18 +2330,18 @@ export default function ChartPage() {
             {/* Meta diária */}
             <span
               className="font-bold shrink-0 tabular-nums"
-              style={{ color: targetMetrics.dailyMet ? '#00e676' : '#7a96b8', minWidth: 60 }}
+              style={{ color: targetMetrics.dailyMet ? '#00e676' : liveDailyPct >= DAILY_TARGET * 0.7 ? '#f59e0b' : '#7a96b8', minWidth: 60 }}
             >
-              {targetMetrics.dailyMet ? '✓' : '◎'} Dia {targetMetrics.dailyPct >= 0 ? '+' : ''}{targetMetrics.dailyPct.toFixed(1)}%/{DAILY_TARGET}%
+              {targetMetrics.dailyMet ? '✓' : '◎'} Dia {liveDailyPct >= 0 ? '+' : ''}{liveDailyPct.toFixed(1)}%/{DAILY_TARGET}%
             </span>
             <div className="w-24 h-1.5 bg-[#131f2e] rounded-full overflow-hidden shrink-0">
               <div
                 className="h-full rounded-full transition-all duration-700"
                 style={{
-                  width: `${Math.min((targetMetrics.dailyPct / DAILY_TARGET) * 100, 100)}%`,
+                  width: `${Math.min((liveDailyPct / DAILY_TARGET) * 100, 100)}%`,
                   background: targetMetrics.dailyMet
                     ? 'linear-gradient(90deg,#4499ff,#00e676)'
-                    : targetMetrics.dailyPct >= DAILY_TARGET * 0.7
+                    : liveDailyPct >= DAILY_TARGET * 0.7
                     ? 'linear-gradient(90deg,#4499ff,#f59e0b)'
                     : '#4499ff',
                 }}
