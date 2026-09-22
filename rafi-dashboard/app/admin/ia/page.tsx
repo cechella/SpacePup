@@ -1,5 +1,7 @@
 'use client'
 
+export const dynamic = 'force-dynamic'
+
 import { useEffect, useState, useCallback } from 'react'
 import {
   Brain, Power, Shield, Clock, Target, TrendingUp, AlertTriangle,
@@ -28,10 +30,13 @@ interface IAStats {
 }
 
 function useSupabase() {
-  return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  )
+  const [client] = useState<ReturnType<typeof createBrowserClient> | null>(() => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    if (!url || !key) return null
+    return createBrowserClient(url, key)
+  })
+  return client
 }
 
 function ToggleSwitch({
@@ -120,6 +125,7 @@ export default function AdminIAPage() {
   const [updating, setUpdating] = useState<string | null>(null)
 
   const loadConfig = useCallback(async () => {
+    if (!supa) return
     setLoading(true)
     try {
       const [cfgRes, statsHoje, statsSemana] = await Promise.all([

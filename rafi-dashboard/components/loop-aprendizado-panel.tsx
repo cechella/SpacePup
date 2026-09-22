@@ -38,10 +38,13 @@ interface Props {
 }
 
 function useSupabaseClient() {
-  return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  )
+  const [client] = useState<ReturnType<typeof createBrowserClient> | null>(() => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    if (!url || !key) return null
+    return createBrowserClient(url, key)
+  })
+  return client
 }
 
 const FEATURE_LABELS: Record<string, string> = {
@@ -82,6 +85,7 @@ export function LoopDeAprendizadoPanel({ open, onClose, checkin, capital, broker
   }, [onClose])
 
   async function load() {
+    if (!supa) return
     setLoading(true)
     try {
       const [featRes, modelRes, tradesRes, totalRes] = await Promise.all([

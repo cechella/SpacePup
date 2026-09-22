@@ -1,7 +1,9 @@
 'use client'
 
+export const dynamic = 'force-dynamic'
+
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
-import dynamic from 'next/dynamic'
+import nextDynamic from 'next/dynamic'
 import { generateDemoData, type Timeframe } from '@/lib/demo-data'
 import { calcRAFI, calcSRLevels, calcBollingerBands, autoScanBreakouts } from '@/lib/indicators'
 import { parseCSV, detectTimeframe, fmtDate, type LoadResult } from '@/lib/csv-loader'
@@ -26,7 +28,7 @@ import { ModoAutonomoBanner, type AutonomoTrade } from '@/components/modo-autono
 import { MissaoHojePopup } from '@/components/missao-hoje-popup'
 import { LoopDeAprendizadoPanel } from '@/components/loop-aprendizado-panel'
 
-const RAFIChart = dynamic(
+const RAFIChart = nextDynamic(
   () => import('@/components/rafi-chart').then(m => m.RAFIChart),
   {
     ssr: false,
