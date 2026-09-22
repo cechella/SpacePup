@@ -259,6 +259,10 @@ export default function ChartPage() {
   const [supabaseGoalData, setSupabaseGoalData] = useState<{
     dailyPct: number; dailyPnl: number; weeklyPct: number; weeklyPnl: number
   } | null>(null)
+  // Dados fixos capturados no momento em que o overlay foi acionado —
+  // independente de MetaAPI ainda estar carregando ou não
+  const [overlayDailyData,  setOverlayDailyData]  = useState<{ pct: number; pnl: number; weeklyPct: number; weeklyPnl: number } | null>(null)
+  const [overlayWeeklyData, setOverlayWeeklyData] = useState<{ pct: number; pnl: number; weeklyPct: number; weeklyPnl: number } | null>(null)
   // Roteamento multi-corretora: broker vencedor atual do ranking
   const [routeBroker, setRouteBroker] = useState<{
     id: string; nome: string; estado: string; health_score: number; circuit_breaker: string
@@ -302,6 +306,7 @@ export default function ChartPage() {
     const storedPnl = typeof window !== 'undefined' ? parseFloat(localStorage.getItem(`rafi-daily-pnl-${today}`) ?? '0') : 0
     // Só restaura do localStorage se houver P&L real salvo junto com a flag
     if (stored === 'true' && storedPnl > 0) {
+      setOverlayDailyData({ pct: 0, pnl: storedPnl, weeklyPct: 0, weeklyPnl: 0 })
       setShowDailyOverlay(true)
       prevDailyMetRef.current = true  // evita duplo disparo quando MetaAPI carregar
     } else if (stored === 'true' && storedPnl <= 0) {
@@ -319,6 +324,7 @@ export default function ChartPage() {
     const storedPnl = typeof window !== 'undefined' ? parseFloat(localStorage.getItem(`rafi-weekly-pnl-${weekMonday}`) ?? '0') : 0
     // Só restaura do localStorage se houver P&L real salvo junto com a flag
     if (stored === 'true' && storedPnl > 0) {
+      setOverlayWeeklyData({ pct: 0, pnl: storedPnl, weeklyPct: 0, weeklyPnl: storedPnl })
       setShowWeeklyOverlay(true)
       prevWeeklyMetRef.current = true  // evita duplo disparo quando MetaAPI carregar
     } else if (stored === 'true' && storedPnl <= 0) {
@@ -538,6 +544,9 @@ export default function ChartPage() {
           localStorage.setItem(`rafi-daily-target-met-${today}`, 'true')
           localStorage.setItem(`rafi-daily-pnl-${today}`, String(daily.dailyPnl))
           setSupabaseGoalData({ dailyPct: daily.dailyPct, dailyPnl: daily.dailyPnl, weeklyPct: daily.weeklyPct, weeklyPnl: daily.weeklyPnl })
+          // Captura os dados reais no momento do disparo — garante que o overlay mostre valores corretos
+          // mesmo que targetMetrics ainda esteja zerado (MetaAPI carregando)
+          setOverlayDailyData({ pct: daily.dailyPct, pnl: daily.dailyPnl, weeklyPct: daily.weeklyPct, weeklyPnl: daily.weeklyPnl })
           setShowDailyOverlay(true)
           setShowCheckin(false)
           prevDailyMetRef.current = true
@@ -547,6 +556,7 @@ export default function ChartPage() {
             localStorage.removeItem(`rafi-daily-target-met-${today}`)
             localStorage.removeItem(`rafi-daily-pnl-${today}`)
           } catch { /* */ }
+          setShowDailyOverlay(false)
         }
 
         // Verifica meta semanal (qualquer dia da semana pode ter batido a meta)
@@ -555,6 +565,7 @@ export default function ChartPage() {
           localStorage.setItem(`rafi-weekly-target-met-${weekMonday}`, 'true')
           localStorage.setItem(`rafi-weekly-pnl-${weekMonday}`, String(weekly.weeklyPnl))
           setSupabaseGoalData({ dailyPct: weekly.dailyPct, dailyPnl: weekly.dailyPnl, weeklyPct: weekly.weeklyPct, weeklyPnl: weekly.weeklyPnl })
+          setOverlayWeeklyData({ pct: weekly.weeklyPct, pnl: weekly.weeklyPnl, weeklyPct: weekly.weeklyPct, weeklyPnl: weekly.weeklyPnl })
           setShowWeeklyOverlay(true)
           setShowCheckin(false)
           prevWeeklyMetRef.current = true
@@ -564,6 +575,7 @@ export default function ChartPage() {
             localStorage.removeItem(`rafi-weekly-target-met-${weekMonday}`)
             localStorage.removeItem(`rafi-weekly-pnl-${weekMonday}`)
           } catch { /* */ }
+          setShowWeeklyOverlay(false)
         }
       } catch { /* Supabase indisponível — fallback silencioso para localStorage */ }
     }
@@ -701,6 +713,8 @@ export default function ChartPage() {
   useEffect(() => {
     if (!balanceLoaded) return
     if (targetMetrics.dailyMet && !prevDailyMetRef.current) {
+      // Captura valores reais do MetaAPI no momento do disparo
+      setOverlayDailyData({ pct: targetMetrics.dailyPct, pnl: targetMetrics.dailyPnl, weeklyPct: targetMetrics.weeklyPct, weeklyPnl: targetMetrics.weeklyPnl })
       setShowDailyOverlay(true)
       setShowCheckin(false)
       // Persiste no Supabase — funciona mesmo após reconectar MetaAPI em outro dispositivo
@@ -721,6 +735,7 @@ export default function ChartPage() {
   useEffect(() => {
     if (!balanceLoaded) return
     if (targetMetrics.weeklyMet && !prevWeeklyMetRef.current) {
+      setOverlayWeeklyData({ pct: targetMetrics.weeklyPct, pnl: targetMetrics.weeklyPnl, weeklyPct: targetMetrics.weeklyPct, weeklyPnl: targetMetrics.weeklyPnl })
       setShowWeeklyOverlay(true)
       upsertDailyGoal({
         date:       brtDateStr(),
@@ -1914,10 +1929,10 @@ export default function ChartPage() {
       {showDailyOverlay && (
         <MetasOverlay
           type="daily"
-          dailyPct={balanceLoaded  ? targetMetrics.dailyPct  : (supabaseGoalData?.dailyPct  ?? 0)}
-          dailyPnl={balanceLoaded  ? targetMetrics.dailyPnl  : (supabaseGoalData?.dailyPnl  ?? 0)}
-          weeklyPct={balanceLoaded ? targetMetrics.weeklyPct : (supabaseGoalData?.weeklyPct ?? 0)}
-          weeklyPnl={balanceLoaded ? targetMetrics.weeklyPnl : (supabaseGoalData?.weeklyPnl ?? 0)}
+          dailyPct={overlayDailyData?.pct  ?? targetMetrics.dailyPct}
+          dailyPnl={overlayDailyData?.pnl  ?? targetMetrics.dailyPnl}
+          weeklyPct={overlayDailyData?.weeklyPct ?? targetMetrics.weeklyPct}
+          weeklyPnl={overlayDailyData?.weeklyPnl ?? targetMetrics.weeklyPnl}
           daysHit={targetMetrics.daysHit}
           currency={metaAccount?.currency ?? 'USD'}
           onClose={() => setShowDailyOverlay(false)}
@@ -1928,10 +1943,10 @@ export default function ChartPage() {
       {showWeeklyOverlay && (
         <MetasOverlay
           type="weekly"
-          dailyPct={balanceLoaded  ? targetMetrics.dailyPct  : (supabaseGoalData?.dailyPct  ?? 0)}
-          dailyPnl={balanceLoaded  ? targetMetrics.dailyPnl  : (supabaseGoalData?.dailyPnl  ?? 0)}
-          weeklyPct={balanceLoaded ? targetMetrics.weeklyPct : (supabaseGoalData?.weeklyPct ?? 0)}
-          weeklyPnl={balanceLoaded ? targetMetrics.weeklyPnl : (supabaseGoalData?.weeklyPnl ?? 0)}
+          dailyPct={overlayWeeklyData?.pct  ?? targetMetrics.dailyPct}
+          dailyPnl={overlayWeeklyData?.pnl  ?? targetMetrics.dailyPnl}
+          weeklyPct={overlayWeeklyData?.weeklyPct ?? targetMetrics.weeklyPct}
+          weeklyPnl={overlayWeeklyData?.weeklyPnl ?? targetMetrics.weeklyPnl}
           daysHit={targetMetrics.daysHit}
           currency={metaAccount?.currency ?? 'USD'}
           onClose={() => setShowWeeklyOverlay(false)}
