@@ -1116,13 +1116,57 @@ export default function ChartPage() {
     } catch {}
   }, [])
 
-  // Histórico: busca trades fechados pelo período e corretora selecionados
-  // Fonte primária: /api/deals (usa service role key, ignora RLS).
-  // Fallback: MetaAPI REST quando Supabase está vazio (bridge não instalado ainda).
+  // Histórico: busca trades fechados pelo período e corretora selecionados.
+  // Prioridade:
+  //   MetaAPI ON  → MetaAPI REST (fonte completa e autoritativa)
+  //   MetaAPI OFF → Supabase /api/deals (bridge, ignora RLS)
   const fetchHistory = useCallback(async (period = '7d', broker = '') => {
     setHistoryLoading(true)
+
+    const todayBRT  = brtDateStr()
+    const toBrtDate = (iso: string) =>
+      new Date(new Date(iso).getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
+
+    // ── MetaAPI REST (fonte primária quando conectado) ────────────────────────
+    if (metaConnected) {
+      try {
+        // Para 'today', busca 7 dias e filtra client-side por data BRT
+        const restPeriod = period === 'today' ? '7d' : period
+        const params = new URLSearchParams({ period: restPeriod })
+        if (broker) { params.set('broker', broker) } else { params.set('all', 'true') }
+        const res = await fetch(`/api/metaapi/history?${params}`)
+        if (res.ok) {
+          const data = await res.json()
+          if (!data.error) {
+            let history: typeof metaHistory = data.history ?? []
+            let groups: typeof historyGroups | undefined = data.groups
+
+            if (period === 'today') {
+              history = history.filter(t => toBrtDate(t.time ?? '') === todayBRT)
+              if (groups) {
+                groups = groups.map(g => ({ ...g, trades: g.trades.filter(t => toBrtDate(t.time ?? '') === todayBRT) }))
+              }
+            }
+
+            // Considera sucesso se retornou ao menos um deal (ou resposta sem erro)
+            if (history.length > 0 || (groups && groups.some(g => g.trades.length > 0))) {
+              setMetaHistory(history)
+              if (groups) {
+                setHistoryGroups(groups)
+              } else {
+                const nome = enabledBrokers.find(b => b.id === broker)?.nome ?? broker
+                setHistoryGroups([{ rank: 0, brokerId: broker, nome, trades: history }])
+              }
+              setHistoryLoading(false)
+              return
+            }
+          }
+        }
+      } catch { /* silencioso — fallback para Supabase abaixo */ }
+    }
+
+    // ── Supabase /api/deals (fallback quando MetaAPI offline ou retornou vazio) ─
     try {
-      // ── Supabase via API server-side (service role key — ignora RLS) ──────
       const dealsParams = new URLSearchParams({ period })
       if (broker) dealsParams.set('broker', broker)
       const dealsRes = await fetch(`/api/deals?${dealsParams}`)
@@ -1130,7 +1174,6 @@ export default function ChartPage() {
         const { deals: rawDeals } = await dealsRes.json()
 
         if (rawDeals && rawDeals.length > 0) {
-          // Reconstrói entry_price: mapeia ENTRY_IN por position_id
           const entryByPos: Record<string, number> = {}
           rawDeals
             .filter((d: any) => d.entry_type === 'DEAL_ENTRY_IN' && d.price && d.position_id)
@@ -1138,8 +1181,6 @@ export default function ChartPage() {
 
           const closedDeals = rawDeals.filter((d: any) => d.entry_type === 'DEAL_ENTRY_OUT')
 
-          // Se Supabase só tem registros ENTRY_IN (posições abertas, sem fechamentos),
-          // cai para MetaAPI REST para buscar os deals fechados do período
           if (closedDeals.length > 0) {
             const toTrade = (d: any) => ({
               id:         d.id,
@@ -1162,7 +1203,6 @@ export default function ChartPage() {
               const nome = enabledBrokers.find(b => b.id === broker)?.nome ?? broker
               setHistoryGroups([{ rank: 0, brokerId: broker, nome, trades: history }])
             } else {
-              // Agrupa por broker_id preservando a ordem de enabledBrokers
               const brokerDeals: Record<string, typeof history> = {}
               for (const trade of history) {
                 const raw = rawDeals.find((x: any) => x.id === trade.id)
@@ -1183,49 +1223,8 @@ export default function ChartPage() {
           }
         }
       }
-    } catch { /* silencioso — fallback para MetaAPI abaixo */ }
+    } catch { /* silencioso */ }
 
-    // ── Fallback: MetaAPI REST (apenas quando MetaAPI está conectado) ──────────
-    // Quando desconectado, Supabase é a única fonte — não tentar MetaAPI REST
-    if (!metaConnected) { setHistoryLoading(false); return }
-
-    try {
-      // Para 'today', busca 7 dias e filtra client-side — o endpoint MetaAPI
-      // com janela de poucas horas pode retornar vazio dependendo do broker.
-      // O filtro UTC é idêntico ao usado em targetMetrics para consistência.
-      const restPeriod = period === 'today' ? '7d' : period
-      // Data BRT para filtro client-side: evita perder trades feitos antes das 03:00 UTC
-      const todayBRT = brtDateStr()
-      const toBrtDate = (iso: string) =>
-        new Date(new Date(iso).getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
-
-      const params = new URLSearchParams({ period: restPeriod })
-      if (broker) { params.set('broker', broker) } else { params.set('all', 'true') }
-      const res = await fetch(`/api/metaapi/history?${params}`)
-      if (res.ok) {
-        const data = await res.json()
-        if (!data.error) {
-          let history: typeof metaHistory = data.history ?? []
-          let groups: typeof historyGroups | undefined = data.groups
-
-          // Filtra só hoje (em BRT) quando o usuário selecionou o período 'Hoje'
-          if (period === 'today') {
-            history = history.filter(t => toBrtDate(t.time ?? '') === todayBRT)
-            if (groups) {
-              groups = groups.map(g => ({ ...g, trades: g.trades.filter(t => toBrtDate(t.time ?? '') === todayBRT) }))
-            }
-          }
-
-          setMetaHistory(history)
-          if (groups) {
-            setHistoryGroups(groups)
-          } else {
-            const nome = enabledBrokers.find(b => b.id === broker)?.nome ?? broker
-            setHistoryGroups([{ rank: 0, brokerId: broker, nome, trades: history }])
-          }
-        }
-      }
-    } catch {}
     setHistoryLoading(false)
   }, [enabledBrokers, metaConnected])
 
