@@ -620,6 +620,17 @@ export default function ChartPage() {
   }, [])
 
   function handleMetaCheckin() {
+    // Se já fez check-in nesta sessão com bom estado, desbloqueia direto sem repetir o modal
+    if (checkin !== null) {
+      const estadoRuim =
+        checkin.sono    === 'mal'   ||
+        checkin.energia === 'baixa' ||
+        checkin.mental  === 'ruim'  ||
+        checkin.humor   === 'triste'
+      setShowDailyOverlay(false)
+      if (!estadoRuim) setManualUnlocked(true)
+      return
+    }
     checkinFromMetaRef.current = true
     setShowDailyOverlay(false)
     setShowCheckin(true)
