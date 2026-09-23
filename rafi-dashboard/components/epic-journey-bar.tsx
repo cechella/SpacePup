@@ -54,14 +54,9 @@ const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@700&display=swap');
 
 @keyframes ign-plasma {
-  from { background-position: 300% 0; }
-  to   { background-position: 0% 0; }
+  from { background-position: 0% 0; }
+  to   { background-position: -300% 0; }
 }
-@keyframes ign-flame-lick {
-  0%   { transform: scaleY(.65) skewX(-12deg); opacity:.45; }
-  100% { transform: scaleY(1.3)  skewX(8deg);  opacity:.9;  }
-}
-.ign-flame-lick { animation: ign-flame-lick .6s ease-in-out 0s infinite alternate; }
 @keyframes ign-burn {
   0%,100% { transform:translate(-50%,-50%) scale(1);    box-shadow:0 0 12px 5px rgba(255,230,100,.9),0 0 32px 12px rgba(240,180,41,.45),0 0 64px 24px rgba(240,180,41,.18); }
   50%      { transform:translate(-50%,-50%) scale(1.22); box-shadow:0 0 20px 8px rgba(255,255,220,1),0 0 52px 18px rgba(240,180,41,.55),0 0 96px 34px rgba(240,180,41,.22); }
@@ -104,7 +99,6 @@ export function EpicJourneyBar({ capital }: { capital: number }) {
   const tubeRef    = useRef<HTMLDivElement>(null)
   const fillRef    = useRef<HTMLDivElement>(null)
   const burnRef    = useRef<HTMLDivElement>(null)
-  const flamesRef  = useRef<HTMLDivElement>(null)
   const lineRef    = useRef<HTMLDivElement>(null)
   const labelRef   = useRef<HTMLDivElement>(null)
   const starsRef   = useRef<HTMLDivElement>(null)
@@ -139,7 +133,6 @@ export function EpicJourneyBar({ capital }: { capital: number }) {
     const t = setTimeout(() => {
       if (fillRef.current)   fillRef.current.style.width  = curPct + '%'
       if (burnRef.current)   burnRef.current.style.left   = curPct + '%'
-      if (flamesRef.current) flamesRef.current.style.left = `calc(${curPct}% - 28px)`
       if (lineRef.current)   lineRef.current.style.left   = curPct + '%'
       if (labelRef.current) {
         const safe = Math.max(9, Math.min(curPct, 87))
@@ -227,31 +220,6 @@ export function EpicJourneyBar({ capital }: { capital: number }) {
               backgroundSize:'300% 100%', animation:'ign-plasma 4.2s linear infinite',
               boxShadow:'inset 0 2px 0 rgba(255,255,255,.22),inset 0 -2px 0 rgba(0,0,0,.28)',
             }} />
-          </div>
-
-          {/* Chamas vivas na borda dianteira */}
-          <div ref={flamesRef} style={{
-            position:'absolute', top:0, bottom:0,
-            left:'calc(0% - 28px)', width:56,
-            zIndex:4, pointerEvents:'none', overflow:'visible',
-            transition:'left 1.9s cubic-bezier(.4,0,.2,1)',
-          }}>
-            {([
-              { l:0,  h:40, w:11, dur:'.52s', del:'0s'    },
-              { l:10, h:54, w:14, dur:'.68s', del:'.08s'  },
-              { l:22, h:46, w:12, dur:'.6s',  del:'.14s'  },
-              { l:33, h:34, w:9,  dur:'.44s', del:'.05s'  },
-              { l:40, h:48, w:11, dur:'.72s', del:'.2s'   },
-            ] as const).map((f, i) => (
-              <div key={i} className="ign-flame-lick" style={{
-                position:'absolute', bottom:'50%', left:f.l,
-                width:f.w, height:f.h,
-                background:'linear-gradient(to top,rgba(255,60,0,.95),rgba(255,160,20,.7),rgba(255,230,80,.3),transparent)',
-                borderRadius:'55% 55% 35% 35% / 65% 65% 35% 35%',
-                animationDuration:f.dur, animationDelay:f.del,
-                filter:'blur(.6px)', transformOrigin:'bottom center',
-              }} />
-            ))}
           </div>
 
           {/* Ponta em brasa */}
