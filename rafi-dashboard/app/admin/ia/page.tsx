@@ -429,16 +429,33 @@ export default function AdminIAPage() {
           nextScanUtc = 'amanhã 02:00 UTC'; nextScanBRT = '23:00 BRT'; sessaoNome = 'Sydney / Tóquio'; sessaoOn = config?.sessao_sydney_tokyo ?? true
         }
 
-        const LOT_STEPS = [0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50]
+        const LOT_STEPS = [0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50, 0.60, 0.80, 1.00]
         const COMM_PER  = 0.35
         const dailyGoal = capitalBase * ((config?.meta_diaria_pct ?? 7) / 100)
-        const perBroker = dailyGoal / nBrokersAtivos
+        const n         = Math.max(nBrokersAtivos, 1)
+        const perBroker = dailyGoal / n
+
+        // Lote para 1 Trade
         let lot = 0.10
         for (const l of LOT_STEPS) {
           const p = (perBroker + COMM_PER) / (l * 10)
           if (p >= 4 && p <= 80) { lot = l; break }
         }
-        const pipsNec   = (perBroker + COMM_PER) / (lot * 10)
+        const pips1 = (perBroker + COMM_PER) / (lot * 10)
+        const tgt1  = perBroker + COMM_PER
+        const tot1  = tgt1 * n
+
+        // Lote para 2 Trades (alvo metade por trade)
+        const per2 = perBroker / 2
+        let lot2 = 0.10
+        for (const l of LOT_STEPS) {
+          const p = (per2 + COMM_PER) / (l * 10)
+          if (p >= 4 && p <= 80) { lot2 = l; break }
+        }
+        const pips2 = (per2 + COMM_PER) / (lot2 * 10)
+        const tgt2  = per2 + COMM_PER
+        const tot2  = tgt2 * n * 2
+
         const faltaHoje = Math.max(0, dailyGoal - pnlHoje)
         const faltaSem  = Math.max(0, capitalBase * ((config?.meta_semanal_pct ?? 25) / 100) - pnlSemana)
         const vaOperar  = iaAtiva && sessaoOn && faltaHoje > 0 && faltaSem > 0
@@ -473,28 +490,88 @@ export default function AdminIAPage() {
               <div className="rounded-lg bg-white/5 p-3 space-y-1">
                 <p className="text-[10px] text-white/40 uppercase tracking-wider">Capital base</p>
                 <p className="text-base font-bold tabular-nums text-white">${capitalBase.toFixed(2)}</p>
-                <p className="text-[9px] text-white/25">{nBrokersAtivos} corretoras ativas</p>
-              </div>
-              <div className="rounded-lg bg-white/5 p-3 space-y-1">
-                <p className="text-[10px] text-white/40 uppercase tracking-wider">Lote estimado</p>
-                <p className="text-base font-bold tabular-nums text-cyan-400">{lot.toFixed(2)} lot</p>
-                <p className="text-[9px] text-white/25">por corretora × {nBrokersAtivos}</p>
-              </div>
-              <div className="rounded-lg bg-white/5 p-3 space-y-1">
-                <p className="text-[10px] text-white/40 uppercase tracking-wider">Meta do dia</p>
-                <p className="text-base font-bold tabular-nums text-blue-400">${dailyGoal.toFixed(2)} <span className="text-[10px] text-white/30">({config?.meta_diaria_pct ?? 7}%)</span></p>
-                <div className="flex items-center gap-1.5 mt-1">
-                  <div className="flex-1 h-1 rounded-full bg-white/10 overflow-hidden">
-                    <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${Math.min(progDia, 100)}%` }} />
-                  </div>
-                  <span className="text-[9px] text-white/25 tabular-nums">{pipsNec.toFixed(1)}p</span>
-                </div>
+                <p className="text-[9px] text-white/25">{n} corretoras ativas</p>
               </div>
               <div className="rounded-lg bg-white/5 p-3 space-y-1">
                 <p className="text-[10px] text-white/40 uppercase tracking-wider">Próximo scan</p>
                 <p className="text-[11px] font-bold text-violet-400">{nextScanUtc}</p>
                 <p className="text-[9px] text-white/25">{nextScanBRT} (Brasília)</p>
               </div>
+              <div className="rounded-lg bg-white/5 p-3 space-y-1 col-span-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] text-white/40 uppercase tracking-wider">Meta do dia ({config?.meta_diaria_pct ?? 7}%)</p>
+                  <p className={cn('text-[10px] font-bold tabular-nums', pnlHoje >= dailyGoal ? 'text-emerald-400' : 'text-blue-400')}>
+                    ${pnlHoje.toFixed(2)} de ${dailyGoal.toFixed(2)}{pnlHoje >= dailyGoal && ' ✓'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{ width: `${Math.min(progDia, 100)}%`, background: progDia >= 100 ? '#10b981' : '#3b82f6' }}
+                    />
+                  </div>
+                  <span className={cn('text-[9px] tabular-nums', pnlHoje >= dailyGoal ? 'text-emerald-400' : 'text-white/25')}>
+                    {pnlHoje >= dailyGoal ? 'META ✓' : `falta $${faltaHoje.toFixed(2)}`}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Estratégia de hoje */}
+            <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-bold text-blue-400/70 uppercase tracking-wider">Estratégia de hoje</p>
+                <p className="text-[9px] text-white/25">meta global: ${dailyGoal.toFixed(2)} · {n} corretoras</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                {/* 1 Trade */}
+                <div className="rounded-lg overflow-hidden border border-blue-500/50">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-500/12">
+                    <span className="text-[9px] font-bold text-blue-400">1 Trade</span>
+                    <span className="text-[7px] font-black bg-blue-500 text-black rounded px-1 py-px">REC</span>
+                  </div>
+                  <div className="px-2.5 py-2 space-y-1.5">
+                    <div>
+                      <p className="text-[7px] text-white/25 uppercase tracking-wider">Lote</p>
+                      <p className="text-sm font-bold text-blue-400 tabular-nums">{lot.toFixed(2)}L</p>
+                    </div>
+                    <div className="h-px bg-white/5" />
+                    <div>
+                      <p className="text-[7px] text-white/25 uppercase tracking-wider">Alvo / corretora</p>
+                      <p className="text-sm font-bold text-emerald-400 tabular-nums">${tgt1.toFixed(2)}</p>
+                      <p className="text-[8px] text-white/25 mt-0.5">≈ {pips1.toFixed(1)} pips</p>
+                    </div>
+                    <p className="text-[8px] text-white/40">Total: <span className="text-white/60 font-semibold">${tot1.toFixed(2)}</span></p>
+                  </div>
+                </div>
+
+                {/* 2 Trades */}
+                <div className="rounded-lg overflow-hidden border border-white/10">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/3">
+                    <span className="text-[9px] font-bold text-white/40">2 Trades</span>
+                  </div>
+                  <div className="px-2.5 py-2 space-y-1.5">
+                    <div>
+                      <p className="text-[7px] text-white/25 uppercase tracking-wider">Lote</p>
+                      <p className="text-sm font-bold text-white/40 tabular-nums">{lot2.toFixed(2)}L</p>
+                    </div>
+                    <div className="h-px bg-white/5" />
+                    <div>
+                      <p className="text-[7px] text-white/25 uppercase tracking-wider">Alvo / corretora</p>
+                      <p className="text-sm font-bold text-emerald-400/70 tabular-nums">${tgt2.toFixed(2)}</p>
+                      <p className="text-[8px] text-white/25 mt-0.5">≈ {pips2.toFixed(1)} pips</p>
+                    </div>
+                    <p className="text-[8px] text-white/40">/trade: <span className="text-white/60 font-semibold">${(tgt2 * n).toFixed(2)}</span></p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Nota explicativa */}
+              <p className="text-[8.5px] text-white/25 leading-relaxed">
+                A IA soma o P&L de todas as {n} corretoras. Quando o total atingir ${dailyGoal.toFixed(2)}, ela fecha as posições abertas e para até amanhã.
+              </p>
             </div>
 
             {/* Falta para as metas */}
