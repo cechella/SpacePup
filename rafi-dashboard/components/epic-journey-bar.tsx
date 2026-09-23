@@ -107,9 +107,7 @@ export function EpicJourneyBar({ capital }: { capital: number }) {
   const flamesRef  = useRef<HTMLDivElement>(null)
   const lineRef    = useRef<HTMLDivElement>(null)
   const labelRef   = useRef<HTMLDivElement>(null)
-  const canvasRef  = useRef<HTMLCanvasElement>(null)
   const starsRef   = useRef<HTMLDivElement>(null)
-  const rafRef    = useRef<number>(0)
 
   const curPct  = useMemo(() => logPct(capital), [capital])
   const nextMS  = MILESTONES_INT.find(m => m.cap > capital)
@@ -152,59 +150,6 @@ export function EpicJourneyBar({ capital }: { capital: number }) {
     return () => clearTimeout(t)
   }, [curPct])
 
-  // Sistema de partículas (canvas)
-  useEffect(() => {
-    const canvas = canvasRef.current
-    const tube   = tubeRef.current
-    if (!canvas || !tube) return
-
-    canvas.width  = tube.offsetWidth
-    canvas.height = tube.offsetHeight
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    const W  = canvas.width
-    const H  = canvas.height
-    const fw = W * curPct / 100
-
-    interface P { x:number; y:number; vx:number; vy:number; life:number; max:number; r:number }
-    const mkP = (rnd: boolean): P => ({
-      x:    Math.random() * fw * 0.9,
-      y:    rnd ? Math.random() * H : H * (0.55 + Math.random() * 0.45),
-      vx:   (Math.random() - 0.42) * 0.38,
-      vy:   -(Math.random() * 0.72 + 0.16),
-      life: rnd ? Math.random() * 0.5 : 0,
-      max:  0.6 + Math.random() * 0.85,
-      r:    0.75 + Math.random() * 1.9,
-    })
-    const pts: P[] = Array.from({ length: 36 }, () => mkP(true))
-
-    const draw = () => {
-      ctx.clearRect(0, 0, W, H)
-      for (const p of pts) {
-        p.x += p.vx; p.y += p.vy; p.life += 0.0065
-        if (p.life > p.max || p.x < 0 || p.x > fw + 3 || p.y < -4)
-          Object.assign(p, mkP(false))
-        const t = p.life / p.max
-        const a = t < 0.2 ? t / 0.2 : t > 0.65 ? 1 - (t - 0.65) / 0.35 : 1
-        ctx.beginPath()
-        ctx.arc(p.x, p.y, p.r * (1 - t * 0.18), 0, Math.PI * 2)
-        ctx.fillStyle = `rgba(255,245,200,${(a * 0.62).toFixed(2)})`
-        ctx.fill()
-      }
-      rafRef.current = requestAnimationFrame(draw)
-    }
-    rafRef.current = requestAnimationFrame(draw)
-
-    const onResize = () => {
-      if (canvas && tube) { canvas.width = tube.offsetWidth; canvas.height = tube.offsetHeight }
-    }
-    window.addEventListener('resize', onResize)
-    return () => {
-      cancelAnimationFrame(rafRef.current)
-      window.removeEventListener('resize', onResize)
-    }
-  }, [curPct])
 
   return (
     <div style={{
@@ -283,9 +228,6 @@ export function EpicJourneyBar({ capital }: { capital: number }) {
               boxShadow:'inset 0 2px 0 rgba(255,255,255,.22),inset 0 -2px 0 rgba(0,0,0,.28)',
             }} />
           </div>
-
-          {/* Canvas de partículas */}
-          <canvas ref={canvasRef} style={{ position:'absolute', inset:0, borderRadius:34, pointerEvents:'none', zIndex:3 }} />
 
           {/* Chamas vivas na borda dianteira */}
           <div ref={flamesRef} style={{
