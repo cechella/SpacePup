@@ -11,10 +11,15 @@ interface Props {
   daysHit:    number   // quantos dias da semana já bateram a meta
   currency:   string
   onClose:    () => void
+  // Quem cumpriu a meta: IA autônoma, humano ou em conjunto
+  metBy?:     'ia' | 'human' | 'combined'
+  iaPnl?:     number
+  humanPnl?:  number
 }
 
 export function MetasOverlay({
   type, dailyPct, dailyPnl, weeklyPct, weeklyPnl, daysHit, currency, onClose,
+  metBy, iaPnl, humanPnl,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
@@ -74,16 +79,30 @@ export function MetasOverlay({
   const isWeekly  = type === 'weekly'
   const pct       = isWeekly ? weeklyPct : dailyPct
   const pnl       = isWeekly ? weeklyPnl : dailyPnl
-  const emoji     = isWeekly ? '🏆' : '🚀'
+  const accentColor = isWeekly ? '#ffcc44' : '#00e676'
+
+  // Emoji e subtítulo variam por quem cumpriu a meta
+  let emoji: string
+  let subtitle: string
+  if (isWeekly) {
+    emoji    = '🏆'
+    subtitle = 'Semana extraordinária, Vinícius. Capital protegido.'
+  } else if (metBy === 'ia') {
+    emoji    = '🤖'
+    subtitle = 'A IA Autônoma cumpriu o dia enquanto você dormia 🌙'
+  } else if (metBy === 'combined') {
+    emoji    = '🤝'
+    subtitle = 'Equipe perfeita — você e a IA juntos!'
+  } else {
+    emoji    = '🚀'
+    subtitle = 'Excelente sessão, Vinícius. Hora de descansar.'
+  }
+
   const title     = isWeekly ? 'META DA SEMANA' : 'META DO DIA'
-  const subtitle  = isWeekly
-    ? 'Semana extraordinária, Vinícius. Capital protegido.'
-    : 'Excelente sessão, Vinícius. Hora de descansar.'
   const btnLabel  = isWeekly ? '🏁 Encerrar semana' : '✓ Encerrar sessão do dia'
   const lockMsg   = isWeekly
     ? 'Operações bloqueadas até segunda-feira'
     : 'Operações bloqueadas até amanhã · retoma às 00:00'
-  const accentColor = isWeekly ? '#ffcc44' : '#00e676'
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm">
@@ -110,7 +129,7 @@ export function MetasOverlay({
         <div className="text-[11px] text-[#7a96b8] mb-5">{subtitle}</div>
 
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-2 mb-5">
+        <div className="grid grid-cols-3 gap-2 mb-3">
           <div className="bg-[#0f1824] rounded-xl px-3 py-2.5 border border-[#1c3050]">
             <div className="text-[15px] font-black font-mono" style={{ color: accentColor }}>
               +{pct.toFixed(1)}%
@@ -143,6 +162,30 @@ export function MetasOverlay({
             )}
           </div>
         </div>
+
+        {/* Atribuição IA vs Humano (somente meta diária com dados disponíveis) */}
+        {!isWeekly && (iaPnl !== undefined || humanPnl !== undefined) && (
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            <div className="bg-[#0f1824] rounded-xl px-3 py-2 border border-[#1c3050] flex items-center gap-2">
+              <span className="text-[14px]">🤖</span>
+              <div>
+                <div className="text-[12px] font-black font-mono text-[#4499ff]">
+                  {iaPnl !== undefined ? `+${currency} ${iaPnl.toFixed(2)}` : '—'}
+                </div>
+                <div className="text-[7.5px] text-[#334455] uppercase tracking-wide">IA Autônoma</div>
+              </div>
+            </div>
+            <div className="bg-[#0f1824] rounded-xl px-3 py-2 border border-[#1c3050] flex items-center gap-2">
+              <span className="text-[14px]">👤</span>
+              <div>
+                <div className="text-[12px] font-black font-mono" style={{ color: accentColor }}>
+                  {humanPnl !== undefined ? `${humanPnl >= 0 ? '+' : ''}${currency} ${humanPnl.toFixed(2)}` : '—'}
+                </div>
+                <div className="text-[7.5px] text-[#334455] uppercase tracking-wide">Trader</div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Botão */}
         <button

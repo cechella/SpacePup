@@ -15,7 +15,7 @@ import { LiveMetaPopup } from '@/components/live-meta-popup'
 import { type OCOState } from '@/components/oco-overlay'
 import { cn, formatPrice } from '@/lib/utils'
 import { getLotForCapital, getNextTier, calcCapital } from '@/lib/lot-scaling'
-import { upsertTrade, fetchTrades, fetchCandles, countCandles } from '@/lib/trades-db'
+import { upsertTrade, fetchTrades, fetchCandles, countCandles, fetchIATodayStats } from '@/lib/trades-db'
 import { upsertDailyGoal, fetchDailyGoal, fetchWeeklyGoal } from '@/lib/daily-goals-db'
 import { Info, BarChart2, Crosshair, FolderOpen, X as XIcon, Hand, Layers, ScanLine, History, ChevronDown, Trash2, Database, Menu, Bot, Power, Sparkles } from 'lucide-react'
 import type { CandleData } from '@/lib/types'
@@ -284,6 +284,8 @@ export default function ChartPage() {
   // Overlays de meta atingida
   const [showDailyOverlay,  setShowDailyOverlay]  = useState(false)
   const [showWeeklyOverlay, setShowWeeklyOverlay] = useState(false)
+  // P&L da IA autônoma do dia (para atribuição meta IA vs humano)
+  const [iaTodayStats, setIaTodayStats] = useState<{ pnl: number; count: number } | null>(null)
   const prevDailyMetRef  = useRef(false)
   const prevWeeklyMetRef = useRef(false)
   // Métricas salvas no Supabase — fallback quando MetaAPI está desconectado
@@ -748,6 +750,16 @@ export default function ChartPage() {
   // e dispararia o popup semanal incorretamente no primeiro dia da semana.
   const balanceLoaded = consolidatedBalance !== null && consolidatedBalance > 0
 
+  // Atribuição: quanto veio da IA vs do trader humano
+  const iaPnlHoje    = iaTodayStats?.pnl ?? 0
+  const humanPnlHoje = targetMetrics.dailyPnl - iaPnlHoje
+  // Quem cumpriu a meta diária?
+  const dailyGoalUsd = consolidatedBalance ? consolidatedBalance * (DAILY_TARGET / 100) : 0
+  const metBy: 'ia' | 'human' | 'combined' | undefined = !targetMetrics.dailyMet ? undefined
+    : iaPnlHoje >= dailyGoalUsd                       ? 'ia'
+    : humanPnlHoje >= dailyGoalUsd                    ? 'human'
+    : 'combined'
+
   useEffect(() => {
     if (!balanceLoaded) return
     if (targetMetrics.dailyMet && !prevDailyMetRef.current) {
@@ -996,6 +1008,17 @@ export default function ChartPage() {
       .catch(() => {})
     // Verifica quantos candles existem no Supabase
     countCandles().then(n => setSbCandleCount(n)).catch(() => {})
+
+    // Carrega P&L da IA autônoma do dia
+    fetchIATodayStats().then(setIaTodayStats).catch(() => {})
+  }, [])
+
+  // Atualiza P&L da IA a cada 5 minutos para manter atribuição correta
+  useEffect(() => {
+    const id = setInterval(() => {
+      fetchIATodayStats().then(setIaTodayStats).catch(() => {})
+    }, 5 * 60 * 1000)
+    return () => clearInterval(id)
   }, [])
 
   // Salva trades no localStorage sempre que mudam
@@ -2230,6 +2253,8 @@ export default function ChartPage() {
           brokerCount={enabledBrokers.length > 0 ? enabledBrokers.length : 4}
           dailyTarget={DAILY_TARGET}
           brokerNames={enabledBrokers.length > 0 ? enabledBrokers.map(b => b.nome) : undefined}
+          todayPnl={targetMetrics.dailyPnl}
+          iaPnl={iaPnlHoje}
         />
       )}
 
@@ -2244,6 +2269,9 @@ export default function ChartPage() {
           daysHit={targetMetrics.daysHit}
           currency={metaAccount?.currency ?? 'USD'}
           onClose={() => setShowDailyOverlay(false)}
+          metBy={metBy}
+          iaPnl={iaPnlHoje}
+          humanPnl={humanPnlHoje}
         />
       )}
 
