@@ -712,14 +712,18 @@ export default function ChartPage() {
     mon.setUTCDate(brtNow.getUTCDate() - daysFromMon)
     const weekStart = mon.toISOString().slice(0, 10)
 
-    const todayPnl = metaHistory
-      .filter(t => toBrtDate(t.time ?? '') === today)
+    // Trades humanos = exclui operações da IA Autônoma (comment começa com 'IA|')
+    const isHuman = (t: { comment?: string | null }) =>
+      !String(t.comment ?? '').startsWith('IA|')
+
+    const humanTodayPnl = metaHistory
+      .filter(t => toBrtDate(t.time ?? '') === today && isHuman(t))
       .reduce((s, t) => s + (t.profit ?? 0), 0)
 
-    const weekPnl = metaHistory
+    const humanWeekPnl = metaHistory
       .filter(t => {
         const dd = toBrtDate(t.time ?? '')
-        return dd >= weekStart && dd <= today
+        return dd >= weekStart && dd <= today && isHuman(t)
       })
       .reduce((s, t) => s + (t.profit ?? 0), 0)
 
@@ -727,11 +731,11 @@ export default function ChartPage() {
     // Não cai para metaAccount.balance (só Pepperstone) pois isso infla o % artificialmente
     // e dispara o popup semanal incorretamente no dia 1 da semana.
     // Enquanto consolidatedBalance é null (carregando), os % ficam 0 → nenhum popup dispara.
-    const bal          = consolidatedBalance ?? 0
-    const startBal     = Math.max(bal - todayPnl, 1)
-    const weekStartBal = Math.max(bal - weekPnl,  1)
-    const dailyPct     = bal > 0 ? (todayPnl / startBal) * 100    : 0
-    const weeklyPct    = bal > 0 ? (weekPnl  / weekStartBal) * 100 : 0
+    const bal              = consolidatedBalance ?? 0
+    const humanStartBal    = Math.max(bal - humanTodayPnl, 1)
+    const humanWeekStartBal = Math.max(bal - humanWeekPnl, 1)
+    const dailyPct         = bal > 0 ? (humanTodayPnl / humanStartBal)     * 100 : 0
+    const weeklyPct        = bal > 0 ? (humanWeekPnl  / humanWeekStartBal) * 100 : 0
 
     // Quantidade de dias desta semana que bateram a meta (chaves localStorage)
     let daysHit = 0
@@ -752,19 +756,19 @@ export default function ChartPage() {
 
     // Persiste flags de meta usando datas BRT (meia-noite BRT = 03:00 UTC)
     if (typeof window !== 'undefined') {
-      if (dailyMet && todayPnl > 0) {
+      if (dailyMet && humanTodayPnl > 0) {
         localStorage.setItem(`rafi-daily-target-met-${brtDateStr()}`, 'true')
-        localStorage.setItem(`rafi-daily-pnl-${brtDateStr()}`, String(todayPnl))
+        localStorage.setItem(`rafi-daily-pnl-${brtDateStr()}`, String(humanTodayPnl))
       }
-      if (weeklyMet && weekPnl > 0) {
+      if (weeklyMet && humanWeekPnl > 0) {
         localStorage.setItem(`rafi-weekly-target-met-${brtWeekMondayStr()}`, 'true')
-        localStorage.setItem(`rafi-weekly-pnl-${brtWeekMondayStr()}`, String(weekPnl))
+        localStorage.setItem(`rafi-weekly-pnl-${brtWeekMondayStr()}`, String(humanWeekPnl))
       }
     }
 
     return {
-      dailyPct, dailyPnl: todayPnl,
-      weeklyPct, weeklyPnl: weekPnl,
+      dailyPct, dailyPnl: humanTodayPnl,
+      weeklyPct, weeklyPnl: humanWeekPnl,
       daysHit,
       dailyMet, weeklyMet,
       locked: dailyMet || weeklyMet,
@@ -777,9 +781,9 @@ export default function ChartPage() {
   // e dispararia o popup semanal incorretamente no primeiro dia da semana.
   const balanceLoaded = consolidatedBalance !== null && consolidatedBalance > 0
 
-  // Atribuição: quanto veio da IA vs do trader humano
+  // Atribuição: metas independentes — dailyPnl já é somente humano
   const iaPnlHoje    = iaTodayStats?.pnl ?? 0
-  const humanPnlHoje = targetMetrics.dailyPnl - iaPnlHoje
+  const humanPnlHoje = targetMetrics.dailyPnl  // já filtrado: somente trades humanos
   // Quem cumpriu a meta diária?
   const dailyGoalUsd = consolidatedBalance ? consolidatedBalance * (DAILY_TARGET / 100) : 0
   const metBy: 'ia' | 'human' | 'combined' | undefined = !targetMetrics.dailyMet ? undefined
@@ -1915,33 +1919,53 @@ export default function ChartPage() {
     })
   }, [liveTopBrokerId, liveTopBrokerNome])
 
-  // P&L diário em tempo real = fechados hoje + flutuante das posições abertas
-  // Atualiza a cada tick de preço (~300ms) — usado na barra "Dia %" para mostrar progresso real
-  const liveDailyPnl = targetMetrics.dailyPnl + liveTotalPnl
+  // P&L flutuante somente das posições HUMANAS (exclui posições abertas pela IA)
+  const humanLivePnl = useMemo(
+    () => liveBrokerPositions.reduce((s, b) =>
+      s + b.positions
+        .filter(p => !iaPositionIds.has(p.id))
+        .reduce((ps, p) => ps + (p.netPnl ?? p.profit), 0),
+      0
+    ),
+    [liveBrokerPositions, iaPositionIds]
+  )
+
+  // Conta somente posições humanas abertas — usado pelo popup de meta ao vivo
+  const humanPositionCount = useMemo(
+    () => allBrokerPositions.reduce((s, b) =>
+      s + b.positions.filter(p => !iaPositionIds.has(p.id)).length,
+      0
+    ),
+    [allBrokerPositions, iaPositionIds]
+  )
+
+  // P&L diário HUMANO em tempo real = fechados hoje (só humano) + flutuante das posições humanas
+  // Usado na barra "Dia %" e no popup de meta — não inclui operações da IA Autônoma
+  const liveDailyPnl = targetMetrics.dailyPnl + humanLivePnl
   const liveDailyPct = useMemo(() => {
     const bal = consolidatedBalance ?? metaAccount?.balance ?? 100
     const startBal = Math.max(bal - targetMetrics.dailyPnl, 1)
     return (liveDailyPnl / startBal) * 100
   }, [liveDailyPnl, consolidatedBalance, metaAccount, targetMetrics.dailyPnl])
 
-  // Pop-up ao vivo: dispara quando liveDailyPct bate a meta E há posição aberta
+  // Pop-up ao vivo: dispara quando liveDailyPct HUMANO bate a meta E há posição humana aberta
   // Aparece apenas uma vez por dia (localStorage) e só com saldo carregado
   useEffect(() => {
     if (!balanceLoaded) return
     if (prevLiveMetaFiredRef.current) return
     if (liveDailyPct < DAILY_TARGET) return
-    if (totalPositionCount <= 0) return  // só faz sentido com posição aberta
+    if (humanPositionCount <= 0) return  // só faz sentido com posição humana aberta
     const today = brtDateStr()
-    try { if (localStorage.getItem(`rafi-live-meta-${today}`) === 'true') return } catch {}
+    try { if (localStorage.getItem(`rafi-live-meta-human-${today}`) === 'true') return } catch {}
     prevLiveMetaFiredRef.current = true
-    try { localStorage.setItem(`rafi-live-meta-${today}`, 'true') } catch {}
+    try { localStorage.setItem(`rafi-live-meta-human-${today}`, 'true') } catch {}
     const bal = consolidatedBalance ?? metaAccount?.balance ?? 100
     setLiveMetaSnapshot({ pct: liveDailyPct, pnl: liveDailyPnl, bal })
     setLiveMetaClosing(false)
     setLiveMetaClosed(false)
     setShowLiveMetaPopup(true)
     setShowCheckin(false)
-  }, [liveDailyPct, totalPositionCount, balanceLoaded])
+  }, [liveDailyPct, humanPositionCount, balanceLoaded])
 
   // Equity ao vivo: saldo fixo + P&L calculado tick a tick via preço SSE
   // Evita o atraso do poll de 5s — exibe o capital total em tempo real
