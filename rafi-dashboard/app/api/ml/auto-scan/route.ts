@@ -435,7 +435,7 @@ export async function GET(req: NextRequest) {
       volume: lot,
       stopLoss,
       takeProfit,
-      comment: `AutoScan-IA | P${Math.round(prob * 100)}% | ${sessao}`,
+      comment: `IA|P${Math.round(prob * 100)}%|${sessao.replace('Sydney/', 'Syd/').replace('Tóquio/', 'Tok/').replace('/Londres', '/Lon')}`.slice(0, 31),
     }
 
     log.push(`Enviando ordem: ${actionType} ${lot} lotes SL=${stopLoss} TP=${takeProfit}`)
