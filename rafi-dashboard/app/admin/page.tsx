@@ -1299,6 +1299,11 @@ export default function AdminDashboard() {
         brokerCount={connectedBrokers.length > 0 ? connectedBrokers.length : 4}
         dailyTarget={7.0}
         brokerNames={connectedBrokers.length > 0 ? connectedBrokers.map(b => b.nome) : ['IC Markets', 'Exness', 'Pepperstone', 'Tickmill']}
+        todayPnl={todayPnl}
+        iaPnl={iaPnlHoje}
+        iaPnlSemana={weekBrokerStats?.iaPnl ?? 0}
+        metaSemanalPct={25}
+        nextScan={iaNextScanStr}
       />
 
       <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImport} />

@@ -26,40 +26,41 @@ function fmtBrtDate(): string {
 }
 
 interface Props {
-  balance:      number | null
-  brokerCount?: number
-  dailyTarget?: number
-  brokerNames?: string[]
-  // P&L atual do dia para detectar meta já cumprida
-  todayPnl?:    number
-  iaPnl?:       number
-  // Check-in para operar manualmente quando IA cumpriu a meta
-  onCheckin?:   () => void
-  // Quando true (usuário fez check-in e estado bom), mostra plano em vez de meta cumprida
-  unlocked?:    boolean
+  balance:          number | null
+  brokerCount?:     number
+  dailyTarget?:     number
+  brokerNames?:     string[]
+  todayPnl?:        number
+  iaPnl?:           number
+  iaPnlSemana?:     number
+  metaSemanalPct?:  number
+  nextScan?:        string
+  onCheckin?:       () => void
+  unlocked?:        boolean
 }
 
 export function MissaoHojePopup({
   balance,
-  brokerCount = 4,
-  dailyTarget = 7.0,
-  brokerNames = ['IC Markets', 'Exness', 'Pepperstone', 'Tickmill'],
-  todayPnl = 0,
-  iaPnl    = 0,
+  brokerCount    = 4,
+  dailyTarget    = 7.0,
+  brokerNames    = ['IC Markets', 'Exness', 'Pepperstone', 'Tickmill'],
+  todayPnl       = 0,
+  iaPnl          = 0,
+  iaPnlSemana    = 0,
+  metaSemanalPct = 25,
+  nextScan,
   onCheckin,
-  unlocked  = false,
+  unlocked       = false,
 }: Props) {
   const [visible,   setVisible]   = useState(false)
   const [dismissed, setDismissed] = useState(false)
 
-  // Verifica no mount se o usuário já confirmou hoje (fuso BRT)
   useEffect(() => {
     try {
       if (localStorage.getItem(MISSAO_KEY) === brtDateStr()) setDismissed(true)
     } catch {}
   }, [])
 
-  // Exibe assim que o saldo consolidado carregar e o usuário não tiver confirmado ainda
   useEffect(() => {
     if (dismissed || !balance || balance <= 0) return
     setVisible(true)
@@ -80,19 +81,26 @@ export function MissaoHojePopup({
     const tgt2    = per2 + COMM_PER
     const total2  = tgt2 * n * 2
     const losslim = balance * 0.05
-    const goal_usd = goal
-    return { n, goal, goal_usd, per, lot1, pips1, tgt1, total1, per2, lot2, pips2, tgt2, total2, losslim }
+    return { n, goal, goal_usd: goal, per, lot1, pips1, tgt1, total1, per2, lot2, pips2, tgt2, total2, losslim }
   }, [balance, brokerCount, dailyTarget])
 
-  // Detecta se a meta diária já foi cumprida e por quem
-  const metaGoal     = data?.goal_usd ?? 0
-  // unlocked: usuário fez check-in após IA cumprir → mostra plano mesmo com meta cumprida
-  const metaCumprida = !unlocked && metaGoal > 0 && todayPnl >= metaGoal
-  const humanPnl     = todayPnl - iaPnl
+  const metaGoal      = data?.goal_usd ?? 0
+  const humanPnl      = todayPnl - iaPnl
+  const weeklyGoal    = balance && balance > 0 ? balance * (metaSemanalPct / 100) : 0
+
+  // Estado 1 (NOVO): humano bateu a meta diária individualmente
+  const humanHitGoal  = metaGoal > 0 && humanPnl >= metaGoal
+  // Estado 2 (EXISTENTE): IA bateu sozinha OU combinado bateu (sem que humano tenha batido individualmente)
+  const metaCumprida  = !unlocked && !humanHitGoal && metaGoal > 0 && todayPnl >= metaGoal
+  // Quem bateu (para o estado 2)
   const metBy: 'ia' | 'human' | 'combined' | null = !(metaGoal > 0 && todayPnl >= metaGoal) ? null
-    : iaPnl >= metaGoal                         ? 'ia'
-    : humanPnl >= metaGoal                      ? 'human'
+    : iaPnl >= metaGoal      ? 'ia'
+    : humanPnl >= metaGoal   ? 'human'
     : 'combined'
+
+  // Para o estado 1: a IA também já bateu a meta do dia?
+  const iaHitDaily    = iaPnl >= metaGoal
+  const iaHitWeekly   = weeklyGoal > 0 && iaPnlSemana >= weeklyGoal
 
   function confirm() {
     try { localStorage.setItem(MISSAO_KEY, brtDateStr()) } catch {}
@@ -109,16 +117,29 @@ export function MissaoHojePopup({
   const f  = (v: number) => v.toFixed(2).replace('.', ',')
   const fl = (v: number) => v.toFixed(2) + 'L'
 
-  // Texto e gradiente do botão principal variam por estado
-  const mainBtnText = metaCumprida
+  const mainBtnText = humanHitGoal
+    ? '✓  Dia encerrado, descanse!'
+    : metaCumprida
     ? (metBy === 'ia' ? '\u{1F916}  Dia livre — boa IA!' : '✓  Dia encerrado!')
     : unlocked
     ? '✓  Entendi, vou lá operar'
     : '✓  Entendi, vou lá vencer'
 
-  const mainBtnBg = (metaCumprida || unlocked)
+  const mainBtnBg = humanHitGoal
+    ? 'linear-gradient(135deg,#e2b04a,#b8860b)'
+    : (metaCumprida || unlocked)
     ? 'linear-gradient(135deg,#00e676,#00b854)'
     : 'linear-gradient(135deg,#e2b04a,#bf8820)'
+
+  // Cor e texto da faixa de status
+  const stripBg    = humanHitGoal ? 'rgba(226,176,74,.10)' : metaCumprida ? 'rgba(0,230,118,.10)' : 'rgba(0,230,118,.04)'
+  const stripColor = humanHitGoal ? '#e2b04a' : '#00e676'
+  const stripLabel = humanHitGoal ? 'Meta do dia atingida 🏆' : metaCumprida ? 'Meta do dia cumprida ✓' : 'Operações liberadas'
+  const stripRight = humanHitGoal
+    ? `+$${f(humanPnl)} (você)`
+    : metaCumprida
+    ? `+$${f(todayPnl)} hoje`
+    : `+0,0% · meta +${dailyTarget}%`
 
   return (
     <div
@@ -167,23 +188,120 @@ export function MissaoHojePopup({
         </div>
 
         {/* Status strip */}
-        <div className="flex items-center justify-between px-[18px] py-1.5 border-b" style={{ borderColor: '#1c3050', background: metaCumprida ? 'rgba(0,230,118,.10)' : 'rgba(0,230,118,.04)' }}>
+        <div className="flex items-center justify-between px-[18px] py-1.5 border-b" style={{ borderColor: '#1c3050', background: stripBg }}>
           <div className="flex items-center gap-1.5">
-            <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#00e676', boxShadow: '0 0 6px #00e676' }} />
-            <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: '0.10em', textTransform: 'uppercase', color: '#00e676' }}>
-              {metaCumprida ? 'Meta do dia cumprida ✓' : 'Operações liberadas'}
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: stripColor, boxShadow: `0 0 6px ${stripColor}` }} />
+            <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: '0.10em', textTransform: 'uppercase', color: stripColor }}>
+              {stripLabel}
             </span>
           </div>
-          <span style={{ fontSize: 10.5, fontWeight: 700, color: '#00e676', fontVariantNumeric: 'tabular-nums' }}>
-            {metaCumprida
-              ? `+$${f(todayPnl)} hoje`
-              : `+0,0% · meta +${dailyTarget}%`}
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: stripColor, fontVariantNumeric: 'tabular-nums' }}>
+            {stripRight}
           </span>
         </div>
 
-        {/* Body — modo "meta cumprida" vs modo "plano de missão" */}
-        {metaCumprida ? (
-          /* ── META JÁ CUMPRIDA ── */
+        {/* Body */}
+        {humanHitGoal ? (
+          /* ── VOCÊ VENCEU! IA em andamento ── */
+          <div className="px-[18px] py-4 flex flex-col gap-3">
+
+            {/* Celebração */}
+            <div className="rounded-[12px] flex flex-col items-center gap-2 py-4" style={{ background: 'rgba(226,176,74,.06)', border: '1px solid rgba(226,176,74,.22)' }}>
+              <span style={{ fontSize: 34 }}>🏆</span>
+              <div style={{ fontSize: 18, fontWeight: 900, color: '#e2b04a', textAlign: 'center', letterSpacing: '-0.01em' }}>
+                Você venceu hoje!
+              </div>
+              <div style={{ fontSize: 10, color: '#7a96b8', textAlign: 'center', lineHeight: 1.5, maxWidth: 300 }}>
+                {iaHitDaily
+                  ? 'Você e a IA Autônoma bateram a meta do dia. Equipe perfeita! 🤝'
+                  : 'Meta do dia atingida. A IA continua operando para maximizar o resultado.'}
+              </div>
+            </div>
+
+            {/* P&L breakdown */}
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-[10px] px-3 py-2.5 flex flex-col gap-0.5" style={{ border: '1px solid #1c3050', background: '#0a1016' }}>
+                <span style={{ fontSize: 7, fontWeight: 700, color: '#334455', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Total hoje</span>
+                <span style={{ fontSize: 15, fontWeight: 900, color: '#00e676', fontVariantNumeric: 'tabular-nums' }}>+${f(todayPnl)}</span>
+              </div>
+              <div className="rounded-[10px] px-3 py-2.5 flex flex-col gap-0.5" style={{ border: '1px solid #1c3050', background: '#0a1016' }}>
+                <span style={{ fontSize: 7, fontWeight: 700, color: '#334455', textTransform: 'uppercase', letterSpacing: '0.08em' }}>🤖 IA</span>
+                <span style={{ fontSize: 15, fontWeight: 900, color: '#4499ff', fontVariantNumeric: 'tabular-nums' }}>
+                  {iaPnl >= 0 ? '+' : ''}${f(iaPnl)}
+                </span>
+              </div>
+              <div className="rounded-[10px] px-3 py-2.5 flex flex-col gap-0.5" style={{ border: '1px solid rgba(226,176,74,.30)', background: 'rgba(226,176,74,.04)' }}>
+                <span style={{ fontSize: 7, fontWeight: 700, color: '#334455', textTransform: 'uppercase', letterSpacing: '0.08em' }}>👤 Trader</span>
+                <span style={{ fontSize: 15, fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: '#e2b04a' }}>
+                  {humanPnl >= 0 ? '+' : ''}${f(humanPnl)}
+                </span>
+              </div>
+            </div>
+
+            {/* IA Autônoma — Status */}
+            <div className="rounded-[10px] p-3 flex flex-col gap-2.5" style={{ border: '1px solid rgba(68,153,255,.25)', background: 'rgba(68,153,255,.04)' }}>
+              <div style={{ fontSize: 8, fontWeight: 800, color: '#4499ff', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
+                🤖 IA Autônoma · Status atual
+              </div>
+
+              {/* Barra diária IA */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span style={{ fontSize: 8, color: '#7a96b8' }}>Meta do dia ({dailyTarget}%)</span>
+                  <span style={{ fontSize: 9, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: iaHitDaily ? '#00e676' : '#4499ff' }}>
+                    +${f(iaPnl)} / ${f(metaGoal)} {iaHitDaily && '✓'}
+                  </span>
+                </div>
+                <div style={{ height: 6, background: 'rgba(255,255,255,.08)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${Math.min(metaGoal > 0 ? (iaPnl / metaGoal) * 100 : 0, 100)}%`,
+                    background: iaHitDaily ? '#00e676' : '#4499ff',
+                    borderRadius: 3,
+                    transition: 'width .6s ease',
+                  }} />
+                </div>
+              </div>
+
+              {/* Barra semanal IA */}
+              {weeklyGoal > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span style={{ fontSize: 8, color: '#7a96b8' }}>Meta da semana ({metaSemanalPct}%)</span>
+                    <span style={{ fontSize: 9, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: iaHitWeekly ? '#00e676' : '#a855f7' }}>
+                      +${f(iaPnlSemana)} / ${f(weeklyGoal)} {iaHitWeekly && '✓'}
+                    </span>
+                  </div>
+                  <div style={{ height: 6, background: 'rgba(255,255,255,.08)', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${Math.min(weeklyGoal > 0 ? (iaPnlSemana / weeklyGoal) * 100 : 0, 100)}%`,
+                      background: iaHitWeekly ? '#00e676' : '#a855f7',
+                      borderRadius: 3,
+                      transition: 'width .6s ease',
+                    }} />
+                  </div>
+                </div>
+              )}
+
+              {/* Próximo scan */}
+              {nextScan && (
+                <div className="flex items-center gap-1.5" style={{ fontSize: 8.5, color: '#4a6080' }}>
+                  <span style={{ color: '#334455' }}>Próximo scan:</span>
+                  <span style={{ color: '#7a96b8', fontVariantNumeric: 'tabular-nums' }}>{nextScan}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Limite de perda */}
+            <div className="flex items-center justify-between rounded-lg px-[11px] py-2" style={{ border: '1px solid rgba(239,68,68,.20)', background: 'rgba(239,68,68,.04)' }}>
+              <span style={{ fontSize: 7.5, fontWeight: 700, color: '#334455', textTransform: 'uppercase', letterSpacing: '0.07em' }}>⚠ Limite perda (5%)</span>
+              <span style={{ fontSize: 13, fontWeight: 800, color: '#ef4444', fontVariantNumeric: 'tabular-nums' }}>−${f(data.losslim)}</span>
+            </div>
+          </div>
+
+        ) : metaCumprida ? (
+          /* ── META INTEGRADA CUMPRIDA (sem humano individualmente) ── */
           <div className="px-[18px] py-4 flex flex-col gap-3">
             <div className="rounded-[12px] flex flex-col items-center gap-2 py-5" style={{ background: 'rgba(0,230,118,.06)', border: '1px solid rgba(0,230,118,.22)' }}>
               <span style={{ fontSize: 36 }}>
@@ -205,7 +323,6 @@ export function MissaoHojePopup({
               </div>
             </div>
 
-            {/* P&L breakdown */}
             <div className="grid grid-cols-3 gap-2">
               <div className="rounded-[10px] px-3 py-2.5 flex flex-col gap-0.5" style={{ border: '1px solid #1c3050', background: '#0a1016' }}>
                 <span style={{ fontSize: 7, fontWeight: 700, color: '#334455', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Total hoje</span>
@@ -226,11 +343,11 @@ export function MissaoHojePopup({
               <span style={{ fontSize: 13, fontWeight: 800, color: '#ef4444', fontVariantNumeric: 'tabular-nums' }}>−${f(data.losslim)}</span>
             </div>
           </div>
+
         ) : (
           /* ── PLANO DE MISSÃO ── */
           <div className="px-[18px] py-3 flex flex-col gap-3">
 
-            {/* Hero — alvo total do dia */}
             <div>
               <div style={{ fontSize: 7.5, fontWeight: 800, letterSpacing: '0.15em', textTransform: 'uppercase', color: '#334455', marginBottom: 5 }}>
                 🏆 Plano para hoje · +{dailyTarget}%
@@ -250,10 +367,7 @@ export function MissaoHojePopup({
               </div>
             </div>
 
-            {/* Cenários: 1 Trade vs 2 Trades */}
             <div className="grid grid-cols-2 gap-2">
-
-              {/* 1 Trade (recomendado) */}
               <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid #4499ff' }}>
                 <div className="flex items-center gap-1.5 px-[11px] py-[7px]" style={{ background: 'rgba(68,153,255,.10)' }}>
                   <span style={{ fontSize: 9, fontWeight: 700, color: '#4499ff' }}>1 Trade</span>
@@ -274,7 +388,6 @@ export function MissaoHojePopup({
                 </div>
               </div>
 
-              {/* 2 Trades */}
               <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid #1c3050' }}>
                 <div className="flex items-center gap-1.5 px-[11px] py-[7px]" style={{ background: 'rgba(255,255,255,.02)' }}>
                   <span style={{ fontSize: 9, fontWeight: 700, color: '#7a96b8' }}>2 Trades</span>
@@ -295,7 +408,6 @@ export function MissaoHojePopup({
               </div>
             </div>
 
-            {/* Resumo: meta total e limite de perda */}
             <div className="grid grid-cols-2 gap-2">
               <div className="flex items-center justify-between rounded-lg px-[11px] py-2" style={{ border: '1px solid #1c3050', background: '#0a1016' }}>
                 <span style={{ fontSize: 7.5, fontWeight: 700, color: '#334455', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Meta total ({dailyTarget}%)</span>
@@ -311,7 +423,6 @@ export function MissaoHojePopup({
 
         {/* Botões */}
         <div className="px-[18px] pb-[15px] flex flex-col gap-2">
-          {/* Botão check-in — aparece quando IA cumpriu e sessão ainda não foi desbloqueada */}
           {metBy === 'ia' && onCheckin && !unlocked && (
             <button
               onClick={() => { confirm(); onCheckin() }}
@@ -350,8 +461,7 @@ export function MissaoHojePopup({
             {mainBtnText}
           </button>
 
-          {/* Botão Fechar — só aparece quando não está em meta cumprida nem desbloqueado */}
-          {!metaCumprida && !unlocked && (
+          {!humanHitGoal && !metaCumprida && !unlocked && (
             <button
               onClick={fechar}
               className="w-full rounded-[10px] flex items-center justify-center transition-all hover:opacity-70"
@@ -369,10 +479,32 @@ export function MissaoHojePopup({
               Fechar
             </button>
           )}
+
+          {/* No estado "você venceu", Fechar apenas esconde sem persistir */}
+          {humanHitGoal && (
+            <button
+              onClick={fechar}
+              className="w-full rounded-[10px] flex items-center justify-center transition-all hover:opacity-70"
+              style={{
+                padding:       9,
+                border:        '1px solid #1c3050',
+                cursor:        'pointer',
+                fontFamily:    'inherit',
+                fontSize:      11,
+                fontWeight:    600,
+                background:    'transparent',
+                color:         '#4a6080',
+              }}
+            >
+              Fechar · reabre ao recarregar
+            </button>
+          )}
         </div>
 
         <div className="text-center px-[18px] pb-3" style={{ fontSize: 8.5, color: '#334455', lineHeight: 1.5 }}>
-          {metaCumprida
+          {humanHitGoal
+            ? 'Fechar mostra novamente ao recarregar. Confirmar não aparece mais hoje.'
+            : metaCumprida
             ? 'Meta confirmada não aparecerá mais hoje.'
             : unlocked
             ? 'Sessão desbloqueada · você pode operar em co-piloto com a IA.'
