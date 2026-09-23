@@ -376,7 +376,7 @@ export default function AdminIAPage() {
                   <div>
                     <p className="text-sm font-semibold text-white">{session.name}</p>
                     <p className="text-xs text-white/40">
-                      {session.horaBrasil} Brasília · Cron {session.cronUtc}
+                      {session.horaBrasil} · {session.horaUtc} · Cron {session.cronUtc}
                     </p>
                   </div>
                 </div>
