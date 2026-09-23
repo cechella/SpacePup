@@ -1586,7 +1586,8 @@ export default function ChartPage() {
           const ids = new Set<string>()
           for (const row of data ?? []) {
             const m = String(row.label ?? '').match(/\|pos:(\S+)/)
-            if (m) ids.add(m[1])
+            // Suporta múltiplos positionIds separados por vírgula (multi-broker)
+            if (m) for (const pid of m[1].split(',')) if (pid) ids.add(pid)
           }
           setIaPositionIds(ids)
         })

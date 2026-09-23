@@ -223,7 +223,13 @@ async function reconcileIATrades(
       const labelStr  = String((trade as any).label ?? '')
       const posMatch  = labelStr.match(/\|pos:(\S+)/)
       if (!posMatch) continue
-      const profit = dealMap.get(posMatch[1])
+      // Suporta múltiplos positionIds separados por vírgula (multi-broker)
+      const positionIds = posMatch[1].split(',').filter(Boolean)
+      let profit: number | undefined
+      for (const pid of positionIds) {
+        const p = dealMap.get(pid)
+        if (p !== undefined) { profit = p; break }
+      }
       if (profit === undefined) continue
       const result: 'win' | 'loss' = profit > 0 ? 'win' : 'loss'
       const { error } = await supa
@@ -454,10 +460,12 @@ export async function GET(req: NextRequest) {
     }
 
     // ── 8. Registra o trade no Supabase ───────────────────────────────
-    // Extrai o positionId do primeiro broker que executou com sucesso
-    // para que o reconcile-ia possa cruzar com o histórico de deals do MetaAPI
-    const firstOk = parsed.find(r => r.ok) as { brokerId: string; ok: true; positionId?: string } | undefined
-    const positionId = firstOk?.positionId ?? null
+    // Salva TODOS os positionIds (um por broker) separados por vírgula
+    // para que o reconcile possa cruzar qualquer um com o histórico de deals
+    const allPositionIds = (parsed as Array<{ ok: boolean; positionId?: string }>)
+      .filter(r => r.ok && r.positionId)
+      .map(r => r.positionId!)
+    const positionId = allPositionIds[0] ?? null
 
     const agora = Math.floor(Date.now() / 1000)
     const tradeRecord = {
@@ -466,8 +474,8 @@ export async function GET(req: NextRequest) {
       entry,
       stop_loss: stopLoss,
       take_profit: takeProfit,
-      // Formato: 'AutoScan-IA|pos:{positionId}' — usado pelo reconcile-ia para cruzar deals
-      label: positionId ? `AutoScan-IA|pos:${positionId}` : 'AutoScan-IA',
+      // Formato: 'AutoScan-IA|pos:id1,id2,id3,id4' — usado pelo reconcile para cruzar deals
+      label: allPositionIds.length > 0 ? `AutoScan-IA|pos:${allPositionIds.join(',')}` : 'AutoScan-IA',
       time: agora,
       lot,
       result: null,  // preenchido pelo reconcile-ia quando fechar no MT5
