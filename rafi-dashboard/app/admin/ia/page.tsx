@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createBrowserClient } from '@supabase/ssr'
+import { MissaoIAPopup } from '@/components/missao-ia-popup'
 
 interface IAConfig {
   ia_autonoma_ativa: boolean
@@ -294,8 +295,24 @@ export default function AdminIAPage() {
   const progDia   = Math.min(Math.max(pnlHoje   / metaDiariaUsd  * 100, 0), 100)
   const progSem   = Math.min(Math.max(pnlSemana / metaSemanaUsd  * 100, 0), 100)
 
+  const brokerNamesForPopup = ['IC Markets', 'Exness', 'Pepperstone', 'Tickmill']
+
   return (
     <div className="min-h-screen bg-[#080c10] text-white p-4 md:p-6 space-y-5 max-w-2xl mx-auto">
+
+      {/* ── Popup Briefing IA ── */}
+      {capitalReal > 0 && (
+        <MissaoIAPopup
+          balance={capitalReal}
+          brokerCount={nBrokersAtivos}
+          brokerNames={brokerNamesForPopup}
+          dailyPct={config?.meta_diaria_pct ?? 7}
+          weeklyPct={config?.meta_semanal_pct ?? 25}
+          pnlHoje={pnlHoje}
+          pnlSemana={pnlSemana}
+          iaAtiva={iaAtiva}
+        />
+      )}
 
       {/* ── Cabeçalho ── */}
       <div className="flex items-center justify-between">
@@ -464,9 +481,14 @@ export default function AdminIAPage() {
                 <p className="text-[9px] text-white/25">por corretora × {nBrokersAtivos}</p>
               </div>
               <div className="rounded-lg bg-white/5 p-3 space-y-1">
-                <p className="text-[10px] text-white/40 uppercase tracking-wider">Pips p/ meta</p>
-                <p className="text-base font-bold tabular-nums text-amber-400">{pipsNec.toFixed(1)} pips</p>
-                <p className="text-[9px] text-white/25">TP alvo por trade</p>
+                <p className="text-[10px] text-white/40 uppercase tracking-wider">Meta do dia</p>
+                <p className="text-base font-bold tabular-nums text-blue-400">${dailyGoal.toFixed(2)} <span className="text-[10px] text-white/30">({config?.meta_diaria_pct ?? 7}%)</span></p>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <div className="flex-1 h-1 rounded-full bg-white/10 overflow-hidden">
+                    <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${Math.min(progDia, 100)}%` }} />
+                  </div>
+                  <span className="text-[9px] text-white/25 tabular-nums">{pipsNec.toFixed(1)}p</span>
+                </div>
               </div>
               <div className="rounded-lg bg-white/5 p-3 space-y-1">
                 <p className="text-[10px] text-white/40 uppercase tracking-wider">Próximo scan</p>
