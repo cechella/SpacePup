@@ -1844,11 +1844,8 @@ export default function AdminDashboard() {
               </div>
               {/* ── Real Acumulado ── */}
               {(() => {
-                const weekTotal  = weekBrokerStats ? weekBrokerStats.humanPnl + weekBrokerStats.iaPnl : 0
                 const todaySacar = Math.max(0, todayPnl * 0.30)
                 const todayReinv = Math.max(0, todayPnl * 0.70)
-                const weekSacar  = Math.max(0, weekTotal * 0.30)
-                const weekReinv  = Math.max(0, weekTotal * 0.70)
                 const brl = (v: number) =>
                   usdBrl > 0
                     ? 'R$ ' + (v * usdBrl).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -1857,45 +1854,28 @@ export default function AdminDashboard() {
                   <>
                     <div style={{ height: 1, background: '#142840', margin: '14px 0 10px' }} />
                     <div style={{ fontSize: 7, fontWeight: 800, letterSpacing: '.16em', textTransform: 'uppercase', color: '#f0c04080', marginBottom: 10 }}>
-                      Real Acumulado
+                      Real Acumulado · Hoje
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      {/* Hoje */}
-                      <div>
-                        <div style={{ fontSize: 7, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.12em', color: '#5878a0', marginBottom: 4 }}>Hoje</div>
-                        <div style={{ fontSize: 8, color: '#7a9ab8', marginBottom: 6 }}>
-                          {todayPnl >= 0 ? '+' : ''}${todayPnl.toFixed(2)} total
+                    <div className="flex items-start justify-between" style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 7, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.10em', color: '#5878a0', paddingTop: 2 }}>Reinvestir 70%</div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 15, fontWeight: 800, color: '#00e5ff', fontVariantNumeric: 'tabular-nums' }}>
+                          +${todayReinv.toFixed(2)}
                         </div>
-                        <div style={{ fontSize: 7, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.10em', color: '#5878a0', marginBottom: 2 }}>Sacar 30%</div>
-                        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 16, fontWeight: 800, color: '#00e676', fontVariantNumeric: 'tabular-nums' }}>
+                        {brl(todayReinv) && (
+                          <div style={{ fontSize: 9, color: '#3a6870', marginTop: 1 }}>{brl(todayReinv)}</div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-start justify-between">
+                      <div style={{ fontSize: 7, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.10em', color: '#5878a0', paddingTop: 2 }}>Sacar 30%</div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 15, fontWeight: 800, color: '#00e676', fontVariantNumeric: 'tabular-nums' }}>
                           +${todaySacar.toFixed(2)}
                         </div>
                         {brl(todaySacar) && (
-                          <div style={{ fontSize: 9, color: '#4a7a5a', marginTop: 1 }}>{brl(todaySacar)}</div>
+                          <div style={{ fontSize: 9, color: '#3a6850', marginTop: 1 }}>{brl(todaySacar)}</div>
                         )}
-                        <div style={{ fontSize: 7, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.10em', color: '#5878a0', marginTop: 7, marginBottom: 2 }}>Reinvestir 70%</div>
-                        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 13, fontWeight: 700, color: '#00e5ff', fontVariantNumeric: 'tabular-nums', opacity: 0.75 }}>
-                          +${todayReinv.toFixed(2)}
-                        </div>
-                      </div>
-                      {/* Semana */}
-                      <div>
-                        <div style={{ fontSize: 7, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.12em', color: '#5878a0', marginBottom: 4 }}>Semana (seg→hoje)</div>
-                        <div style={{ fontSize: 8, color: '#7a9ab8', marginBottom: 6 }}>
-                          {weekTotal >= 0 ? '+' : ''}${weekTotal.toFixed(2)} total
-                        </div>
-                        <div style={{ fontSize: 7, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.10em', color: '#5878a0', marginBottom: 2 }}>Sacar 30%</div>
-                        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 16, fontWeight: 800, color: '#00e676', fontVariantNumeric: 'tabular-nums' }}>
-                          +${weekSacar.toFixed(2)}
-                        </div>
-                        {brl(weekSacar) && (
-                          <div style={{ fontSize: 9, color: '#4a7a5a', marginTop: 1 }}>{brl(weekSacar)}</div>
-                        )}
-                        <div style={{ fontSize: 7, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.10em', color: '#5878a0', marginTop: 7, marginBottom: 2 }}>Reinvestir 70%</div>
-                        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 13, fontWeight: 700, color: '#00e5ff', fontVariantNumeric: 'tabular-nums', opacity: 0.75 }}>
-                          +${weekReinv.toFixed(2)}
-                        </div>
-                        <div style={{ fontSize: 8, color: '#3a6850', marginTop: 3 }}>↑ disponível na sexta</div>
                       </div>
                     </div>
                   </>
