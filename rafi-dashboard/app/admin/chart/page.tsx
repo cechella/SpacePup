@@ -253,6 +253,8 @@ export default function ChartPage() {
   const [showIASuggestion, setShowIASuggestion] = useState(false)
   const [iaWatcherActive,  setIaWatcherActive]  = useState(true)
   const iaLastSuggestRef = useRef<number>(0)  // evita re-disparar a mesma sugestão dentro de 5min
+  // IDs de posições abertas pela IA Autônoma — para diferenciar 🤖 IA vs 👤 Humano no painel
+  const [iaPositionIds, setIaPositionIds] = useState<Set<string>>(new Set())
   // Contexto de sinal — ref atualizada via useEffect para leitura segura dentro de intervalos
   const signalCtxRef = useRef<{ rafi: number; direction: 'buy' | 'sell'; labeledCount: number }>({
     rafi: 0, direction: 'buy', labeledCount: 0,
@@ -1567,6 +1569,32 @@ export default function ChartPage() {
     const id = setInterval(() => fetchHistory(historyPeriod, historyBroker), 60_000)
     return () => clearInterval(id)
   }, [metaConnected, historyPeriod, historyBroker, fetchHistory])
+
+  // Busca positionIds das posições abertas pela IA Autônoma (a cada 30s)
+  // Usado para diferenciar 🤖 IA vs 👤 Humano no painel de posições abertas
+  useEffect(() => {
+    const supa = createSupabaseClient()
+    const cutoff = Math.floor((Date.now() - 7 * 24 * 3600 * 1000) / 1000)
+    const fetchIAIds = () => {
+      supa
+        .from('rafi_trades')
+        .select('label')
+        .eq('entry_type', 'ia_autonoma')
+        .is('result', null)
+        .gte('time', cutoff)
+        .then(({ data }) => {
+          const ids = new Set<string>()
+          for (const row of data ?? []) {
+            const m = String(row.label ?? '').match(/\|pos:(\S+)/)
+            if (m) ids.add(m[1])
+          }
+          setIaPositionIds(ids)
+        })
+    }
+    fetchIAIds()
+    const iv = setInterval(fetchIAIds, 30_000)
+    return () => clearInterval(iv)
+  }, [])
 
   // Realtime Supabase: posições abertas + deals fechados (bridge em execução no VPS)
   // Quando o bridge não está rodando, este useEffect é no-op — o polling assume o controle.
@@ -3151,10 +3179,20 @@ export default function ChartPage() {
                 const isBuy     = pos.type === 'POSITION_TYPE_BUY'
                 const pnlColor  = pos.profit >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'
                 const isEditing = editingPos?.id === pos.id
+                const isIA      = iaPositionIds.has(pos.id)
                 return (
                   <div key={`${pos.brokerId}-${pos.id}`} className="px-4 py-2 text-[10px] hover:bg-[#161b22] transition-colors">
                     {/* Linha principal */}
                     <div className="flex items-center gap-2">
+                      {/* Badge origem: IA Autônoma ou Humano */}
+                      <span className={cn(
+                        'text-[9px] font-semibold px-1.5 py-0.5 rounded border shrink-0',
+                        isIA
+                          ? 'border-[#a855f7]/40 bg-[#a855f7]/10 text-[#a855f7]'
+                          : 'border-[#3b82f6]/40 bg-[#3b82f6]/10 text-[#3b82f6]',
+                      )}>
+                        {isIA ? '🤖 IA' : '👤'}
+                      </span>
                       {brokerBadge(pos.brokerId, pos.brokerNome)}
                       <span className={cn('font-bold text-[11px]', isBuy ? 'text-[#22c55e]' : 'text-[#ef4444]')}>
                         {isBuy ? '▲' : '▼'}
@@ -3383,9 +3421,22 @@ export default function ChartPage() {
                     const swap      = (pos as any).swap ?? 0
                     const netPnl    = (pos as any).netPnl ?? (pnl + commission + swap)
                     const netClr    = netPnl >= 0 ? '#22c55e' : '#ef4444'
+                    const isIA      = iaPositionIds.has(pos.id)
                     return (
                       <tr key={`${pos.brokerId}-${pos.id}`} className="hover:bg-[#161b22] transition-colors">
-                        <td className="px-3 py-2">{brokerBadge(pos.brokerId, pos.brokerNome)}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className={cn(
+                              'text-[8px] font-semibold px-1 py-0.5 rounded border shrink-0',
+                              isIA
+                                ? 'border-[#a855f7]/40 bg-[#a855f7]/10 text-[#a855f7]'
+                                : 'border-[#3b82f6]/40 bg-[#3b82f6]/10 text-[#3b82f6]',
+                            )}>
+                              {isIA ? '🤖' : '👤'}
+                            </span>
+                            {brokerBadge(pos.brokerId, pos.brokerNome)}
+                          </div>
+                        </td>
                         <td className="px-3 py-2 font-mono font-bold text-[#f0f6fc]">{pos.symbol}</td>
                         <td className="px-3 py-2">
                           <span className={cn('font-bold', isBuy ? 'text-[#3b82f6]' : 'text-[#f59e0b]')}>
