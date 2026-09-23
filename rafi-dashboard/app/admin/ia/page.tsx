@@ -21,7 +21,8 @@ interface IAConfig {
 }
 
 interface IAStats {
-  totalHoje: number
+  sinaisHoje: number    // registros Supabase (1 por sinal detectado)
+  ordensHoje: number    // ordens MT5 reais (sinais × brokers ativos)
   pnlHoje: number
   winsHoje: number
   lossesHoje: number
@@ -135,7 +136,7 @@ export default function AdminIAPage() {
           startOfDay.setUTCHours(0, 0, 0, 0)
           return supa
             .from('rafi_trades')
-            .select('result, pnl_usd')
+            .select('result, pnl_usd, label')
             .eq('entry_type', 'ia_autonoma')
             .gte('time', Math.floor(startOfDay.getTime() / 1000))
         })(),
@@ -157,8 +158,14 @@ export default function AdminIAPage() {
 
       const hoje = statsHoje.data ?? []
       const semana = statsSemana.data ?? []
+      // Conta ordens MT5 reais contando positionIds no label de cada sinal
+      const ordensHoje = hoje.reduce((sum: number, r: any) => {
+        const m = String(r.label ?? '').match(/\|pos:(\S+)/)
+        return sum + (m ? m[1].split(',').filter(Boolean).length : 1)
+      }, 0)
       setStats({
-        totalHoje:   hoje.length,
+        sinaisHoje:  hoje.length,
+        ordensHoje,
         pnlHoje:     hoje.reduce((s: number, r: any) => s + (Number(r.pnl_usd) || 0), 0),
         winsHoje:    hoje.filter((r: any) => r.result === 'win').length,
         lossesHoje:  hoje.filter((r: any) => r.result === 'loss').length,
@@ -386,22 +393,37 @@ export default function AdminIAPage() {
 
         {/* Stats rápidos */}
         {stats && (
-          <div className="grid grid-cols-4 gap-2 pt-1">
-            {[
-              { label: 'Trades hoje', val: stats.totalHoje },
-              { label: 'Vitórias', val: stats.winsHoje, green: true },
-              { label: 'Derrotas', val: stats.lossesHoje, red: true },
-              { label: 'Semana', val: stats.totalSemana },
-            ].map(({ label, val, green, red }) => (
-              <div key={label} className="text-center bg-white/5 rounded-lg py-2">
-                <p className={cn(
-                  'text-lg font-bold tabular-nums',
-                  green ? 'text-emerald-400' : red ? 'text-red-400' : 'text-white',
-                )}>{val}</p>
-                <p className="text-[10px] text-white/30">{label}</p>
+          <>
+            {/* Linha 1: sinais e ordens MT5 */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <div className="text-center bg-white/5 rounded-lg py-3 border border-white/5">
+                <p className="text-2xl font-bold tabular-nums text-violet-400">{stats.sinaisHoje}</p>
+                <p className="text-[10px] text-white/40 mt-0.5">Sinal(is) detectado(s)</p>
+                <p className="text-[9px] text-white/20 mt-0.5">1 análise técnica por sessão</p>
               </div>
-            ))}
-          </div>
+              <div className="text-center bg-white/5 rounded-lg py-3 border border-white/5">
+                <p className="text-2xl font-bold tabular-nums text-cyan-400">{stats.ordensHoje}</p>
+                <p className="text-[10px] text-white/40 mt-0.5">Ordens MT5 enviadas</p>
+                <p className="text-[9px] text-white/20 mt-0.5">1 por corretora × sinal</p>
+              </div>
+            </div>
+            {/* Linha 2: win/loss/semana */}
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { label: 'Vitórias', val: stats.winsHoje, green: true },
+                { label: 'Derrotas', val: stats.lossesHoje, red: true },
+                { label: 'Semana', val: stats.totalSemana },
+              ].map(({ label, val, green, red }) => (
+                <div key={label} className="text-center bg-white/5 rounded-lg py-2">
+                  <p className={cn(
+                    'text-lg font-bold tabular-nums',
+                    green ? 'text-emerald-400' : red ? 'text-red-400' : 'text-white',
+                  )}>{val}</p>
+                  <p className="text-[10px] text-white/30">{label}</p>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
 
