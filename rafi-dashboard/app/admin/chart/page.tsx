@@ -2318,10 +2318,10 @@ export default function ChartPage() {
       {showDailyOverlay && (
         <MetasOverlay
           type="daily"
-          dailyPct={overlayDailyData?.pct  ?? targetMetrics.dailyPct}
-          dailyPnl={overlayDailyData?.pnl  ?? targetMetrics.dailyPnl}
-          weeklyPct={overlayDailyData?.weeklyPct ?? targetMetrics.weeklyPct}
-          weeklyPnl={overlayDailyData?.weeklyPnl ?? targetMetrics.weeklyPnl}
+          dailyPct={targetMetrics.dailyPct || overlayDailyData?.pct  || 0}
+          dailyPnl={targetMetrics.dailyPnl || overlayDailyData?.pnl  || 0}
+          weeklyPct={targetMetrics.weeklyPct || overlayDailyData?.weeklyPct || 0}
+          weeklyPnl={targetMetrics.weeklyPnl || overlayDailyData?.weeklyPnl || 0}
           daysHit={targetMetrics.daysHit}
           currency={metaAccount?.currency ?? 'USD'}
           onClose={() => setShowDailyOverlay(false)}
