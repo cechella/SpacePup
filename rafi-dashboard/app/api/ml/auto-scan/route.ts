@@ -461,6 +461,7 @@ export async function GET(req: NextRequest) {
 
     const agora = Math.floor(Date.now() / 1000)
     const tradeRecord = {
+      id: crypto.randomUUID(),
       direction,
       entry,
       stop_loss: stopLoss,
