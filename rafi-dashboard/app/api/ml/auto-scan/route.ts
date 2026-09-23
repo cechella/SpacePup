@@ -80,6 +80,24 @@ async function getOpenPositionCount(supa: ReturnType<typeof getServiceClient>): 
   return count ?? 0
 }
 
+// Busca saldo real da conta no MetaAPI
+async function fetchAccountBalance(accountId: string): Promise<number> {
+  try {
+    const url = `${MT_BASE}/users/current/accounts/${accountId}/account-information`
+    const res = await fetch(url, {
+      headers: { 'auth-token': TOKEN },
+      signal: AbortSignal.timeout(5_000),
+      cache: 'no-store',
+    })
+    if (!res.ok) return 1000
+    const data = await res.json()
+    const bal = Number(data.balance ?? data.equity ?? 0)
+    return bal > 0 ? bal : 1000
+  } catch {
+    return 1000  // fallback se MetaAPI não responder
+  }
+}
+
 // Busca candles M5 do MetaAPI (padrão: últimos 60)
 async function fetchCandles(accountId: string, symbol: string, limit = 60): Promise<CandleData[]> {
   const url = `${MARKET_DATA_BASE}/users/current/accounts/${accountId}/historical-market-data/symbols/${symbol}/timeframes/5m/candles?limit=${limit}`
@@ -173,8 +191,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ skipped: true, reason: 'Nenhuma corretora ativa', log })
     }
 
-    // Estima capital total (usa $1000 como base mínima; o signal route faz o mesmo)
-    const capital = 1000
+    // Busca saldo real consolidado de todas as contas ativas
+    const balances = await Promise.all(brokers.map(b => fetchAccountBalance(b.accountId)))
+    const capital = balances.reduce((s, b) => s + b, 0)
+    log.push(`Capital consolidado: $${capital.toFixed(2)}`)
 
     // Meta diária: 7% do capital
     const metaDiariaPct  = Number(config.meta_diaria_pct ?? 7)
