@@ -389,9 +389,10 @@ export default function ChartPage() {
       if (!price) return
       // Não avalia se já há 2+ posições abertas (limite de risco)
       if (allBrokerPositionsRef.current.reduce((acc, b) => acc + (b.positions?.length ?? 0), 0) >= 2) return
-      // Pop-up só durante o overlap Londres + NY (12:00–16:00 UTC)
+      // Pop-up só durante o overlap Londres + NY (13:00–17:00 UTC = 10h–14h BRT)
+      // NY abre 13:30 UTC, Londres fecha ~16:30 UTC
       const horaUtc = new Date().getUTCHours()
-      if (horaUtc < 12 || horaUtc >= 16) return
+      if (horaUtc < 13 || horaUtc >= 17) return
 
       // Coleta condições atuais a partir dos dados do gráfico
       const nowSec = Math.floor(Date.now() / 1000)
