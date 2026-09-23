@@ -15,11 +15,13 @@ interface Props {
   metBy?:     'ia' | 'human' | 'combined'
   iaPnl?:     number
   humanPnl?:  number
+  // Check-in para operar manualmente após IA cumprir a meta
+  onCheckin?: () => void
 }
 
 export function MetasOverlay({
   type, dailyPct, dailyPnl, weeklyPct, weeklyPnl, daysHit, currency, onClose,
-  metBy, iaPnl, humanPnl,
+  metBy, iaPnl, humanPnl, onCheckin,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
@@ -187,7 +189,22 @@ export function MetasOverlay({
           </div>
         )}
 
-        {/* Botão */}
+        {/* Botão check-in para operar (só quando IA cumpriu e há handler disponível) */}
+        {!isWeekly && metBy === 'ia' && onCheckin && (
+          <button
+            onClick={onCheckin}
+            className="w-full py-3 rounded-xl text-[12px] font-bold transition-all border mb-2"
+            style={{
+              background: 'rgba(68,153,255,0.12)',
+              borderColor: '#4499ff50',
+              color: '#4499ff',
+            }}
+          >
+            🧠 Quero fazer check-in e operar
+          </button>
+        )}
+
+        {/* Botão principal */}
         <button
           onClick={onClose}
           className="w-full py-3 rounded-xl text-[12px] font-bold transition-all border"

@@ -33,6 +33,10 @@ interface Props {
   // P&L atual do dia para detectar meta já cumprida
   todayPnl?:    number
   iaPnl?:       number
+  // Check-in para operar manualmente quando IA cumpriu a meta
+  onCheckin?:   () => void
+  // Quando true (usuário fez check-in e estado bom), mostra plano em vez de meta cumprida
+  unlocked?:    boolean
 }
 
 export function MissaoHojePopup({
@@ -42,6 +46,8 @@ export function MissaoHojePopup({
   brokerNames = ['IC Markets', 'Exness', 'Pepperstone', 'Tickmill'],
   todayPnl = 0,
   iaPnl    = 0,
+  onCheckin,
+  unlocked  = false,
 }: Props) {
   const [visible,   setVisible]   = useState(false)
   const [dismissed, setDismissed] = useState(false)
@@ -80,9 +86,10 @@ export function MissaoHojePopup({
 
   // Detecta se a meta diária já foi cumprida e por quem
   const metaGoal     = data?.goal_usd ?? 0
-  const metaCumprida = metaGoal > 0 && todayPnl >= metaGoal
+  // unlocked: usuário fez check-in após IA cumprir → mostra plano mesmo com meta cumprida
+  const metaCumprida = !unlocked && metaGoal > 0 && todayPnl >= metaGoal
   const humanPnl     = todayPnl - iaPnl
-  const metBy: 'ia' | 'human' | 'combined' | null = !metaCumprida ? null
+  const metBy: 'ia' | 'human' | 'combined' | null = !(metaGoal > 0 && todayPnl >= metaGoal) ? null
     : iaPnl >= metaGoal                         ? 'ia'
     : humanPnl >= metaGoal                      ? 'human'
     : 'combined'
@@ -101,6 +108,17 @@ export function MissaoHojePopup({
 
   const f  = (v: number) => v.toFixed(2).replace('.', ',')
   const fl = (v: number) => v.toFixed(2) + 'L'
+
+  // Texto e gradiente do botão principal variam por estado
+  const mainBtnText = metaCumprida
+    ? (metBy === 'ia' ? '\u{1F916}  Dia livre — boa IA!' : '✓  Dia encerrado!')
+    : unlocked
+    ? '✓  Entendi, vou lá operar'
+    : '✓  Entendi, vou lá vencer'
+
+  const mainBtnBg = (metaCumprida || unlocked)
+    ? 'linear-gradient(135deg,#00e676,#00b854)'
+    : 'linear-gradient(135deg,#e2b04a,#bf8820)'
 
   return (
     <div
@@ -293,6 +311,27 @@ export function MissaoHojePopup({
 
         {/* Botões */}
         <div className="px-[18px] pb-[15px] flex flex-col gap-2">
+          {/* Botão check-in — aparece quando IA cumpriu e sessão ainda não foi desbloqueada */}
+          {metBy === 'ia' && onCheckin && !unlocked && (
+            <button
+              onClick={() => { confirm(); onCheckin() }}
+              className="w-full rounded-[10px] flex items-center justify-center gap-2 transition-all hover:opacity-90 hover:-translate-y-px active:translate-y-0"
+              style={{
+                padding:       13,
+                border:        '1px solid #4499ff50',
+                cursor:        'pointer',
+                fontFamily:    'inherit',
+                fontSize:      13,
+                fontWeight:    800,
+                letterSpacing: '0.03em',
+                background:    'rgba(68,153,255,0.14)',
+                color:         '#4499ff',
+              }}
+            >
+              🧠  Quero fazer check-in e operar
+            </button>
+          )}
+
           <button
             onClick={confirm}
             className="w-full rounded-[10px] flex items-center justify-center gap-2 transition-all hover:opacity-90 hover:-translate-y-px active:translate-y-0"
@@ -304,37 +343,39 @@ export function MissaoHojePopup({
               fontSize:      13,
               fontWeight:    800,
               letterSpacing: '0.03em',
-              background:    metaCumprida
-                ? 'linear-gradient(135deg,#00e676,#00b854)'
-                : 'linear-gradient(135deg,#e2b04a,#bf8820)',
+              background:    mainBtnBg,
               color:         '#0a0700',
             }}
           >
-            {metaCumprida
-              ? (metBy === 'ia' ? '🤖  Dia livre — boa IA!' : '✓  Dia encerrado!')
-              : '✓  Entendi, vou lá vencer'}
+            {mainBtnText}
           </button>
-          <button
-            onClick={fechar}
-            className="w-full rounded-[10px] flex items-center justify-center transition-all hover:opacity-70"
-            style={{
-              padding:       9,
-              border:        '1px solid #1c3050',
-              cursor:        'pointer',
-              fontFamily:    'inherit',
-              fontSize:      11,
-              fontWeight:    600,
-              background:    'transparent',
-              color:         '#4a6080',
-            }}
-          >
-            Fechar
-          </button>
+
+          {/* Botão Fechar — só aparece quando não está em meta cumprida nem desbloqueado */}
+          {!metaCumprida && !unlocked && (
+            <button
+              onClick={fechar}
+              className="w-full rounded-[10px] flex items-center justify-center transition-all hover:opacity-70"
+              style={{
+                padding:       9,
+                border:        '1px solid #1c3050',
+                cursor:        'pointer',
+                fontFamily:    'inherit',
+                fontSize:      11,
+                fontWeight:    600,
+                background:    'transparent',
+                color:         '#4a6080',
+              }}
+            >
+              Fechar
+            </button>
+          )}
         </div>
 
         <div className="text-center px-[18px] pb-3" style={{ fontSize: 8.5, color: '#334455', lineHeight: 1.5 }}>
           {metaCumprida
             ? 'Meta confirmada não aparecerá mais hoje.'
+            : unlocked
+            ? 'Sessão desbloqueada · você pode operar em co-piloto com a IA.'
             : <>Confirme o plano para não aparecer mais hoje.{' '}<strong style={{ color: '#7a96b8' }}>Fechar</strong>{' '}volta a cada atualização.</>}
         </div>
       </div>

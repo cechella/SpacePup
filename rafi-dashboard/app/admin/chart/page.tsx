@@ -286,6 +286,8 @@ export default function ChartPage() {
   const [showWeeklyOverlay, setShowWeeklyOverlay] = useState(false)
   // P&L da IA autônoma do dia (para atribuição meta IA vs humano)
   const [iaTodayStats, setIaTodayStats] = useState<{ pnl: number; count: number } | null>(null)
+  const [manualUnlocked, setManualUnlocked] = useState(false)
+  const checkinFromMetaRef = useRef(false)
   const prevDailyMetRef  = useRef(false)
   const prevWeeklyMetRef = useRef(false)
   // Métricas salvas no Supabase — fallback quando MetaAPI está desconectado
@@ -615,6 +617,12 @@ export default function ChartPage() {
     checkGoalsFromSupabase()
   }, [])
 
+  function handleMetaCheckin() {
+    checkinFromMetaRef.current = true
+    setShowDailyOverlay(false)
+    setShowCheckin(true)
+  }
+
   function handleCheckinComplete(result: CheckinResult) {
     setCheckin(result)
     setShowCheckin(false)
@@ -626,6 +634,12 @@ export default function ChartPage() {
       result.energia === 'baixa'  ||
       result.mental  === 'ruim'   ||
       result.humor   === 'triste'
+    // Veio do check-in após IA cumprir a meta: desbloqueia sessão manual se estado OK
+    if (checkinFromMetaRef.current) {
+      checkinFromMetaRef.current = false
+      if (!estadoRuim) setManualUnlocked(true)
+    }
+
     if (estadoRuim) {
       // Só oferece modo autônomo se há ≥ 10 trades rotulados
       const stored = typeof window !== 'undefined'
@@ -759,6 +773,9 @@ export default function ChartPage() {
     : iaPnlHoje >= dailyGoalUsd                       ? 'ia'
     : humanPnlHoje >= dailyGoalUsd                    ? 'human'
     : 'combined'
+
+  // Quando usuário fez check-in após IA cumprir a meta, desbloqueia SessionSidebar
+  const effectiveTargets = manualUnlocked ? { ...targetMetrics, locked: false } : targetMetrics
 
   useEffect(() => {
     if (!balanceLoaded) return
@@ -2255,6 +2272,8 @@ export default function ChartPage() {
           brokerNames={enabledBrokers.length > 0 ? enabledBrokers.map(b => b.nome) : undefined}
           todayPnl={targetMetrics.dailyPnl}
           iaPnl={iaPnlHoje}
+          onCheckin={handleMetaCheckin}
+          unlocked={manualUnlocked && metBy === 'ia'}
         />
       )}
 
@@ -2272,6 +2291,7 @@ export default function ChartPage() {
           metBy={metBy}
           iaPnl={iaPnlHoje}
           humanPnl={humanPnlHoje}
+          onCheckin={handleMetaCheckin}
         />
       )}
 
@@ -3771,7 +3791,7 @@ export default function ChartPage() {
         rafiValue={currentRafiValue}
         bbExpanding={currentBbExpanding}
         checkin={checkin}
-        targets={metaConnected ? targetMetrics : null}
+        targets={metaConnected ? effectiveTargets : null}
         liveDailyPct={metaConnected ? liveDailyPct : undefined}
         liveDailyPnl={metaConnected ? liveDailyPnl : undefined}
       />
