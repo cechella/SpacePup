@@ -9,7 +9,7 @@ import {
   Lock, Radio, Shield, Settings, WifiOff,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { fetchTrades, upsertTrades, updateTradeResult } from '@/lib/trades-db'
+import { fetchTrades, upsertTrades, updateTradeResult, fetchIATodayStats, fetchIAConfig, type IAConfig } from '@/lib/trades-db'
 import { getSessionConfig, saveSessionConfig, SESSION_DEFAULTS, type SessionConfig } from '@/lib/session-config'
 import { EpicJourneyBar, logPct, JOURNEY_MILESTONES } from '@/components/epic-journey-bar'
 import { MissaoHojePopup } from '@/components/missao-hoje-popup'
@@ -927,7 +927,9 @@ export default function AdminDashboard() {
   const [cfgDraft,       setCfgDraft]       = useState<SessionConfig>(SESSION_DEFAULTS)
   const [clockStr,       setClockStr]       = useState('')
   const [tradeFilter, setTradeFilter] = useState<'hoje' | '7d' | '30d'>('hoje')
-  const importRef                     = useRef<HTMLInputElement>(null)
+  const [iaTodayStats, setIaTodayStats] = useState<{ pnl: number; count: number } | null>(null)
+  const [iaConfig,     setIaConfig]     = useState<IAConfig | null>(null)
+  const importRef                       = useRef<HTMLInputElement>(null)
 
   // Injeta fontes premium via Google Fonts
   useEffect(() => {
@@ -1053,6 +1055,10 @@ export default function AdminDashboard() {
         }
       })
       .catch((err) => console.error('[Supabase] fetchTrades:', err))
+
+    // Dados da IA Autônoma — P&L do dia + config
+    fetchIATodayStats().then(setIaTodayStats).catch(() => {})
+    fetchIAConfig().then(setIaConfig).catch(() => {})
   }, [])
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1193,6 +1199,34 @@ export default function AdminDashboard() {
   }, [sessionConfig])
 
   const primaryBroker = brokersLive.find(b => b.connected)
+
+  // Dueto Humano × IA
+  const iaPnlHoje    = iaTodayStats?.pnl   ?? 0
+  const iaCountHoje  = iaTodayStats?.count ?? 0
+  const humanPnlHoje = todayPnl - iaPnlHoje
+  const metaDiariaUsd = dynamicDailyGoal   // já calculado: 7% do capital
+
+  // Próximo scan da IA (02:00 UTC ou 07:00 UTC)
+  const iaNextScanStr = (() => {
+    const now = new Date()
+    const h = now.getUTCHours()
+    const m = now.getUTCMinutes()
+    const totalMin = h * 60 + m
+    // Próximo: 02:00 ou 07:00
+    const targets = [2 * 60, 7 * 60]
+    for (const t of targets) {
+      if (totalMin < t) {
+        const diff = t - totalMin
+        const dh = Math.floor(diff / 60), dm = diff % 60
+        const label = t === 2 * 60 ? '02:00 UTC' : '07:00 UTC'
+        return `${label} · em ${dh > 0 ? dh + 'h ' : ''}${dm}min`
+      }
+    }
+    // Depois das 07:00 UTC: próximo é 02:00 UTC do dia seguinte
+    const diff = (24 * 60 - totalMin) + 2 * 60
+    const dh = Math.floor(diff / 60), dm = diff % 60
+    return `02:00 UTC · em ${dh > 0 ? dh + 'h ' : ''}${dm}min`
+  })()
 
   // Epic Journey computed values
   const curPct            = useMemo(() => logPct(capitalParaJornada), [capitalParaJornada])
@@ -1463,6 +1497,150 @@ export default function AdminDashboard() {
             </div>
           ))}
         </div>
+
+        {/* ── Dueto Humano × IA ─────────────────────────────────────────────── */}
+        {metaDiariaUsd > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* Humano */}
+            {(() => {
+              const pct = metaDiariaUsd > 0 ? Math.max(0, Math.min((humanPnlHoje / metaDiariaUsd) * 100, 100)) : 0
+              const color = humanPnlHoje < 0 ? C.rose : C.blue
+              return (
+                <div className="rounded-xl p-4 space-y-3" style={{ background: C.card, border: `1px solid ${C.border}`, borderTop: `2px solid ${C.blue}` }}>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: C.blue }} />
+                    <span className="text-[9px] uppercase tracking-widest font-semibold" style={{ color: C.muted }}>Humano (manual)</span>
+                  </div>
+                  <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 26, fontWeight: 900, color, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                    {humanPnlHoje >= 0 ? '+' : ''}${Math.abs(humanPnlHoje).toFixed(2)}
+                  </div>
+                  <div className="text-[10px]" style={{ color: C.muted }}>de ${metaDiariaUsd.toFixed(2)} meta</div>
+                  <div>
+                    <div className="flex justify-between text-[9px] mb-1 font-mono" style={{ color: C.sub }}>
+                      <span style={{ color: C.blue, fontWeight: 700 }}>{pct.toFixed(0)}%</span>
+                      <span>faltam ${Math.max(0, metaDiariaUsd - humanPnlHoje).toFixed(2)}</span>
+                    </div>
+                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.card2 }}>
+                      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: `linear-gradient(90deg, #0ea5e9, ${C.blue})` }} />
+                    </div>
+                  </div>
+                  <div className="flex justify-between text-[9px] font-mono rounded-lg px-2 py-1.5" style={{ background: C.card2, color: C.sub }}>
+                    <span>{wins + losses} trades hoje</span>
+                    <span>{wins}W · {losses}L</span>
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* IA Autônoma */}
+            {(() => {
+              const pct = metaDiariaUsd > 0 && iaPnlHoje > 0 ? Math.min((iaPnlHoje / metaDiariaUsd) * 100, 100) : 0
+              const iaColor = iaConfig?.iaAtiva ? '#a855f7' : C.muted
+              return (
+                <div className="rounded-xl p-4 space-y-3" style={{ background: C.card, border: `1px solid ${C.border}`, borderTop: `2px solid ${iaColor}` }}>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: iaColor }} />
+                    <span className="text-[9px] uppercase tracking-widest font-semibold" style={{ color: C.muted }}>IA Autônoma</span>
+                    {iaConfig?.iaAtiva && (
+                      <span className="ml-auto text-[8px] px-1.5 py-0.5 rounded-full font-bold" style={{ background: '#a855f715', border: '1px solid #a855f730', color: '#a855f7' }}>ATIVA</span>
+                    )}
+                  </div>
+                  <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 26, fontWeight: 900, color: iaPnlHoje !== 0 ? (iaPnlHoje > 0 ? C.teal : C.rose) : C.muted, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                    {iaPnlHoje >= 0 ? '+' : ''}${Math.abs(iaPnlHoje).toFixed(2)}
+                  </div>
+                  <div className="text-[10px]" style={{ color: C.muted }}>{iaCountHoje === 0 ? `aguardando · ${iaNextScanStr}` : `${iaCountHoje} trade${iaCountHoje !== 1 ? 's' : ''} hoje`}</div>
+                  <div>
+                    <div className="flex justify-between text-[9px] mb-1 font-mono" style={{ color: C.sub }}>
+                      <span style={{ color: iaColor, fontWeight: 700 }}>{pct.toFixed(0)}%</span>
+                      <span>{iaCountHoje === 0 ? 'ainda não operou' : `faltam $${Math.max(0, metaDiariaUsd - iaPnlHoje).toFixed(2)}`}</span>
+                    </div>
+                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.card2 }}>
+                      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.max(pct, 0)}%`, background: pct > 0 ? `linear-gradient(90deg, #9333ea, #a855f7)` : C.muted, opacity: pct > 0 ? 1 : 0.3 }} />
+                    </div>
+                  </div>
+                  <div className="flex justify-between text-[9px] font-mono rounded-lg px-2 py-1.5" style={{ background: C.card2, color: C.sub }}>
+                    <span>threshold</span>
+                    <span style={{ color: iaColor }}>{Math.round((iaConfig?.thresholdConfianca ?? 0.65) * 100)}% P(sucesso)</span>
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* Integrado */}
+            {(() => {
+              const intPnl = todayPnl
+              const pct = metaDiariaUsd > 0 ? Math.max(0, Math.min((intPnl / metaDiariaUsd) * 100, 100)) : 0
+              const intColor = intPnl >= metaDiariaUsd ? C.teal : intPnl > 0 ? '#14b8a6' : intPnl < 0 ? C.rose : C.muted
+              return (
+                <div className="rounded-xl p-4 space-y-3" style={{ background: C.card, border: `1px solid ${C.border}`, borderTop: `2px solid #14b8a6` }}>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: '#14b8a6' }} />
+                    <span className="text-[9px] uppercase tracking-widest font-semibold" style={{ color: C.muted }}>Integrado (total)</span>
+                    {intPnl >= metaDiariaUsd && <span className="ml-auto text-[8px] px-1.5 py-0.5 rounded-full font-bold" style={{ background: `${C.teal}18`, border: `1px solid ${C.teal}40`, color: C.teal }}>META ✓</span>}
+                  </div>
+                  <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 26, fontWeight: 900, color: intColor, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                    {intPnl >= 0 ? '+' : ''}${Math.abs(intPnl).toFixed(2)}
+                  </div>
+                  <div className="text-[10px]" style={{ color: C.muted }}>de ${metaDiariaUsd.toFixed(2)} meta</div>
+                  <div>
+                    <div className="flex justify-between text-[9px] mb-1 font-mono" style={{ color: C.sub }}>
+                      <span style={{ color: intColor, fontWeight: 700 }}>{pct.toFixed(0)}%</span>
+                      <span>{intPnl >= metaDiariaUsd ? 'meta atingida 🎯' : `faltam $${Math.max(0, metaDiariaUsd - intPnl).toFixed(2)}`}</span>
+                    </div>
+                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.card2 }}>
+                      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: `linear-gradient(90deg, #0d9488, #14b8a6)` }} />
+                    </div>
+                  </div>
+                  <div className="flex justify-between text-[9px] font-mono rounded-lg px-2 py-1.5" style={{ background: C.card2, color: C.sub }}>
+                    <span>{wins + losses + iaCountHoje} trades no total</span>
+                    <span style={{ color: '#14b8a6' }}>meta: ${metaDiariaUsd.toFixed(2)}</span>
+                  </div>
+                </div>
+              )
+            })()}
+          </div>
+        )}
+
+        {/* ── Status IA Autônoma ─────────────────────────────────────────────── */}
+        {iaConfig && (
+          <div className="rounded-xl p-4" style={{ background: C.card, border: `1px solid #a855f730` }}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Zap size={12} style={{ color: '#a855f7' }} />
+                <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#a855f7' }}>Status IA Autônoma</span>
+                <span className="text-[8px] px-2 py-0.5 rounded-full font-bold" style={
+                  iaConfig.iaAtiva
+                    ? { background: `${C.teal}12`, border: `1px solid ${C.teal}30`, color: C.teal }
+                    : { background: `${C.muted}12`, border: `1px solid ${C.border}`, color: C.muted }
+                }>{iaConfig.iaAtiva ? 'IA ATIVA' : 'IA DESLIGADA'}</span>
+              </div>
+              <span className="text-[9px] font-mono" style={{ color: C.muted }}>
+                capital: <span style={{ color: C.gold }}>${fBRL(capitalParaJornada)}</span>
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+              {[
+                { label: 'Próximo Scan',     val: iaNextScanStr,                                          color: C.gold },
+                { label: 'P(sucesso) mín.',  val: `${Math.round((iaConfig.thresholdConfianca) * 100)}%`, color: C.text },
+                { label: 'Sessão Sydney/TK', val: iaConfig.sessaoSydneyTokyo ? '✓ Ativa' : '✗ Pausada', color: iaConfig.sessaoSydneyTokyo ? C.teal : C.muted },
+                { label: 'Sessão TK/Londres',val: iaConfig.sessaoTokyoLondon ? '✓ Ativa' : '✗ Pausada', color: iaConfig.sessaoTokyoLondon ? C.teal : C.muted },
+              ].map(({ label, val, color }) => (
+                <div key={label} className="rounded-lg p-3" style={{ background: C.card2 }}>
+                  <div className="text-[8px] uppercase tracking-wider mb-1" style={{ color: C.muted }}>{label}</div>
+                  <div className="text-[11px] font-medium font-mono" style={{ color }}>{val}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-lg px-3 py-2 text-[10px] font-mono" style={{ background: C.card2, borderLeft: `3px solid #a855f7`, color: C.sub }}>
+              {iaCountHoje === 0
+                ? `Último scan: sem rompimento detectado · Próximo: ${iaNextScanStr}`
+                : `IA operou ${iaCountHoje} vez${iaCountHoje !== 1 ? 'es' : ''} hoje · P&L: ${iaPnlHoje >= 0 ? '+' : ''}$${iaPnlHoje.toFixed(2)}`
+              }
+            </div>
+          </div>
+        )}
 
         {/* ── Marco a Marco · 70/30 · Corretoras ───────────────────────────── */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

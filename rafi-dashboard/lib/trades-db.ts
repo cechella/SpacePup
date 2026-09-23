@@ -130,6 +130,54 @@ export async function updateTradeResult(id: string, result: 'win' | 'loss'): Pro
   if (error) throw error
 }
 
+// ── IA Autônoma — P&L do dia e configuração ───────────────────────────────────
+export interface IATodayStats {
+  pnl:   number
+  count: number   // total de trades IA hoje (incluindo abertos)
+}
+
+export async function fetchIATodayStats(): Promise<IATodayStats> {
+  const db = createClient()
+  const startOfDay = new Date()
+  startOfDay.setUTCHours(0, 0, 0, 0)
+  const ts = Math.floor(startOfDay.getTime() / 1000)
+  const { data } = await db
+    .from('rafi_trades')
+    .select('pnl_usd, result')
+    .eq('entry_type', 'ia_autonoma')
+    .gte('time', ts)
+  const rows = data ?? []
+  const pnl  = rows
+    .filter((r: any) => r.result === 'win' || r.result === 'loss')
+    .reduce((s: number, r: any) => s + (Number(r.pnl_usd) || 0), 0)
+  return { pnl, count: rows.length }
+}
+
+export interface IAConfig {
+  iaAtiva:           boolean
+  sessaoSydneyTokyo: boolean
+  sessaoTokyoLondon: boolean
+  thresholdConfianca: number
+  metaDiariaPct:     number
+}
+
+export async function fetchIAConfig(): Promise<IAConfig | null> {
+  const db = createClient()
+  const { data } = await db
+    .from('rafi_ia_config')
+    .select('ia_autonoma_ativa, sessao_sydney_tokyo, sessao_tokyo_london, threshold_confianca, meta_diaria_pct')
+    .eq('id', 'default')
+    .single()
+  if (!data) return null
+  return {
+    iaAtiva:            !!data.ia_autonoma_ativa,
+    sessaoSydneyTokyo:  !!data.sessao_sydney_tokyo,
+    sessaoTokyoLondon:  !!data.sessao_tokyo_london,
+    thresholdConfianca: Number(data.threshold_confianca ?? 0.65),
+    metaDiariaPct:      Number(data.meta_diaria_pct ?? 7),
+  }
+}
+
 // ── Candles do Supabase (tabela rafi_candles) ─────────────────────────────────
 export interface CandleRow {
   time:   number
