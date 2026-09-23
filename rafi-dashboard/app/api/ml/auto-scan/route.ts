@@ -194,20 +194,20 @@ async function reconcileIATrades(
 
     log.push(`[reconcile] ${pendingTrades.length} trade(s) pendentes`)
 
-    // Busca deals fechados (timeout curto para não estourar o maxDuration)
+    // Busca deals fechados em PARALELO (evita timeout de 10s do Vercel Hobby)
     const startTime = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString()
     const endTime   = new Date().toISOString()
     const dealMap   = new Map<string, number>()
 
-    for (const broker of brokers) {
+    await Promise.allSettled(brokers.map(async (broker) => {
       try {
         const url = `${MT_BASE}/users/current/accounts/${broker.accountId}/history-deals/time/${startTime}/${endTime}`
         const res = await fetch(url, {
           headers: { 'auth-token': TOKEN },
-          signal: AbortSignal.timeout(3_000),
+          signal: AbortSignal.timeout(4_000),
           cache: 'no-store',
         })
-        if (!res.ok) continue
+        if (!res.ok) return
         const data = await res.json()
         const arr  = Array.isArray(data) ? data : (data.deals ?? [])
         for (const d of arr) {
@@ -216,25 +216,26 @@ async function reconcileIATrades(
           dealMap.set(pid, (dealMap.get(pid) ?? 0) + Number(d.profit ?? 0))
         }
       } catch { /* timeout ou broker offline — ignora */ }
-    }
+    }))
 
     let reconciled = 0
     for (const trade of pendingTrades) {
       const labelStr  = String((trade as any).label ?? '')
       const posMatch  = labelStr.match(/\|pos:(\S+)/)
       if (!posMatch) continue
-      // Suporta múltiplos positionIds separados por vírgula (multi-broker)
+      // Soma lucros de TODOS os positionIds (multi-broker) — não apenas o primeiro
       const positionIds = posMatch[1].split(',').filter(Boolean)
-      let profit: number | undefined
+      let totalProfit = 0
+      let foundAny    = false
       for (const pid of positionIds) {
         const p = dealMap.get(pid)
-        if (p !== undefined) { profit = p; break }
+        if (p !== undefined) { totalProfit += p; foundAny = true }
       }
-      if (profit === undefined) continue
-      const result: 'win' | 'loss' = profit > 0 ? 'win' : 'loss'
+      if (!foundAny) continue
+      const result: 'win' | 'loss' = totalProfit > 0 ? 'win' : 'loss'
       const { error } = await supa
         .from('rafi_trades')
-        .update({ result, pnl_usd: profit, updated_at: new Date().toISOString() })
+        .update({ result, pnl_usd: totalProfit, updated_at: new Date().toISOString() })
         .eq('id', trade.id)
       if (!error) reconciled++
     }
@@ -446,6 +447,31 @@ export async function GET(req: NextRequest) {
 
     log.push(`Enviando ordem: ${actionType} ${lot} lotes SL=${stopLoss} TP=${takeProfit}`)
 
+    // ── 8a. Registra o trade ANTES de enviar ordens ───────────────────
+    // Garante que mesmo em timeout o registro existe para reconcile futuro.
+    // O label é atualizado com os positionIds após as ordens serem executadas.
+    const tradeId = crypto.randomUUID()
+    const agora   = Math.floor(Date.now() / 1000)
+    const preRecord = {
+      id: tradeId,
+      direction,
+      entry,
+      stop_loss: stopLoss,
+      take_profit: takeProfit,
+      label: 'AutoScan-IA|pending',  // atualizado abaixo com positionIds reais
+      time: agora,
+      lot,
+      result: null,
+      entry_type: 'ia_autonoma',
+      rafi: rafiAbs,
+      rafi_dir: rafiDir,
+      bb_width: bbWidth ?? null,
+    }
+    const { error: preErr } = await supa.from('rafi_trades').insert(preRecord)
+    if (preErr) log.push(`Aviso: erro ao pré-registrar trade: ${preErr.message}`)
+    else log.push('Trade pré-registrado no Supabase')
+
+    // ── 8b. Envia ordens para todas as corretoras ─────────────────────
     const results = await Promise.allSettled(
       brokers.map(b => sendOrder(b.accountId, b.brokerId, b.symbol, payload))
     )
@@ -455,41 +481,25 @@ export async function GET(req: NextRequest) {
     const anyOk = parsed.some(r => r.ok)
 
     if (!anyOk) {
-      log.push('ERRO: nenhuma corretora executou a ordem')
+      // Nenhuma corretora executou — remove o pré-registro para não poluir o histórico
+      await supa.from('rafi_trades').delete().eq('id', tradeId)
+      log.push('ERRO: nenhuma corretora executou a ordem — pré-registro removido')
       return NextResponse.json({ error: 'Nenhuma corretora executou a ordem', details: parsed, log }, { status: 500 })
     }
 
-    // ── 8. Registra o trade no Supabase ───────────────────────────────
-    // Salva TODOS os positionIds (um por broker) separados por vírgula
-    // para que o reconcile possa cruzar qualquer um com o histórico de deals
+    // ── 8c. Atualiza label com positionIds reais (multi-broker) ───────
+    // Formato: 'AutoScan-IA|pos:id1,id2,id3,id4' — usado pelo reconcile
     const allPositionIds = (parsed as Array<{ ok: boolean; positionId?: string }>)
       .filter(r => r.ok && r.positionId)
       .map(r => r.positionId!)
     const positionId = allPositionIds[0] ?? null
+    const finalLabel = allPositionIds.length > 0 ? `AutoScan-IA|pos:${allPositionIds.join(',')}` : 'AutoScan-IA'
 
-    const agora = Math.floor(Date.now() / 1000)
-    const tradeRecord = {
-      id: crypto.randomUUID(),
-      direction,
-      entry,
-      stop_loss: stopLoss,
-      take_profit: takeProfit,
-      // Formato: 'AutoScan-IA|pos:id1,id2,id3,id4' — usado pelo reconcile para cruzar deals
-      label: allPositionIds.length > 0 ? `AutoScan-IA|pos:${allPositionIds.join(',')}` : 'AutoScan-IA',
-      time: agora,
-      lot,
-      result: null,  // preenchido pelo reconcile-ia quando fechar no MT5
-      entry_type: 'ia_autonoma',
-      rafi: rafiAbs,
-      rafi_dir: rafiDir,
-      bb_width: bbWidth ?? null,
-    }
+    const { error: updateErr } = await supa.from('rafi_trades').update({ label: finalLabel }).eq('id', tradeId)
+    if (updateErr) log.push(`Aviso: erro ao atualizar positionIds: ${updateErr.message}`)
+    else log.push(`Label atualizado: ${finalLabel}`)
 
-    const { error: insertErr } = await supa.from('rafi_trades').insert(tradeRecord)
-    if (insertErr) log.push(`Aviso: erro ao registrar trade: ${insertErr.message}`)
-    else log.push(`Trade registrado no Supabase (positionId: ${positionId ?? 'não retornado'})`)
-
-    log.push(`Concluído: ordem enviada com sucesso para ${parsed.filter(r => r.ok).length}/${brokers.length} corretoras`)
+    log.push(`Concluído: ${parsed.filter(r => r.ok).length}/${brokers.length} corretoras executaram · positionIds: ${allPositionIds.join(', ') || 'nenhum'}`)
 
     return NextResponse.json({
       executed: true,
