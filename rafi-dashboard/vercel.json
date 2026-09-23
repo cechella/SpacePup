@@ -7,6 +7,10 @@
     {
       "path": "/api/ml/auto-scan-b",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/ml/enrich-retroactive",
+      "schedule": "0 12 * * *"
     }
   ]
 }

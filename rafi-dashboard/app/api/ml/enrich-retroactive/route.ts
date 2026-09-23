@@ -1,10 +1,12 @@
 /**
- * POST /api/ml/enrich-retroactive
+ * POST /api/ml/enrich-retroactive  — chamada manual (botão na fase2)
+ * GET  /api/ml/enrich-retroactive  — cron diário (12:00 UTC / 09:00 BRT), protegido por CRON_SECRET
+ *
  * Busca candles históricos do MetaAPI para enriquecer trades em rafi_trades que
- * ainda não têm RAFI/BB Width preenchidos (entry_type='bot' sem rafi).
+ * ainda não têm RAFI/BB Width preenchidos.
  * Calcula RAFI e BB Width server-side e atualiza os registros no Supabase.
  */
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { calcRAFI, calcBollingerBands } from '@/lib/indicators'
 import { getTopBroker } from '@/lib/top-broker'
@@ -53,7 +55,8 @@ async function fetchMetaCandles(accountId: string, symbol: string, startTime: st
     .sort((a, b) => a.time - b.time)
 }
 
-export async function POST() {
+// Lógica compartilhada entre GET (cron) e POST (botão manual)
+async function runEnrich() {
   try {
     const supa = getSupabase()
 
@@ -165,4 +168,19 @@ export async function POST() {
     const msg = e instanceof Error ? e.message : String(e)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
+}
+
+// GET — disparado pelo cron Vercel (12:00 UTC / 09:00 BRT), protegido por CRON_SECRET
+export async function GET(req: NextRequest) {
+  const auth     = req.headers.get('authorization')
+  const expected = `Bearer ${process.env.CRON_SECRET}`
+  if (!process.env.CRON_SECRET || auth !== expected) {
+    return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+  }
+  return runEnrich()
+}
+
+// POST — chamada manual via botão "Enriquecer RAFI" na página fase2
+export async function POST() {
+  return runEnrich()
 }
