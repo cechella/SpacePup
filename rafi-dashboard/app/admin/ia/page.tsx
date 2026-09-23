@@ -134,6 +134,7 @@ export default function AdminIAPage() {
   const [updating, setUpdating] = useState<string | null>(null)
   const [capitalReal, setCapitalReal]       = useState(0)
   const [nBrokersAtivos, setNBrokersAtivos] = useState(4)
+  const [historicoSemana, setHistoricoSemana] = useState<{ date: string; pnl: number }[]>([])
 
   const loadConfig = useCallback(async () => {
     if (!supa) return
@@ -213,6 +214,38 @@ export default function AdminIAPage() {
     }
     fetchCapital()
   }, [])
+
+  // Busca P&L IA dos últimos 7 dias agrupado por dia BRT
+  useEffect(() => {
+    if (!supa) return
+    async function fetchHistorico() {
+      try {
+        const nowBRT = new Date(Date.now() - 3 * 60 * 60 * 1000)
+        const desde  = new Date(nowBRT)
+        desde.setUTCDate(nowBRT.getUTCDate() - 7)
+        desde.setUTCHours(0, 0, 0, 0)
+        const { data } = await supa
+          .from('rafi_trades')
+          .select('time, pnl_usd')
+          .eq('entry_type', 'ia_autonoma')
+          .gte('time', Math.floor(desde.getTime() / 1000))
+          .order('time', { ascending: true })
+        if (!data) return
+        const byDay: Record<string, number> = {}
+        for (const row of data) {
+          const d   = new Date((Number(row.time) * 1000) - 3 * 60 * 60 * 1000)
+          const key = d.toISOString().slice(0, 10)
+          byDay[key] = (byDay[key] ?? 0) + (Number(row.pnl_usd) || 0)
+        }
+        const hist = Object.entries(byDay)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .slice(-5)
+          .map(([date, pnl]) => ({ date, pnl }))
+        setHistoricoSemana(hist)
+      } catch {}
+    }
+    fetchHistorico()
+  }, [supa])
 
   async function update(patch: Partial<IAConfig>) {
     const key = Object.keys(patch)[0]
@@ -446,6 +479,78 @@ export default function AdminIAPage() {
           </div>
         )
       })()}
+
+      {/* ── Desempenho IA ── */}
+      <div className="rounded-xl border border-white/10 bg-white/3 p-4 space-y-4">
+        <p className="text-xs font-semibold text-white/40 uppercase tracking-wider flex items-center gap-1.5">
+          <TrendingUp className="w-3.5 h-3.5 text-violet-400" />
+          Desempenho IA
+        </p>
+
+        {/* Objetivo vs Alcançado hoje */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[10px] text-white/40 uppercase tracking-wider">Objetivo hoje ({config?.meta_diaria_pct ?? 7}%)</p>
+              <p className="text-lg font-bold tabular-nums text-white">${metaDiariaUsd.toFixed(2)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] text-white/40 uppercase tracking-wider">Alcançado</p>
+              <p className={cn(
+                'text-lg font-bold tabular-nums',
+                pnlHoje >= metaDiariaUsd ? 'text-emerald-400' : pnlHoje > 0 ? 'text-amber-400' : 'text-red-400',
+              )}>
+                {pnlHoje >= 0 ? '+' : ''}${pnlHoje.toFixed(2)}
+              </p>
+            </div>
+          </div>
+          <div className="w-full bg-white/10 rounded-full h-2.5 overflow-hidden">
+            <div
+              className={cn(
+                'h-full rounded-full transition-all duration-700',
+                progDia >= 100 ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                : progDia >= 50  ? 'bg-gradient-to-r from-amber-500 to-yellow-400'
+                : 'bg-gradient-to-r from-red-600 to-red-400',
+              )}
+              style={{ width: `${progDia}%` }}
+            />
+          </div>
+          <div className="flex justify-between text-[10px]">
+            <span className="text-white/30">{progDia.toFixed(0)}% da meta</span>
+            {progDia >= 100
+              ? <span className="text-emerald-400 font-semibold">META ATINGIDA ✓</span>
+              : <span className="text-white/20">falta ${(metaDiariaUsd - pnlHoje).toFixed(2)}</span>
+            }
+          </div>
+        </div>
+
+        {/* Histórico da semana */}
+        {historicoSemana.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-[10px] text-white/30 uppercase tracking-wider">Histórico desta semana</p>
+            {historicoSemana.map(h => {
+              const pct      = metaDiariaUsd > 0 ? (h.pnl / metaDiariaUsd) * 100 : 0
+              const diaNome  = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][new Date(h.date + 'T12:00:00Z').getUTCDay()]
+              const barColor = pct >= 100 ? 'bg-emerald-500/50' : pct >= 50 ? 'bg-amber-500/40' : 'bg-red-500/40'
+              const txtColor = pct >= 100 ? 'text-emerald-400' : pct >= 50 ? 'text-amber-400' : 'text-red-400'
+              return (
+                <div key={h.date} className="flex items-center gap-2">
+                  <span className="text-[10px] text-white/30 w-7 flex-shrink-0">{diaNome}</span>
+                  <div className="flex-1 bg-white/5 rounded h-4 overflow-hidden">
+                    <div className={cn('h-full rounded', barColor)} style={{ width: `${Math.min(pct, 100)}%` }} />
+                  </div>
+                  <span className={cn('text-[10px] font-mono w-12 text-right flex-shrink-0', txtColor)}>
+                    {pct.toFixed(0)}%{pct >= 100 ? ' ✓' : ''}
+                  </span>
+                  <span className="text-[10px] font-mono text-white/35 w-14 text-right flex-shrink-0 tabular-nums">
+                    {h.pnl >= 0 ? '+' : ''}${h.pnl.toFixed(2)}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
 
       {/* ── Metas combinadas ── */}
       <div className="rounded-xl border border-white/10 bg-white/3 p-4 space-y-4">
