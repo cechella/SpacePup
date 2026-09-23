@@ -2307,7 +2307,7 @@ export default function ChartPage() {
           brokerCount={enabledBrokers.length > 0 ? enabledBrokers.length : 4}
           dailyTarget={DAILY_TARGET}
           brokerNames={enabledBrokers.length > 0 ? enabledBrokers.map(b => b.nome) : undefined}
-          todayPnl={targetMetrics.dailyPnl}
+          todayPnl={humanPnlHoje + iaPnlHoje}
           iaPnl={iaPnlHoje}
           onCheckin={handleMetaCheckin}
           unlocked={manualUnlocked && metBy === 'ia'}
