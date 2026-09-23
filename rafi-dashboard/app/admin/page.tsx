@@ -1828,6 +1828,24 @@ export default function AdminDashboard() {
                 <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 36, fontWeight: 900, color: '#f0c040', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
                   +${fBRL(ratio7030.weeklyProfit)}
                 </div>
+                {/* Acumulado real da semana (segunda→hoje) */}
+                {weekBrokerStats && (() => {
+                  const weekReal = weekBrokerStats.humanPnl + weekBrokerStats.iaPnl
+                  const weekColor = weekReal >= 0 ? '#00e676' : '#ff5252'
+                  return (
+                    <div style={{ marginTop: 8, display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                      <div style={{ fontSize: 7, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.10em', color: '#5878a0' }}>Real seg→hoje</div>
+                      <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 18, fontWeight: 800, color: weekColor, fontVariantNumeric: 'tabular-nums' }}>
+                        {weekReal >= 0 ? '+' : ''}${weekReal.toFixed(2)}
+                      </div>
+                      {usdBrl > 0 && (
+                        <div style={{ fontSize: 9, color: weekReal >= 0 ? '#3a6850' : '#7a3a3a', fontVariantNumeric: 'tabular-nums' }}>
+                          {weekReal >= 0 ? '+' : '−'}R$ {(Math.abs(weekReal) * usdBrl).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
               <div style={{ height: 1, background: '#142840', margin: '12px 0' }} />
               <div className="grid grid-cols-2 gap-3">
