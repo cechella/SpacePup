@@ -1685,6 +1685,29 @@ export default function AdminDashboard() {
                       <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: `linear-gradient(90deg, #0d9488, #14b8a6)` }} />
                     </div>
                   </div>
+                  {/* ── Barra semanal integrada ──────────────────────── */}
+                  {weekBrokerStats && capitalConsolidado > 0 && (() => {
+                    const totalWeekPnl = weekBrokerStats.humanPnl + weekBrokerStats.iaPnl
+                    const startBal     = Math.max(capitalConsolidado - totalWeekPnl, 1)
+                    const weekPct      = (totalWeekPnl / startBal) * 100
+                    const fill         = Math.min(Math.max(weekPct / 25 * 100, 0), 100)
+                    const met          = weekPct >= 25
+                    const wColor       = met ? C.teal : weekPct >= 17.5 ? C.gold : '#14b8a6'
+                    return (
+                      <div className="space-y-1.5 pt-2" style={{ borderTop: `1px solid ${C.card2}` }}>
+                        <div className="flex justify-between text-[9px] font-mono">
+                          <span className="uppercase tracking-widest text-[8px] font-semibold" style={{ color: C.muted }}>semana total</span>
+                          <span className="font-black" style={{ color: wColor }}>{weekPct >= 0 ? '+' : ''}{weekPct.toFixed(1)}% / 25%{met ? ' ✓' : ''}</span>
+                        </div>
+                        <div className="h-2 rounded-full overflow-hidden" style={{ background: C.card2 }}>
+                          <div className="h-full rounded-full transition-all duration-700" style={{ width: `${fill}%`, background: met ? `linear-gradient(90deg, #00c853, ${C.teal})` : wColor === C.gold ? `linear-gradient(90deg, #f59e0b, #fbbf24)` : `linear-gradient(90deg, #0d9488, #14b8a6)` }} />
+                        </div>
+                        <div className="text-[8px] font-mono" style={{ color: C.muted }}>
+                          {totalWeekPnl >= 0 ? '+' : ''}${totalWeekPnl.toFixed(2)} · Seg→hoje (humano + IA)
+                        </div>
+                      </div>
+                    )
+                  })()}
                   <div className="flex justify-between text-[9px] font-mono rounded-lg px-2 py-1.5" style={{ background: C.card2, color: C.sub }}>
                     <span>{wins + losses + iaCountHoje} trades no total</span>
                     <span style={{ color: '#14b8a6' }}>meta: ${metaDiariaUsd.toFixed(2)}</span>
