@@ -1552,16 +1552,44 @@ export default function AdminDashboard() {
                   <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 26, fontWeight: 900, color, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
                     {humanPnlHoje >= 0 ? '+' : ''}${Math.abs(humanPnlHoje).toFixed(2)}
                   </div>
-                  <div className="text-[10px]" style={{ color: C.muted }}>de ${metaDiariaUsd.toFixed(2)} meta</div>
+                  {/* % do capital hoje */}
+                  {capitalConsolidado > 0 && (() => {
+                    const startBal  = Math.max(capitalConsolidado - humanPnlHoje, 1)
+                    const pctCap    = (humanPnlHoje / startBal) * 100
+                    return <div className="text-[10px] font-mono font-bold" style={{ color: humanPnlHoje >= 0 ? C.blue : C.rose }}>{pctCap >= 0 ? '+' : ''}{pctCap.toFixed(1)}% do capital hoje</div>
+                  })()}
+                  <div className="text-[10px]" style={{ color: C.muted }}>meta diária: ${metaDiariaUsd.toFixed(2)}</div>
                   <div>
                     <div className="flex justify-between text-[9px] mb-1 font-mono" style={{ color: C.sub }}>
-                      <span style={{ color: C.blue, fontWeight: 700 }}>{pct.toFixed(0)}%</span>
+                      <span style={{ color: C.blue, fontWeight: 700 }}>{pct.toFixed(0)}% da meta</span>
                       <span>faltam ${Math.max(0, metaDiariaUsd - humanPnlHoje).toFixed(2)}</span>
                     </div>
                     <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.card2 }}>
                       <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: `linear-gradient(90deg, #0ea5e9, ${C.blue})` }} />
                     </div>
                   </div>
+                  {/* ── Barra semanal Vinícius ─────────────────────────── */}
+                  {weekBrokerStats && capitalConsolidado > 0 && (() => {
+                    const startBal  = Math.max(capitalConsolidado - weekBrokerStats.humanPnl, 1)
+                    const weekPct   = (weekBrokerStats.humanPnl / startBal) * 100
+                    const fill      = Math.min(Math.max(weekPct / 25 * 100, 0), 100)
+                    const met       = weekPct >= 25
+                    const wColor    = met ? C.teal : weekPct >= 17.5 ? C.gold : C.blue
+                    return (
+                      <div className="space-y-1.5 pt-2" style={{ borderTop: `1px solid ${C.card2}` }}>
+                        <div className="flex justify-between text-[9px] font-mono">
+                          <span className="uppercase tracking-widest text-[8px] font-semibold" style={{ color: C.muted }}>semana</span>
+                          <span className="font-black" style={{ color: wColor }}>{weekPct >= 0 ? '+' : ''}{weekPct.toFixed(1)}% / 25%{met ? ' ✓' : ''}</span>
+                        </div>
+                        <div className="h-2 rounded-full overflow-hidden" style={{ background: C.card2 }}>
+                          <div className="h-full rounded-full transition-all duration-700" style={{ width: `${fill}%`, background: met ? `linear-gradient(90deg, #00c853, ${C.teal})` : wColor === C.gold ? `linear-gradient(90deg, #f59e0b, #fbbf24)` : `linear-gradient(90deg, #0ea5e9, ${C.blue})` }} />
+                        </div>
+                        <div className="text-[8px] font-mono" style={{ color: C.muted }}>
+                          {weekBrokerStats.humanPnl >= 0 ? '+' : ''}${weekBrokerStats.humanPnl.toFixed(2)} · Seg→hoje
+                        </div>
+                      </div>
+                    )
+                  })()}
                   <div className="flex justify-between text-[9px] font-mono rounded-lg px-2 py-1.5" style={{ background: C.card2, color: C.sub }}>
                     <span>{wins + losses} trades hoje</span>
                     <span>{wins}W · {losses}L</span>
@@ -1586,16 +1614,44 @@ export default function AdminDashboard() {
                   <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 26, fontWeight: 900, color: iaPnlHoje !== 0 ? (iaPnlHoje > 0 ? C.teal : C.rose) : C.muted, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
                     {iaPnlHoje >= 0 ? '+' : ''}${Math.abs(iaPnlHoje).toFixed(2)}
                   </div>
+                  {/* % do capital hoje — IA */}
+                  {capitalConsolidado > 0 && iaPnlHoje !== 0 && (() => {
+                    const startBal = Math.max(capitalConsolidado - iaPnlHoje, 1)
+                    const pctCap   = (iaPnlHoje / startBal) * 100
+                    return <div className="text-[10px] font-mono font-bold" style={{ color: iaPnlHoje > 0 ? '#a855f7' : C.rose }}>{pctCap >= 0 ? '+' : ''}{pctCap.toFixed(1)}% do capital hoje</div>
+                  })()}
                   <div className="text-[10px]" style={{ color: C.muted }}>{iaCountHoje === 0 ? `aguardando · ${iaNextScanStr}` : `${iaCountHoje} trade${iaCountHoje !== 1 ? 's' : ''} hoje`}</div>
                   <div>
                     <div className="flex justify-between text-[9px] mb-1 font-mono" style={{ color: C.sub }}>
-                      <span style={{ color: iaColor, fontWeight: 700 }}>{pct.toFixed(0)}%</span>
+                      <span style={{ color: iaColor, fontWeight: 700 }}>{pct.toFixed(0)}% da meta</span>
                       <span>{iaCountHoje === 0 ? 'ainda não operou' : `faltam $${Math.max(0, metaDiariaUsd - iaPnlHoje).toFixed(2)}`}</span>
                     </div>
                     <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.card2 }}>
                       <div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.max(pct, 0)}%`, background: pct > 0 ? `linear-gradient(90deg, #9333ea, #a855f7)` : C.muted, opacity: pct > 0 ? 1 : 0.3 }} />
                     </div>
                   </div>
+                  {/* ── Barra semanal IA ─────────────────────────────── */}
+                  {weekBrokerStats && capitalConsolidado > 0 && (() => {
+                    const startBal = Math.max(capitalConsolidado - weekBrokerStats.iaPnl, 1)
+                    const weekPct  = (weekBrokerStats.iaPnl / startBal) * 100
+                    const fill     = Math.min(Math.max(weekPct / 25 * 100, 0), 100)
+                    const met      = weekPct >= 25
+                    const wColor   = met ? C.teal : weekPct >= 17.5 ? C.gold : '#a855f7'
+                    return (
+                      <div className="space-y-1.5 pt-2" style={{ borderTop: `1px solid ${C.card2}` }}>
+                        <div className="flex justify-between text-[9px] font-mono">
+                          <span className="uppercase tracking-widest text-[8px] font-semibold" style={{ color: C.muted }}>semana</span>
+                          <span className="font-black" style={{ color: wColor }}>{weekPct >= 0 ? '+' : ''}{weekPct.toFixed(1)}% / 25%{met ? ' ✓' : ''}</span>
+                        </div>
+                        <div className="h-2 rounded-full overflow-hidden" style={{ background: C.card2 }}>
+                          <div className="h-full rounded-full transition-all duration-700" style={{ width: `${fill}%`, background: met ? `linear-gradient(90deg, #00c853, ${C.teal})` : wColor === C.gold ? `linear-gradient(90deg, #f59e0b, #fbbf24)` : `linear-gradient(90deg, #9333ea, #a855f7)` }} />
+                        </div>
+                        <div className="text-[8px] font-mono" style={{ color: C.muted }}>
+                          {weekBrokerStats.iaPnl >= 0 ? '+' : ''}${weekBrokerStats.iaPnl.toFixed(2)} · Seg→hoje
+                        </div>
+                      </div>
+                    )
+                  })()}
                   <div className="flex justify-between text-[9px] font-mono rounded-lg px-2 py-1.5" style={{ background: C.card2, color: C.sub }}>
                     <span>threshold</span>
                     <span style={{ color: iaColor }}>{Math.round((iaConfig?.thresholdConfianca ?? 0.65) * 100)}% P(sucesso)</span>
