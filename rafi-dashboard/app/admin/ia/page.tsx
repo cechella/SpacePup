@@ -135,42 +135,39 @@ export default function AdminIAPage() {
   const [capitalReal, setCapitalReal]       = useState(0)
   const [nBrokersAtivos, setNBrokersAtivos] = useState(4)
   const [historicoSemana, setHistoricoSemana] = useState<{ date: string; pnl: number }[]>([])
+  const [humanStats, setHumanStats] = useState<{ pnlHoje: number; pnlSemana: number } | null>(null)
 
   const loadConfig = useCallback(async () => {
     if (!supa) return
     setLoading(true)
     try {
-      const [cfgRes, statsHoje, statsSemana] = await Promise.all([
+      const startOfDay = new Date()
+      startOfDay.setUTCHours(0, 0, 0, 0)
+      const startOfDayTs = Math.floor(startOfDay.getTime() / 1000)
+
+      const nowBRT2  = new Date(Date.now() - 3 * 60 * 60 * 1000)
+      const jsDay2   = nowBRT2.getUTCDay()
+      const daysMon2 = jsDay2 === 0 ? 6 : jsDay2 - 1
+      const startOfWeek = new Date(nowBRT2)
+      startOfWeek.setUTCDate(nowBRT2.getUTCDate() - daysMon2)
+      startOfWeek.setUTCHours(0, 0, 0, 0)
+      const startOfWeekTs = Math.floor(startOfWeek.getTime() / 1000)
+
+      const [cfgRes, statsHoje, statsSemana, humanHoje, humanSemana] = await Promise.all([
         fetch('/api/ia/status').then(r => r.json()),
-        (() => {
-          const startOfDay = new Date()
-          startOfDay.setUTCHours(0, 0, 0, 0)
-          return supa
-            .from('rafi_trades')
-            .select('result, pnl_usd, label')
-            .eq('entry_type', 'ia_autonoma')
-            .gte('time', Math.floor(startOfDay.getTime() / 1000))
-        })(),
-        (() => {
-          // Semana começa segunda-feira BRT (UTC-3), igual ao admin dashboard
-          const nowBRT2  = new Date(Date.now() - 3 * 60 * 60 * 1000)
-          const jsDay2   = nowBRT2.getUTCDay()
-          const daysMon2 = jsDay2 === 0 ? 6 : jsDay2 - 1
-          const startOfWeek = new Date(nowBRT2)
-          startOfWeek.setUTCDate(nowBRT2.getUTCDate() - daysMon2)
-          startOfWeek.setUTCHours(0, 0, 0, 0)
-          return supa
-            .from('rafi_trades')
-            .select('pnl_usd')
-            .eq('entry_type', 'ia_autonoma')
-            .gte('time', Math.floor(startOfWeek.getTime() / 1000))
-        })(),
+        supa.from('rafi_trades').select('result, pnl_usd, label').eq('entry_type', 'ia_autonoma').gte('time', startOfDayTs),
+        supa.from('rafi_trades').select('pnl_usd').eq('entry_type', 'ia_autonoma').gte('time', startOfWeekTs),
+        supa.from('rafi_trades').select('pnl_usd').neq('entry_type', 'ia_autonoma').gte('time', startOfDayTs),
+        supa.from('rafi_trades').select('pnl_usd').neq('entry_type', 'ia_autonoma').gte('time', startOfWeekTs),
       ])
 
       setConfig(cfgRes)
 
       const hoje = statsHoje.data ?? []
       const semana = statsSemana.data ?? []
+      const hHoje   = (humanHoje.data   ?? []).reduce((s: number, r: any) => s + (Number(r.pnl_usd) || 0), 0)
+      const hSemana = (humanSemana.data ?? []).reduce((s: number, r: any) => s + (Number(r.pnl_usd) || 0), 0)
+      setHumanStats({ pnlHoje: hHoje, pnlSemana: hSemana })
       // Conta ordens MT5 reais contando positionIds no label de cada sinal
       const ordensHoje = hoje.reduce((sum: number, r: any) => {
         const m = String(r.label ?? '').match(/\|pos:(\S+)/)
@@ -488,41 +485,36 @@ export default function AdminIAPage() {
           Desempenho IA
         </p>
 
-        {/* Objetivo vs Alcançado hoje */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[10px] text-white/40 uppercase tracking-wider">Objetivo hoje ({config?.meta_diaria_pct ?? 7}%)</p>
-              <p className="text-lg font-bold tabular-nums text-white">${metaDiariaUsd.toFixed(2)}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-[10px] text-white/40 uppercase tracking-wider">Alcançado</p>
-              <p className={cn(
-                'text-lg font-bold tabular-nums',
-                pnlHoje >= metaDiariaUsd ? 'text-emerald-400' : pnlHoje > 0 ? 'text-amber-400' : 'text-red-400',
-              )}>
-                {pnlHoje >= 0 ? '+' : ''}${pnlHoje.toFixed(2)}
-              </p>
-            </div>
-          </div>
-          <div className="w-full bg-white/10 rounded-full h-2.5 overflow-hidden">
-            <div
-              className={cn(
-                'h-full rounded-full transition-all duration-700',
-                progDia >= 100 ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
-                : progDia >= 50  ? 'bg-gradient-to-r from-amber-500 to-yellow-400'
-                : 'bg-gradient-to-r from-red-600 to-red-400',
-              )}
-              style={{ width: `${progDia}%` }}
-            />
-          </div>
-          <div className="flex justify-between text-[10px]">
-            <span className="text-white/30">{progDia.toFixed(0)}% da meta</span>
-            {progDia >= 100
-              ? <span className="text-emerald-400 font-semibold">META ATINGIDA ✓</span>
-              : <span className="text-white/20">falta ${(metaDiariaUsd - pnlHoje).toFixed(2)}</span>
-            }
-          </div>
+        {/* Hoje × Semana lado a lado */}
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            { label: `Hoje (${config?.meta_diaria_pct ?? 7}%)`, meta: metaDiariaUsd, pnl: pnlHoje, prog: progDia },
+            { label: `Semana (${config?.meta_semanal_pct ?? 25}%)`, meta: metaSemanaUsd, pnl: pnlSemana, prog: progSem },
+          ].map(({ label, meta, pnl, prog }) => {
+            const col = prog >= 100 ? 'text-emerald-400' : pnl > 0 ? 'text-amber-400' : 'text-red-400'
+            const bar = prog >= 100 ? 'from-emerald-500 to-teal-400' : prog >= 50 ? 'from-amber-500 to-yellow-400' : 'from-red-600 to-red-400'
+            return (
+              <div key={label} className="space-y-2">
+                <p className="text-[9px] text-white/30 uppercase tracking-wider">{label}</p>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[10px] text-white/40">Objetivo</span>
+                  <span className="text-sm font-bold tabular-nums text-white">${meta.toFixed(2)}</span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[10px] text-white/40">Alcançado</span>
+                  <span className={cn('text-sm font-bold tabular-nums', col)}>
+                    {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
+                  </span>
+                </div>
+                <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
+                  <div className={cn('h-full rounded-full transition-all duration-700 bg-gradient-to-r', bar)} style={{ width: `${prog}%` }} />
+                </div>
+                <p className="text-[10px] text-white/25">
+                  {prog.toFixed(0)}%{prog >= 100 ? ' ✓ META' : ` · falta $${(meta - pnl).toFixed(2)}`}
+                </p>
+              </div>
+            )
+          })}
         </div>
 
         {/* Histórico da semana */}
@@ -555,81 +547,108 @@ export default function AdminIAPage() {
 
       {/* ── Metas combinadas ── */}
       <div className="rounded-xl border border-white/10 bg-white/3 p-4 space-y-4">
-        <p className="text-xs font-semibold text-white/40 uppercase tracking-wider">
+        <p className="text-xs font-semibold text-white/40 uppercase tracking-wider flex items-center gap-1.5">
+          <Target className="w-3.5 h-3.5 text-blue-400" />
           Metas combinadas (Você + IA)
         </p>
 
+        {/* Cabeçalho % */}
         <div className="grid grid-cols-2 gap-3">
-          {/* Diária */}
-          <div className="rounded-lg bg-white/5 p-3 space-y-2">
-            <div className="flex items-center gap-2">
-              <Target className="w-4 h-4 text-blue-400" />
-              <p className="text-xs text-white/60">Meta diária</p>
-            </div>
+          <div className="rounded-lg bg-white/5 p-3 space-y-1">
+            <p className="text-[10px] text-white/40">Meta diária</p>
             <div className="flex items-baseline gap-1">
-              <span className="text-xl font-bold text-white">14%</span>
-              <span className="text-xs text-white/40">/ dia</span>
+              <span className="text-xl font-bold text-white">{((config?.meta_diaria_pct ?? 7) * 2)}%</span>
+              <span className="text-xs text-white/30">/ dia</span>
             </div>
-            <p className="text-xs text-white/30">7% você + 7% IA</p>
+            <p className="text-[10px] text-white/25">{config?.meta_diaria_pct ?? 7}% você + {config?.meta_diaria_pct ?? 7}% IA</p>
+            <p className="text-[10px] text-white/40 font-mono tabular-nums">${(metaDiariaUsd * 2).toFixed(2)} alvo</p>
           </div>
-
-          {/* Semanal */}
-          <div className="rounded-lg bg-white/5 p-3 space-y-2">
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-violet-400" />
-              <p className="text-xs text-white/60">Meta semanal</p>
-            </div>
+          <div className="rounded-lg bg-white/5 p-3 space-y-1">
+            <p className="text-[10px] text-white/40">Meta semanal</p>
             <div className="flex items-baseline gap-1">
-              <span className="text-xl font-bold text-white">50%</span>
-              <span className="text-xs text-white/40">/ semana</span>
+              <span className="text-xl font-bold text-white">{((config?.meta_semanal_pct ?? 25) * 2)}%</span>
+              <span className="text-xs text-white/30">/ semana</span>
             </div>
-            <p className="text-xs text-white/30">25% você + 25% IA</p>
+            <p className="text-[10px] text-white/25">{config?.meta_semanal_pct ?? 25}% você + {config?.meta_semanal_pct ?? 25}% IA</p>
+            <p className="text-[10px] text-white/40 font-mono tabular-nums">${(metaSemanaUsd * 2).toFixed(2)} alvo</p>
           </div>
         </div>
 
-        {/* Progresso da IA hoje */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-white/50 flex items-center gap-1.5">
-              <Brain className="w-3.5 h-3.5 text-violet-400" />
-              IA hoje
-            </span>
-            <span className={cn('font-medium tabular-nums', pnlHoje >= 0 ? 'text-emerald-400' : 'text-red-400')}>
-              {pnlHoje > 0 ? '+' : ''}{pnlHoje.toFixed(2)} / ${metaDiariaUsd.toFixed(2)}
-            </span>
-          </div>
-          <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
-            <div
-              className={cn(
-                'h-full rounded-full transition-all duration-700',
-                pnlHoje >= 0 ? 'bg-gradient-to-r from-violet-500 to-purple-400' : 'bg-red-500/60',
-              )}
-              style={{ width: `${progDia}%` }}
-            />
-          </div>
-        </div>
+        {/* Barras combinadas HOJE */}
+        {humanStats !== null && (() => {
+          const combHoje  = pnlHoje + humanStats.pnlHoje
+          const metaComb  = metaDiariaUsd * 2
+          const progComb  = Math.min(Math.max(combHoje / metaComb * 100, 0), 100)
+          const progHuman = Math.min(Math.max(humanStats.pnlHoje / metaDiariaUsd * 100, 0), 100)
+          return (
+            <div className="space-y-2.5">
+              <p className="text-[10px] text-white/30 uppercase tracking-wider">Hoje</p>
+              {[
+                { label: 'IA', pnl: pnlHoje, meta: metaDiariaUsd, prog: progDia, bar: 'from-violet-500 to-purple-400', dot: 'bg-violet-400' },
+                { label: 'Você', pnl: humanStats.pnlHoje, meta: metaDiariaUsd, prog: progHuman, bar: 'from-blue-500 to-cyan-400', dot: 'bg-blue-400' },
+              ].map(({ label, pnl, meta, prog, bar, dot }) => (
+                <div key={label} className="flex items-center gap-2">
+                  <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', dot)} />
+                  <span className="text-[10px] text-white/40 w-8 flex-shrink-0">{label}</span>
+                  <div className="flex-1 bg-white/8 rounded-full h-2 overflow-hidden">
+                    <div className={cn('h-full rounded-full bg-gradient-to-r', bar)} style={{ width: `${prog}%` }} />
+                  </div>
+                  <span className="text-[10px] font-mono text-white/50 w-20 text-right tabular-nums flex-shrink-0">
+                    {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} / ${meta.toFixed(2)}
+                  </span>
+                </div>
+              ))}
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-teal-400" />
+                <span className="text-[10px] text-white/60 font-semibold w-8 flex-shrink-0">Total</span>
+                <div className="flex-1 bg-white/8 rounded-full h-2.5 overflow-hidden">
+                  <div className="h-full rounded-full bg-gradient-to-r from-teal-500 to-emerald-400 transition-all duration-700" style={{ width: `${progComb}%` }} />
+                </div>
+                <span className={cn('text-[10px] font-mono font-bold w-20 text-right tabular-nums flex-shrink-0', combHoje >= metaComb ? 'text-emerald-400' : 'text-white/60')}>
+                  {combHoje >= 0 ? '+' : ''}${combHoje.toFixed(2)} / ${metaComb.toFixed(2)}
+                </span>
+              </div>
+            </div>
+          )
+        })()}
 
-        {/* Progresso da IA na semana */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-white/50 flex items-center gap-1.5">
-              <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
-              IA esta semana
-            </span>
-            <span className={cn('font-medium tabular-nums', pnlSemana >= 0 ? 'text-emerald-400' : 'text-red-400')}>
-              {pnlSemana > 0 ? '+' : ''}{pnlSemana.toFixed(2)} / ${metaSemanaUsd.toFixed(2)}
-            </span>
-          </div>
-          <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
-            <div
-              className={cn(
-                'h-full rounded-full transition-all duration-700',
-                pnlSemana >= 0 ? 'bg-gradient-to-r from-blue-500 to-cyan-400' : 'bg-red-500/60',
-              )}
-              style={{ width: `${progSem}%` }}
-            />
-          </div>
-        </div>
+        {/* Barras combinadas SEMANA */}
+        {humanStats !== null && (() => {
+          const combSem   = pnlSemana + humanStats.pnlSemana
+          const metaCombS = metaSemanaUsd * 2
+          const progCombS = Math.min(Math.max(combSem / metaCombS * 100, 0), 100)
+          const progHumS  = Math.min(Math.max(humanStats.pnlSemana / metaSemanaUsd * 100, 0), 100)
+          return (
+            <div className="space-y-2.5">
+              <p className="text-[10px] text-white/30 uppercase tracking-wider">Semana (seg→hoje)</p>
+              {[
+                { label: 'IA', pnl: pnlSemana, meta: metaSemanaUsd, prog: progSem, bar: 'from-violet-500 to-purple-400', dot: 'bg-violet-400' },
+                { label: 'Você', pnl: humanStats.pnlSemana, meta: metaSemanaUsd, prog: progHumS, bar: 'from-blue-500 to-cyan-400', dot: 'bg-blue-400' },
+              ].map(({ label, pnl, meta, prog, bar, dot }) => (
+                <div key={label} className="flex items-center gap-2">
+                  <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', dot)} />
+                  <span className="text-[10px] text-white/40 w-8 flex-shrink-0">{label}</span>
+                  <div className="flex-1 bg-white/8 rounded-full h-2 overflow-hidden">
+                    <div className={cn('h-full rounded-full bg-gradient-to-r', bar)} style={{ width: `${prog}%` }} />
+                  </div>
+                  <span className="text-[10px] font-mono text-white/50 w-20 text-right tabular-nums flex-shrink-0">
+                    {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} / ${meta.toFixed(2)}
+                  </span>
+                </div>
+              ))}
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-teal-400" />
+                <span className="text-[10px] text-white/60 font-semibold w-8 flex-shrink-0">Total</span>
+                <div className="flex-1 bg-white/8 rounded-full h-2.5 overflow-hidden">
+                  <div className="h-full rounded-full bg-gradient-to-r from-teal-500 to-emerald-400 transition-all duration-700" style={{ width: `${progCombS}%` }} />
+                </div>
+                <span className={cn('text-[10px] font-mono font-bold w-20 text-right tabular-nums flex-shrink-0', combSem >= metaCombS ? 'text-emerald-400' : 'text-white/60')}>
+                  {combSem >= 0 ? '+' : ''}${combSem.toFixed(2)} / ${metaCombS.toFixed(2)}
+                </span>
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Stats rápidos */}
         {stats && (
