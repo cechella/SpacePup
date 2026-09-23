@@ -54,9 +54,14 @@ const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@700&display=swap');
 
 @keyframes ign-plasma {
-  from { background-position: 0% 0; }
-  to   { background-position: -300% 0; }
+  from { background-position: 300% 0; }
+  to   { background-position: 0% 0; }
 }
+@keyframes ign-flame-lick {
+  0%   { transform: scaleY(.65) skewX(-12deg); opacity:.45; }
+  100% { transform: scaleY(1.3)  skewX(8deg);  opacity:.9;  }
+}
+.ign-flame-lick { animation: ign-flame-lick .6s ease-in-out 0s infinite alternate; }
 @keyframes ign-burn {
   0%,100% { transform:translate(-50%,-50%) scale(1);    box-shadow:0 0 12px 5px rgba(255,230,100,.9),0 0 32px 12px rgba(240,180,41,.45),0 0 64px 24px rgba(240,180,41,.18); }
   50%      { transform:translate(-50%,-50%) scale(1.22); box-shadow:0 0 20px 8px rgba(255,255,220,1),0 0 52px 18px rgba(240,180,41,.55),0 0 96px 34px rgba(240,180,41,.22); }
@@ -96,13 +101,14 @@ const CSS = `
 export function EpicJourneyBar({ capital }: { capital: number }) {
   const [rate, setRate] = useState(1.5)
 
-  const tubeRef   = useRef<HTMLDivElement>(null)
-  const fillRef   = useRef<HTMLDivElement>(null)
-  const burnRef   = useRef<HTMLDivElement>(null)
-  const lineRef   = useRef<HTMLDivElement>(null)
-  const labelRef  = useRef<HTMLDivElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const starsRef  = useRef<HTMLDivElement>(null)
+  const tubeRef    = useRef<HTMLDivElement>(null)
+  const fillRef    = useRef<HTMLDivElement>(null)
+  const burnRef    = useRef<HTMLDivElement>(null)
+  const flamesRef  = useRef<HTMLDivElement>(null)
+  const lineRef    = useRef<HTMLDivElement>(null)
+  const labelRef   = useRef<HTMLDivElement>(null)
+  const canvasRef  = useRef<HTMLCanvasElement>(null)
+  const starsRef   = useRef<HTMLDivElement>(null)
   const rafRef    = useRef<number>(0)
 
   const curPct  = useMemo(() => logPct(capital), [capital])
@@ -133,9 +139,10 @@ export function EpicJourneyBar({ capital }: { capital: number }) {
   // Anima a barra até a posição atual com delay de entrada
   useEffect(() => {
     const t = setTimeout(() => {
-      if (fillRef.current)  fillRef.current.style.width = curPct + '%'
-      if (burnRef.current)  burnRef.current.style.left  = curPct + '%'
-      if (lineRef.current)  lineRef.current.style.left  = curPct + '%'
+      if (fillRef.current)   fillRef.current.style.width  = curPct + '%'
+      if (burnRef.current)   burnRef.current.style.left   = curPct + '%'
+      if (flamesRef.current) flamesRef.current.style.left = `calc(${curPct}% - 28px)`
+      if (lineRef.current)   lineRef.current.style.left   = curPct + '%'
       if (labelRef.current) {
         const safe = Math.max(9, Math.min(curPct, 87))
         labelRef.current.style.left       = safe + '%'
@@ -218,51 +225,6 @@ export function EpicJourneyBar({ capital }: { capital: number }) {
       <div style={{ position:'absolute', left:0, right:0, top:'50%', height:260, marginTop:-60, pointerEvents:'none',
         background:'radial-gradient(ellipse 55% 60% at 17% 50%,rgba(240,180,41,.08) 0%,transparent 65%),radial-gradient(ellipse 20% 50% at 100% 50%,rgba(29,233,182,.04) 0%,transparent 68%)' }} />
 
-      {/* ── Hero row ── */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr auto 1fr', alignItems:'center', gap:16, marginBottom:18 }}>
-        {/* Capital atual */}
-        <div>
-          <div style={{ fontSize:'.56rem', fontWeight:700, letterSpacing:'.2em', textTransform:'uppercase', color:'#334d65', marginBottom:4 }}>
-            RAFI · Capital Atual
-          </div>
-          <div style={{ fontFamily:"'Syne',sans-serif", fontSize:'2.85rem', fontWeight:800, lineHeight:1,
-            color:'#f0b429', fontVariantNumeric:'tabular-nums', textShadow:'0 0 40px rgba(240,180,41,.28)' }}>
-            ${Math.floor(capital).toLocaleString('pt-BR')}
-            <span style={{ fontSize:'1.75rem', opacity:.6 }}>
-              ,{String(Math.round((capital % 1) * 100)).padStart(2, '0')}
-            </span>
-          </div>
-          <div style={{ fontSize:'.64rem', color:'#5a7a9a', marginTop:4 }}>Consolidado · 4 corretoras</div>
-        </div>
-
-        {/* % da jornada */}
-        <div style={{ textAlign:'center' }}>
-          <div style={{ fontFamily:"'Syne',sans-serif", fontSize:'3.6rem', fontWeight:800, lineHeight:1,
-            background:'linear-gradient(135deg,#fff8c0 0%,#fde68a 22%,#f59e0b 58%,#d97706 100%)',
-            WebkitBackgroundClip:'text', backgroundClip:'text', WebkitTextFillColor:'transparent',
-            fontVariantNumeric:'tabular-nums' }}>
-            {curPct.toFixed(1).replace('.', ',')}%
-          </div>
-          <div style={{ fontSize:'.57rem', color:'#334d65', letterSpacing:'.14em', textTransform:'uppercase', marginTop:3 }}>
-            da jornada · escala log
-          </div>
-        </div>
-
-        {/* Meta final */}
-        <div style={{ textAlign:'right' }}>
-          <div style={{ fontSize:'.56rem', fontWeight:700, letterSpacing:'.2em', textTransform:'uppercase', color:'#334d65', marginBottom:4 }}>
-            Meta Final
-          </div>
-          <div style={{ fontFamily:"'Syne',sans-serif", fontSize:'1.5rem', fontWeight:700,
-            color:'rgba(255,255,255,.18)', fontVariantNumeric:'tabular-nums' }}>
-            $1.000.000
-          </div>
-          <div style={{ fontSize:'.63rem', color:'#5a7a9a', marginTop:4 }}>
-            {goalDays.toLocaleString('pt-BR')} dias · {fmtDate(goalDays)}
-          </div>
-        </div>
-      </div>
-
       {/* ── Faixa de urgência ── */}
       {nextMS && (
         <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap',
@@ -324,6 +286,31 @@ export function EpicJourneyBar({ capital }: { capital: number }) {
 
           {/* Canvas de partículas */}
           <canvas ref={canvasRef} style={{ position:'absolute', inset:0, borderRadius:34, pointerEvents:'none', zIndex:3 }} />
+
+          {/* Chamas vivas na borda dianteira */}
+          <div ref={flamesRef} style={{
+            position:'absolute', top:0, bottom:0,
+            left:'calc(0% - 28px)', width:56,
+            zIndex:4, pointerEvents:'none', overflow:'visible',
+            transition:'left 1.9s cubic-bezier(.4,0,.2,1)',
+          }}>
+            {([
+              { l:0,  h:40, w:11, dur:'.52s', del:'0s'    },
+              { l:10, h:54, w:14, dur:'.68s', del:'.08s'  },
+              { l:22, h:46, w:12, dur:'.6s',  del:'.14s'  },
+              { l:33, h:34, w:9,  dur:'.44s', del:'.05s'  },
+              { l:40, h:48, w:11, dur:'.72s', del:'.2s'   },
+            ] as const).map((f, i) => (
+              <div key={i} className="ign-flame-lick" style={{
+                position:'absolute', bottom:'50%', left:f.l,
+                width:f.w, height:f.h,
+                background:'linear-gradient(to top,rgba(255,60,0,.95),rgba(255,160,20,.7),rgba(255,230,80,.3),transparent)',
+                borderRadius:'55% 55% 35% 35% / 65% 65% 35% 35%',
+                animationDuration:f.dur, animationDelay:f.del,
+                filter:'blur(.6px)', transformOrigin:'bottom center',
+              }} />
+            ))}
+          </div>
 
           {/* Ponta em brasa */}
           <div ref={burnRef} className="ign-burn" style={{

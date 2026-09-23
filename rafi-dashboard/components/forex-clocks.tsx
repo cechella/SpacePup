@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 // ─── Dados das sessões Forex (horários UTC) ─────────────────────────────────
 const SESS = [
   { key: 's', cls: 'cs', color: '#10b981', name: 'Sydney',    flag: '🇦🇺', tz: 'Australia/Sydney',  oH: 22, oM: 0, cH: 7,  cM: 0, wrap: true  },
-  { key: 't', cls: 'ct', color: '#38bdf8', name: 'Tóquio',    flag: '🇯🇵', tz: 'Asia/Tokyo',         oH: 23, oM: 0, cH: 8,  cM: 0, wrap: true  },
+  { key: 't', cls: 'ct', color: '#10b981', name: 'Tóquio',    flag: '🇯🇵', tz: 'Asia/Tokyo',         oH: 23, oM: 0, cH: 8,  cM: 0, wrap: true  },
   { key: 'l', cls: 'cl', color: '#f59e0b', name: 'Londres',   flag: '🇬🇧', tz: 'Europe/London',      oH: 8,  oM: 0, cH: 17, cM: 0, wrap: false },
   { key: 'n', cls: 'cn', color: '#8b5cf6', name: 'Nova York', flag: '🇺🇸', tz: 'America/New_York',   oH: 13, oM: 0, cH: 22, cM: 0, wrap: false },
 ] as const
@@ -20,7 +20,7 @@ const IA_W = [
 // ─── Segmentos estáticos da timeline 24h ────────────────────────────────────
 const TL_SEGS = [
   { s: 22, e: 24, c: '#10b981', o: 0.38 }, { s: 0, e: 7,  c: '#10b981', o: 0.38 },
-  { s: 23, e: 24, c: '#38bdf8', o: 0.38 }, { s: 0, e: 8, c: '#38bdf8', o: 0.38 },
+  { s: 23, e: 24, c: '#10b981', o: 0.38 }, { s: 0, e: 8, c: '#10b981', o: 0.38 },
   { s: 8,  e: 17, c: '#f59e0b', o: 0.38 },
   { s: 13, e: 22, c: '#8b5cf6', o: 0.38 },
 ]
@@ -298,7 +298,7 @@ export function ForexClocks() {
         .fc-chip-on .fc-cdot { animation: fc-blink 1.6s ease-in-out infinite; }
         @keyframes fc-blink { 0%,100%{opacity:1} 50%{opacity:.25} }
         .fc-chip-syd { background: rgba(16,185,129,.12); border-color: rgba(16,185,129,.3) !important; color: #10b981; }
-        .fc-chip-tok { background: rgba(56,189,248,.12); border-color: rgba(56,189,248,.3) !important; color: #38bdf8; }
+        .fc-chip-tok { background: rgba(16,185,129,.12); border-color: rgba(16,185,129,.3) !important; color: #10b981; }
         .fc-chip-lon { background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.3) !important; color: #f59e0b; }
         .fc-chip-ia  { background: rgba(236,72,153,.12); border-color: rgba(236,72,153,.3) !important; color: #ec4899; }
         .fc-chip-off { background: rgba(255,255,255,.04) !important; border-color: rgba(255,255,255,.07) !important; color: #4a6a88 !important; }
@@ -323,7 +323,7 @@ export function ForexClocks() {
         .fc-badge-closed { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); color: #4a6a88; }
         .fc-badge-open { border: 1px solid transparent; }
         .fc-badge-s.fc-badge-open { background: rgba(16,185,129,.15); border-color: rgba(16,185,129,.3) !important; color: #10b981; }
-        .fc-badge-t.fc-badge-open { background: rgba(56,189,248,.15); border-color: rgba(56,189,248,.3) !important; color: #38bdf8; }
+        .fc-badge-t.fc-badge-open { background: rgba(16,185,129,.15); border-color: rgba(16,185,129,.3) !important; color: #10b981; }
         .fc-badge-l.fc-badge-open { background: rgba(245,158,11,.15); border-color: rgba(245,158,11,.3) !important; color: #f59e0b; }
         .fc-badge-n.fc-badge-open { background: rgba(139,92,246,.15); border-color: rgba(139,92,246,.3) !important; color: #8b5cf6; }
         .fc-bdot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
@@ -424,7 +424,7 @@ export function ForexClocks() {
           ))}
         </div>
         <div className="fc-tl-legend">
-          {[['#10b981','Sydney'],['#38bdf8','Tóquio'],['#f59e0b','Londres'],['#8b5cf6','Nova York'],['#ec4899','IA RAFI']].map(([c, n]) => (
+          {[['#10b981','Sydney'],['#10b981','Tóquio'],['#f59e0b','Londres'],['#8b5cf6','Nova York'],['#ec4899','IA RAFI']].map(([c, n]) => (
             <div key={n} className="fc-tl-leg-item">
               <div className="fc-tl-leg-sw" style={{ background: c }} />
               {n}
