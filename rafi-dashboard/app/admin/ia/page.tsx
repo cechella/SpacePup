@@ -218,13 +218,14 @@ export default function AdminIAPage() {
   // Busca P&L IA dos últimos 7 dias agrupado por dia BRT
   useEffect(() => {
     if (!supa) return
+    const db = supa as NonNullable<typeof supa>
     async function fetchHistorico() {
       try {
         const nowBRT = new Date(Date.now() - 3 * 60 * 60 * 1000)
         const desde  = new Date(nowBRT)
         desde.setUTCDate(nowBRT.getUTCDate() - 7)
         desde.setUTCHours(0, 0, 0, 0)
-        const { data } = await supa
+        const { data } = await db
           .from('rafi_trades')
           .select('time, pnl_usd')
           .eq('entry_type', 'ia_autonoma')
