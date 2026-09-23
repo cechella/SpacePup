@@ -386,16 +386,22 @@ export async function GET(req: NextRequest) {
     }
 
     // ── 8. Registra o trade no Supabase ───────────────────────────────
+    // Extrai o positionId do primeiro broker que executou com sucesso
+    // para que o reconcile-ia possa cruzar com o histórico de deals do MetaAPI
+    const firstOk = parsed.find(r => r.ok) as { brokerId: string; ok: true; positionId?: string } | undefined
+    const positionId = firstOk?.positionId ?? null
+
     const agora = Math.floor(Date.now() / 1000)
     const tradeRecord = {
       direction,
       entry,
       stop_loss: stopLoss,
       take_profit: takeProfit,
-      label: 'AutoScan-IA',
+      // Formato: 'AutoScan-IA|pos:{positionId}' — usado pelo reconcile-ia para cruzar deals
+      label: positionId ? `AutoScan-IA|pos:${positionId}` : 'AutoScan-IA',
       time: agora,
       lot,
-      result: null,  // sem resultado ainda — será preenchido ao fechar
+      result: null,  // preenchido pelo reconcile-ia quando fechar no MT5
       entry_type: 'ia_autonoma',
       rafi: rafiAbs,
       rafi_dir: rafiDir,
@@ -404,7 +410,7 @@ export async function GET(req: NextRequest) {
 
     const { error: insertErr } = await supa.from('rafi_trades').insert(tradeRecord)
     if (insertErr) log.push(`Aviso: erro ao registrar trade: ${insertErr.message}`)
-    else log.push('Trade registrado no Supabase')
+    else log.push(`Trade registrado no Supabase (positionId: ${positionId ?? 'não retornado'})`)
 
     log.push(`Concluído: ordem enviada com sucesso para ${parsed.filter(r => r.ok).length}/${brokers.length} corretoras`)
 
