@@ -1081,9 +1081,9 @@ export default function AdminDashboard() {
   // Cotação USD→BRL em tempo real (Frankfurter, atualiza a cada 10 min)
   useEffect(() => {
     const fetchRate = () =>
-      fetch('https://api.frankfurter.app/latest?from=USD&to=BRL')
+      fetch('/api/exchange-rate')
         .then(r => r.json())
-        .then(d => { if (d?.rates?.BRL) setUsdBrl(Number(d.rates.BRL)) })
+        .then(d => { if (d?.brl) setUsdBrl(Number(d.brl)) })
         .catch(() => {})
     fetchRate()
     const id = setInterval(fetchRate, 10 * 60 * 1000)
