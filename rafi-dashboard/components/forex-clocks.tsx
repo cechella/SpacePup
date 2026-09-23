@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 // ─── Dados das sessões Forex (horários UTC) ─────────────────────────────────
 const SESS = [
   { key: 's', cls: 'cs', color: '#10b981', name: 'Sydney',    flag: '🇦🇺', tz: 'Australia/Sydney',  oH: 22, oM: 0, cH: 7,  cM: 0, wrap: true  },
-  { key: 't', cls: 'ct', color: '#38bdf8', name: 'Tóquio',    flag: '🇯🇵', tz: 'Asia/Tokyo',         oH: 0,  oM: 0, cH: 9,  cM: 0, wrap: false },
+  { key: 't', cls: 'ct', color: '#38bdf8', name: 'Tóquio',    flag: '🇯🇵', tz: 'Asia/Tokyo',         oH: 23, oM: 0, cH: 8,  cM: 0, wrap: true  },
   { key: 'l', cls: 'cl', color: '#f59e0b', name: 'Londres',   flag: '🇬🇧', tz: 'Europe/London',      oH: 8,  oM: 0, cH: 17, cM: 0, wrap: false },
   { key: 'n', cls: 'cn', color: '#8b5cf6', name: 'Nova York', flag: '🇺🇸', tz: 'America/New_York',   oH: 13, oM: 0, cH: 22, cM: 0, wrap: false },
 ] as const
@@ -20,7 +20,7 @@ const IA_W = [
 // ─── Segmentos estáticos da timeline 24h ────────────────────────────────────
 const TL_SEGS = [
   { s: 22, e: 24, c: '#10b981', o: 0.38 }, { s: 0, e: 7,  c: '#10b981', o: 0.38 },
-  { s: 0,  e: 9,  c: '#38bdf8', o: 0.38 },
+  { s: 23, e: 24, c: '#38bdf8', o: 0.38 }, { s: 0, e: 8, c: '#38bdf8', o: 0.38 },
   { s: 8,  e: 17, c: '#f59e0b', o: 0.38 },
   { s: 13, e: 22, c: '#8b5cf6', o: 0.38 },
 ]
