@@ -54,13 +54,14 @@ async function getTodayIAPnl(supa: ReturnType<typeof getServiceClient>): Promise
   return (data ?? []).reduce((s, r) => s + (Number(r.pnl_usd) || 0), 0)
 }
 
-// Soma do PnL desta semana da IA Autônoma
+// Soma do PnL desta semana da IA Autônoma (semana começa segunda-feira BRT)
 async function getWeekIAPnl(supa: ReturnType<typeof getServiceClient>): Promise<number> {
-  const now = new Date()
-  const day = now.getUTCDay()  // 0 = domingo
-  const startOfWeek = new Date(now)
-  startOfWeek.setUTCDate(now.getUTCDate() - day)
-  startOfWeek.setUTCHours(0, 0, 0, 0)
+  const nowBRT   = new Date(Date.now() - 3 * 60 * 60 * 1000)  // UTC-3 Brasília
+  const jsDay    = nowBRT.getUTCDay()                          // 0=dom … 6=sab
+  const daysMon  = jsDay === 0 ? 6 : jsDay - 1                // dias desde segunda
+  const startOfWeek = new Date(nowBRT)
+  startOfWeek.setUTCDate(nowBRT.getUTCDate() - daysMon)
+  startOfWeek.setUTCHours(0, 0, 0, 0)                         // segunda 00:00 BRT = 03:00 UTC
   const { data } = await supa
     .from('rafi_trades')
     .select('pnl_usd')

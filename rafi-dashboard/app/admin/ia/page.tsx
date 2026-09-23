@@ -132,6 +132,8 @@ export default function AdminIAPage() {
   const [stats, setStats]   = useState<IAStats | null>(null)
   const [loading, setLoading]   = useState(true)
   const [updating, setUpdating] = useState<string | null>(null)
+  const [capitalReal, setCapitalReal]       = useState(0)
+  const [nBrokersAtivos, setNBrokersAtivos] = useState(4)
 
   const loadConfig = useCallback(async () => {
     if (!supa) return
@@ -149,10 +151,12 @@ export default function AdminIAPage() {
             .gte('time', Math.floor(startOfDay.getTime() / 1000))
         })(),
         (() => {
-          const now = new Date()
-          const dow = now.getUTCDay()
-          const startOfWeek = new Date(now)
-          startOfWeek.setUTCDate(now.getUTCDate() - dow)
+          // Semana começa segunda-feira BRT (UTC-3), igual ao admin dashboard
+          const nowBRT2  = new Date(Date.now() - 3 * 60 * 60 * 1000)
+          const jsDay2   = nowBRT2.getUTCDay()
+          const daysMon2 = jsDay2 === 0 ? 6 : jsDay2 - 1
+          const startOfWeek = new Date(nowBRT2)
+          startOfWeek.setUTCDate(nowBRT2.getUTCDate() - daysMon2)
           startOfWeek.setUTCHours(0, 0, 0, 0)
           return supa
             .from('rafi_trades')
@@ -187,6 +191,29 @@ export default function AdminIAPage() {
 
   useEffect(() => { loadConfig() }, [loadConfig])
 
+  // Busca capital consolidado real das corretoras ativas
+  useEffect(() => {
+    async function fetchCapital() {
+      try {
+        const bRes  = await fetch('/api/brokers')
+        const bData = await bRes.json()
+        const ativos = (bData.brokers ?? []).filter((b: any) => b.enabled && b.metaapi_account_id)
+        setNBrokersAtivos(Math.max(ativos.length, 1))
+        const balances = await Promise.all(
+          ativos.map((b: any) =>
+            fetch(`/api/metaapi/account?accountId=${b.metaapi_account_id}`)
+              .then(r => r.json())
+              .then(d => Number(d.balance ?? 0))
+              .catch(() => 0)
+          )
+        )
+        const total = (balances as number[]).reduce((s, b) => s + b, 0)
+        if (total > 0) setCapitalReal(total)
+      } catch {}
+    }
+    fetchCapital()
+  }, [])
+
   async function update(patch: Partial<IAConfig>) {
     const key = Object.keys(patch)[0]
     setUpdating(key)
@@ -214,10 +241,10 @@ export default function AdminIAPage() {
     )
   }
 
-  const iaAtiva = config?.ia_autonoma_ativa ?? false
-  const capital = 1000  // base de cálculo; reflete o mesmo padrão do signal route
-  const metaDiariaUsd  = capital * ((config?.meta_diaria_pct  ?? 7)  / 100)
-  const metaSemanaUsd  = capital * ((config?.meta_semanal_pct ?? 25) / 100)
+  const iaAtiva    = config?.ia_autonoma_ativa ?? false
+  const capitalBase = capitalReal > 0 ? capitalReal : 1000  // fallback até carregar
+  const metaDiariaUsd  = capitalBase * ((config?.meta_diaria_pct  ?? 7)  / 100)
+  const metaSemanaUsd  = capitalBase * ((config?.meta_semanal_pct ?? 25) / 100)
   const pnlHoje   = stats?.pnlHoje   ?? 0
   const pnlSemana = stats?.pnlSemana ?? 0
   const progDia   = Math.min(Math.max(pnlHoje   / metaDiariaUsd  * 100, 0), 100)
@@ -320,6 +347,105 @@ export default function AdminIAPage() {
           )
         })}
       </div>
+
+      {/* ── Próxima Operação ── */}
+      {(() => {
+        const now        = new Date()
+        const horaU      = now.getUTCHours()
+        const minU       = now.getUTCMinutes()
+        const scan02Done = horaU > 2 || (horaU === 2 && minU > 0)
+        const scan07Done = horaU > 7 || (horaU === 7 && minU > 0)
+
+        let nextScanUtc: string, nextScanBRT: string, sessaoNome: string, sessaoOn: boolean
+        if (!scan02Done) {
+          nextScanUtc = 'hoje 02:00 UTC'; nextScanBRT = '23:00 BRT'; sessaoNome = 'Sydney / Tóquio'; sessaoOn = config?.sessao_sydney_tokyo ?? true
+        } else if (!scan07Done) {
+          nextScanUtc = 'hoje 07:00 UTC'; nextScanBRT = '04:00 BRT'; sessaoNome = 'Tóquio / Londres'; sessaoOn = config?.sessao_tokyo_london ?? true
+        } else {
+          nextScanUtc = 'amanhã 02:00 UTC'; nextScanBRT = '23:00 BRT'; sessaoNome = 'Sydney / Tóquio'; sessaoOn = config?.sessao_sydney_tokyo ?? true
+        }
+
+        const LOT_STEPS = [0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50]
+        const COMM_PER  = 0.35
+        const dailyGoal = capitalBase * ((config?.meta_diaria_pct ?? 7) / 100)
+        const perBroker = dailyGoal / nBrokersAtivos
+        let lot = 0.10
+        for (const l of LOT_STEPS) {
+          const p = (perBroker + COMM_PER) / (l * 10)
+          if (p >= 4 && p <= 80) { lot = l; break }
+        }
+        const pipsNec   = (perBroker + COMM_PER) / (lot * 10)
+        const faltaHoje = Math.max(0, dailyGoal - pnlHoje)
+        const faltaSem  = Math.max(0, capitalBase * ((config?.meta_semanal_pct ?? 25) / 100) - pnlSemana)
+        const vaOperar  = iaAtiva && sessaoOn && faltaHoje > 0 && faltaSem > 0
+
+        return (
+          <div className="rounded-xl border border-white/10 bg-white/3 p-4 space-y-3">
+            <p className="text-xs font-semibold text-white/40 uppercase tracking-wider flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-cyan-400" />
+              Próxima Operação
+            </p>
+
+            {/* Status */}
+            <div className={cn(
+              'rounded-lg px-3 py-2 text-xs font-semibold flex items-center gap-2',
+              vaOperar
+                ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+                : 'bg-red-500/10 border border-red-500/30 text-red-400',
+            )}>
+              {vaOperar
+                ? <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                : <XCircle className="w-3.5 h-3.5 flex-shrink-0" />}
+              {vaOperar
+                ? `IA vai operar ${nextScanBRT} · ${sessaoNome}`
+                : !iaAtiva ? 'IA está desativada — nenhum trade será enviado'
+                : !sessaoOn ? `Sessão ${sessaoNome} está desativada`
+                : faltaSem <= 0 ? 'Meta semanal atingida — IA retoma segunda-feira'
+                : 'Meta diária atingida — IA retoma amanhã'}
+            </div>
+
+            {/* Grid de parâmetros */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-lg bg-white/5 p-3 space-y-1">
+                <p className="text-[10px] text-white/40 uppercase tracking-wider">Capital base</p>
+                <p className="text-base font-bold tabular-nums text-white">${capitalBase.toFixed(2)}</p>
+                <p className="text-[9px] text-white/25">{nBrokersAtivos} corretoras ativas</p>
+              </div>
+              <div className="rounded-lg bg-white/5 p-3 space-y-1">
+                <p className="text-[10px] text-white/40 uppercase tracking-wider">Lote estimado</p>
+                <p className="text-base font-bold tabular-nums text-cyan-400">{lot.toFixed(2)} lot</p>
+                <p className="text-[9px] text-white/25">por corretora × {nBrokersAtivos}</p>
+              </div>
+              <div className="rounded-lg bg-white/5 p-3 space-y-1">
+                <p className="text-[10px] text-white/40 uppercase tracking-wider">Pips p/ meta</p>
+                <p className="text-base font-bold tabular-nums text-amber-400">{pipsNec.toFixed(1)} pips</p>
+                <p className="text-[9px] text-white/25">TP alvo por trade</p>
+              </div>
+              <div className="rounded-lg bg-white/5 p-3 space-y-1">
+                <p className="text-[10px] text-white/40 uppercase tracking-wider">Próximo scan</p>
+                <p className="text-[11px] font-bold text-violet-400">{nextScanUtc}</p>
+                <p className="text-[9px] text-white/25">{nextScanBRT} (Brasília)</p>
+              </div>
+            </div>
+
+            {/* Falta para as metas */}
+            <div className="grid grid-cols-2 gap-2 text-[11px]">
+              <div className="flex justify-between items-center bg-white/5 rounded-lg px-3 py-2">
+                <span className="text-white/40">Falta hoje</span>
+                <span className={cn('font-bold tabular-nums', faltaHoje <= 0 ? 'text-emerald-400' : 'text-white')}>
+                  {faltaHoje <= 0 ? 'META ✓' : `$${faltaHoje.toFixed(2)}`}
+                </span>
+              </div>
+              <div className="flex justify-between items-center bg-white/5 rounded-lg px-3 py-2">
+                <span className="text-white/40">Falta semana</span>
+                <span className={cn('font-bold tabular-nums', faltaSem <= 0 ? 'text-emerald-400' : 'text-white')}>
+                  {faltaSem <= 0 ? 'META ✓' : `$${faltaSem.toFixed(2)}`}
+                </span>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── Metas combinadas ── */}
       <div className="rounded-xl border border-white/10 bg-white/3 p-4 space-y-4">
