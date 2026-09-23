@@ -1200,11 +1200,19 @@ export default function AdminDashboard() {
 
   const primaryBroker = brokersLive.find(b => b.connected)
 
+  // Epic Journey computed values
+  const curPct            = useMemo(() => logPct(capitalParaJornada), [capitalParaJornada])
+  const nextMilestoneIdx  = JOURNEY_MILESTONES.findIndex(m => capitalParaJornada < m.val)
+  const nextMilestone     = nextMilestoneIdx >= 0 ? JOURNEY_MILESTONES[nextMilestoneIdx] : JOURNEY_MILESTONES[JOURNEY_MILESTONES.length - 1]
+  const ratio7030         = useMemo(() => compute7030(capitalParaJornada), [capitalParaJornada])
+  const fBRL              = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const dynamicDailyGoal  = capitalParaJornada > 0 ? capitalParaJornada * 0.07 : 0
+
   // Dueto Humano × IA
   const iaPnlHoje    = iaTodayStats?.pnl   ?? 0
   const iaCountHoje  = iaTodayStats?.count ?? 0
   const humanPnlHoje = todayPnl - iaPnlHoje
-  const metaDiariaUsd = dynamicDailyGoal   // já calculado: 7% do capital
+  const metaDiariaUsd = dynamicDailyGoal
 
   // Próximo scan da IA (02:00 UTC ou 07:00 UTC)
   const iaNextScanStr = (() => {
@@ -1212,7 +1220,6 @@ export default function AdminDashboard() {
     const h = now.getUTCHours()
     const m = now.getUTCMinutes()
     const totalMin = h * 60 + m
-    // Próximo: 02:00 ou 07:00
     const targets = [2 * 60, 7 * 60]
     for (const t of targets) {
       if (totalMin < t) {
@@ -1222,19 +1229,10 @@ export default function AdminDashboard() {
         return `${label} · em ${dh > 0 ? dh + 'h ' : ''}${dm}min`
       }
     }
-    // Depois das 07:00 UTC: próximo é 02:00 UTC do dia seguinte
     const diff = (24 * 60 - totalMin) + 2 * 60
     const dh = Math.floor(diff / 60), dm = diff % 60
     return `02:00 UTC · em ${dh > 0 ? dh + 'h ' : ''}${dm}min`
   })()
-
-  // Epic Journey computed values
-  const curPct            = useMemo(() => logPct(capitalParaJornada), [capitalParaJornada])
-  const nextMilestoneIdx  = JOURNEY_MILESTONES.findIndex(m => capitalParaJornada < m.val)
-  const nextMilestone     = nextMilestoneIdx >= 0 ? JOURNEY_MILESTONES[nextMilestoneIdx] : JOURNEY_MILESTONES[JOURNEY_MILESTONES.length - 1]
-  const ratio7030         = useMemo(() => compute7030(capitalParaJornada), [capitalParaJornada])
-  const fBRL              = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  const dynamicDailyGoal  = capitalParaJornada > 0 ? capitalParaJornada * 0.07 : 0
 
   if (!mounted) return null
 
