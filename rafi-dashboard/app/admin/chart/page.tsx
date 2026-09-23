@@ -1097,6 +1097,10 @@ export default function ChartPage() {
   // true quando o bridge está rodando e Realtime já entregou dados → polling não sobrescreve
   const supaRtActiveRef = useRef(false)
 
+  // Cache de equity/balance por broker (atualizado pelo fetchLiveData via all-positions API)
+  // Usado para filtrar posições fantasma: equity ≈ balance → sem posições reais abertas
+  const brokerEquityRef = useRef<Record<string, { balance: number; equity: number }>>({})
+
   // Mapeia rows do rafi_positions → formato allBrokerPositions esperado pelo painel
   const buildAllBrokerPositions = useCallback((rows: any[]) => {
     const byBroker: Record<string, any[]> = {}
@@ -1105,7 +1109,10 @@ export default function ChartPage() {
       byBroker[r.broker_id].push(r)
     }
     const groups = enabledBrokers.map((b, idx) => {
-      const bRows = byBroker[b.id] ?? []
+      // Verifica equity vs saldo: se iguais (< $0.50) descarta posições do Supabase (cache antigo)
+      const acct = brokerEquityRef.current[b.id]
+      const hasRealPositions = !acct || Math.abs(acct.equity - acct.balance) >= 0.50
+      const bRows = hasRealPositions ? (byBroker[b.id] ?? []) : []
       const positions = bRows.map((r: any) => ({
         id:           r.id,
         symbol:       r.symbol,
@@ -1182,12 +1189,27 @@ export default function ChartPage() {
       if (allPosRes.status === 'fulfilled' && allPosRes.value.ok) {
         const data = await allPosRes.value.json()
         const newBrokers: any[] = data.brokers ?? []
+
+        // Atualiza cache equity/balance por broker (usado pelo buildAllBrokerPositions)
+        for (const nb of newBrokers) {
+          if (!nb.error && nb.balance !== undefined && nb.equity !== undefined) {
+            brokerEquityRef.current[nb.brokerId] = { balance: nb.balance, equity: nb.equity }
+          }
+        }
+
         setAllBrokerPositions(prev => newBrokers.map(nb => {
           const prevBroker = prev.find(b => b.brokerId === nb.brokerId)
           // Erro de rede/timeout → mantém dados anteriores
           if (nb.error) {
             brokerZeroCountRef.current[nb.brokerId] = 0
             return prevBroker ?? nb
+          }
+          // Equity ≈ saldo: API de posições ainda tem cache antigo; não há posição real
+          // (a limpeza já foi feita na API all-positions, mas garantimos aqui também)
+          if (nb.balance !== undefined && nb.equity !== undefined &&
+              Math.abs(nb.equity - nb.balance) < 0.50) {
+            brokerZeroCountRef.current[nb.brokerId] = 0
+            return { ...nb, positions: [], totalPnl: 0 }
           }
           // Tem posições → atualiza e reseta o contador de zeros
           if ((nb.positions?.length ?? 0) > 0) {

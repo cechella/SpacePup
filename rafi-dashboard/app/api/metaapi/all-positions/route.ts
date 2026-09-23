@@ -13,19 +13,28 @@ export async function GET() {
   const results = await Promise.allSettled(
     brokers.map(async (b, idx) => {
       const t0  = Date.now()
-      const res = await fetch(
-        `${BASE}/users/current/accounts/${b.accountId}/positions`,
-        { headers: { 'auth-token': TOKEN }, signal: AbortSignal.timeout(8_000) }
-      )
-      logBrokerEvent(b.brokerId, 'positions', res.ok, Date.now() - t0, res.ok ? undefined : String(res.status))
+      // Busca posições e saldo em paralelo para validação equity vs balance
+      const [posRes, accRes] = await Promise.allSettled([
+        fetch(
+          `${BASE}/users/current/accounts/${b.accountId}/positions`,
+          { headers: { 'auth-token': TOKEN }, signal: AbortSignal.timeout(8_000) }
+        ),
+        fetch(
+          `${BASE}/users/current/accounts/${b.accountId}/accountInformation`,
+          { headers: { 'auth-token': TOKEN }, signal: AbortSignal.timeout(8_000) }
+        ),
+      ])
 
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => '')
-        return { rank: idx + 1, brokerId: b.brokerId, nome: b.nome, symbol: b.symbol, positions: [], totalPnl: 0, error: res.status, errorDetail: errBody.slice(0, 200) }
+      const res = posRes.status === 'fulfilled' ? posRes.value : null
+      logBrokerEvent(b.brokerId, 'positions', !!res?.ok, Date.now() - t0, res?.ok ? undefined : String(res?.status ?? 'error'))
+
+      if (!res?.ok) {
+        const errBody = await res?.text().catch(() => '') ?? ''
+        return { rank: idx + 1, brokerId: b.brokerId, nome: b.nome, symbol: b.symbol, positions: [], totalPnl: 0, error: res?.status ?? 'error', errorDetail: errBody.slice(0, 200) }
       }
 
       const raw = await res.json()
-      const positions = (Array.isArray(raw) ? raw : []).map((p: any) => ({
+      let positions = (Array.isArray(raw) ? raw : []).map((p: any) => ({
         id:           p.id,
         symbol:       p.symbol,
         type:         p.type === 'POSITION_TYPE_BUY' ? 'buy' : 'sell',
@@ -40,9 +49,23 @@ export async function GET() {
         openTime:     p.time,
       }))
 
+      // Valida equity vs saldo: se iguais (< $0.50 de diferença) não há posição real aberta
+      let balance: number | undefined
+      let equity:  number | undefined
+      if (accRes.status === 'fulfilled' && accRes.value.ok) {
+        const acc = await accRes.value.json().catch(() => null)
+        if (acc) {
+          balance = acc.balance
+          equity  = acc.equity
+          if (balance !== undefined && equity !== undefined && Math.abs(equity - balance) < 0.50) {
+            positions = []  // equity ≈ saldo: sem posições reais (MetaAPI ainda com cache antigo)
+          }
+        }
+      }
+
       const totalPnl = positions.reduce((s: number, p: any) => s + (p.profit ?? 0), 0)
 
-      return { rank: idx + 1, brokerId: b.brokerId, nome: b.nome, symbol: b.symbol, positions, totalPnl }
+      return { rank: idx + 1, brokerId: b.brokerId, nome: b.nome, symbol: b.symbol, positions, totalPnl, balance, equity }
     })
   )
 
