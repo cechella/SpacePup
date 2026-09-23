@@ -121,6 +121,58 @@ async function fetchCandles(accountId: string, symbol: string, limit = 60): Prom
     .sort((a: any, b: any) => a.time - b.time)
 }
 
+// Busca posições abertas de uma corretora
+async function fetchOpenPositions(accountId: string): Promise<{ id: string; symbol: string }[]> {
+  try {
+    const res = await fetch(`${MT_BASE}/users/current/accounts/${accountId}/positions`, {
+      headers: { 'auth-token': TOKEN },
+      signal: AbortSignal.timeout(6_000),
+      cache: 'no-store',
+    })
+    if (!res.ok) return []
+    const data = await res.json()
+    const arr = Array.isArray(data) ? data : (data.positions ?? [])
+    return arr.map((p: any) => ({ id: String(p.id), symbol: String(p.symbol) }))
+  } catch {
+    return []
+  }
+}
+
+// Fecha todas as posições abertas em todos os brokers ativos
+async function closeAllPositions(
+  brokers: { accountId: string; brokerId: string; symbol: string }[],
+  log: string[],
+): Promise<void> {
+  for (const broker of brokers) {
+    const positions = await fetchOpenPositions(broker.accountId)
+    if (positions.length === 0) {
+      log.push(`[${broker.brokerId}] Nenhuma posição aberta`)
+      continue
+    }
+    log.push(`[${broker.brokerId}] Fechando ${positions.length} posição(ões)...`)
+    for (const pos of positions) {
+      try {
+        const res = await fetch(`${MT_BASE}/users/current/accounts/${broker.accountId}/trade`, {
+          method: 'POST',
+          headers: { 'auth-token': TOKEN, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ actionType: 'POSITION_CLOSE_ID', positionId: pos.id, symbol: pos.symbol }),
+          signal: AbortSignal.timeout(8_000),
+        })
+        if (res.ok) {
+          log.push(`[${broker.brokerId}] Posição ${pos.id} encerrada ✓`)
+          logBrokerEvent(broker.brokerId, 'order', true, 0)
+        } else {
+          const txt = await res.text()
+          log.push(`[${broker.brokerId}] Erro ao fechar posição ${pos.id}: ${txt.slice(0, 100)}`)
+          logBrokerEvent(broker.brokerId, 'order', false, 0, txt.slice(0, 100))
+        }
+      } catch (e) {
+        log.push(`[${broker.brokerId}] Timeout ao fechar posição ${pos.id}`)
+      }
+    }
+  }
+}
+
 // Envia ordem para uma corretora
 async function sendOrder(accountId: string, brokerId: string, symbol: string, payload: Record<string, unknown>) {
   const t0 = Date.now()
@@ -212,12 +264,14 @@ export async function GET(req: NextRequest) {
     log.push(`Posições abertas: ${posAbertas}`)
 
     if (pnlHoje >= metaDiariaUsd) {
-      log.push('Meta diária atingida — IA para hoje')
-      return NextResponse.json({ skipped: true, reason: 'Meta diária atingida', log })
+      log.push(`Meta diária atingida ($${pnlHoje.toFixed(2)} >= $${metaDiariaUsd.toFixed(2)}) — encerrando posições e parando`)
+      await closeAllPositions(brokers, log)
+      return NextResponse.json({ skipped: true, reason: 'Meta diária atingida', closed: true, log })
     }
     if (pnlSemana >= metaSemanaUsd) {
-      log.push('Meta semanal atingida — IA para até segunda-feira')
-      return NextResponse.json({ skipped: true, reason: 'Meta semanal atingida', log })
+      log.push(`Meta semanal atingida ($${pnlSemana.toFixed(2)} >= $${metaSemanaUsd.toFixed(2)}) — encerrando posições e parando até segunda`)
+      await closeAllPositions(brokers, log)
+      return NextResponse.json({ skipped: true, reason: 'Meta semanal atingida', closed: true, log })
     }
     if (pnlHoje <= -(capital * 0.05)) {
       log.push('Perda máxima diária (5%) atingida — IA para hoje')
