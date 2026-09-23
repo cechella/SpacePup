@@ -930,6 +930,7 @@ export default function AdminDashboard() {
   const [iaTodayStats, setIaTodayStats] = useState<{ pnl: number; count: number } | null>(null)
   const [iaConfig,     setIaConfig]     = useState<IAConfig | null>(null)
   const [weekBrokerStats, setWeekBrokerStats] = useState<{ humanPnl: number; iaPnl: number } | null>(null)
+  const [usdBrl,          setUsdBrl]          = useState(0)
   const importRef                       = useRef<HTMLInputElement>(null)
 
   // Injeta fontes premium via Google Fonts
@@ -1076,6 +1077,18 @@ export default function AdminDashboard() {
     const id = setInterval(fetchWeekly, 60_000)
     return () => clearInterval(id)
   }, [mounted])
+
+  // Cotação USD→BRL em tempo real (Frankfurter, atualiza a cada 10 min)
+  useEffect(() => {
+    const fetchRate = () =>
+      fetch('https://api.frankfurter.app/latest?from=USD&to=BRL')
+        .then(r => r.json())
+        .then(d => { if (d?.rates?.BRL) setUsdBrl(Number(d.rates.BRL)) })
+        .catch(() => {})
+    fetchRate()
+    const id = setInterval(fetchRate, 10 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
 
   useEffect(() => {
     setMounted(true)
@@ -1508,12 +1521,21 @@ export default function AdminDashboard() {
             <div style={{ fontSize: 7, fontWeight: 800, letterSpacing: '.18em', textTransform: 'uppercase', color: '#5878a0', marginBottom: 6 }}>
               P&amp;L Hoje
             </div>
-            <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 28, fontWeight: 900, color: heroColor, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
-              {todayPnl >= 0 ? '+' : ''}${Math.abs(todayPnl).toFixed(2)}
+            {/* % em destaque — hero */}
+            <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 34, fontWeight: 900, color: heroColor, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+              {todayPct !== 0 ? `${todayPct >= 0 ? '+' : ''}${todayPct.toFixed(1)}%` : '—'}
             </div>
-            <div style={{ fontSize: 8, color: heroColor === C.teal ? C.teal : C.rose, marginTop: 6 }}>
-              {todayPct !== 0 ? `${todayPct >= 0 ? '+' : ''}${todayPct.toFixed(2)}% do capital` : 'nenhum trade hoje'}
+            {/* $ secundário */}
+            <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 15, fontWeight: 700, color: heroColor, opacity: 0.75, marginTop: 5, fontVariantNumeric: 'tabular-nums' }}>
+              {todayPnl !== 0 ? `${todayPnl >= 0 ? '+' : ''}$${Math.abs(todayPnl).toFixed(2)}` : 'nenhum trade hoje'}
             </div>
+            {/* Conversão BRL */}
+            {usdBrl > 0 && todayPnl !== 0 && (
+              <div style={{ fontSize: 10, color: '#7a9ab8', marginTop: 5, fontVariantNumeric: 'tabular-nums' }}>
+                {todayPnl >= 0 ? '+' : '−'}R$ {(Math.abs(todayPnl) * usdBrl).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <span style={{ fontSize: 7, opacity: 0.55, marginLeft: 4 }}>USD×{usdBrl.toFixed(2)}</span>
+              </div>
+            )}
           </div>
         </div>
 
