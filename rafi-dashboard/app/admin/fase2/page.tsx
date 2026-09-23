@@ -5,7 +5,7 @@ import Link from 'next/link'
 import {
   Brain, Zap, BarChart2, Download, ChevronRight,
   TrendingUp, TrendingDown, Activity, Target, Clock,
-  CheckCircle2, Circle, AlertTriangle, Lightbulb,
+  CheckCircle2, Circle, AlertTriangle, Lightbulb, Cpu,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { fetchTrades } from '@/lib/trades-db'
@@ -714,6 +714,62 @@ export default function Fase2Page() {
           </div>
         </div>
       </div>
+
+      {/* ── Barra de progresso XGBoost ──────────────────────────────────────── */}
+      {(() => {
+        const XGB_MIN = 50
+        const pct = Math.min(labeled.length / XGB_MIN * 100, 100)
+        const ready = labeled.length >= XGB_MIN
+        return (
+          <div className={cn(
+            'rounded-xl border p-4 space-y-3',
+            ready
+              ? 'border-[#10b981]/30 bg-[#10b981]/5'
+              : 'border-[#3b82f6]/20 bg-[#161b22]',
+          )}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Zap size={14} className={ready ? 'text-[#10b981]' : 'text-[#3b82f6]'} />
+                <span className="text-sm font-semibold text-[#f0f6fc]">XGBoost TypeScript</span>
+                {ready && (
+                  <span className="text-[9px] bg-[#10b981]/15 border border-[#10b981]/25 text-[#10b981] px-2 py-0.5 rounded-full">
+                    pronto para treinar
+                  </span>
+                )}
+              </div>
+              <span className="text-sm font-bold font-mono" style={{ color: ready ? '#10b981' : '#3b82f6' }}>
+                {labeled.length}/{XGB_MIN}
+              </span>
+            </div>
+            <div className="relative h-2.5 bg-[#21262d] rounded-full overflow-hidden">
+              <div
+                className="absolute inset-y-0 left-0 rounded-full transition-all duration-700"
+                style={{
+                  width: `${pct}%`,
+                  background: ready
+                    ? 'linear-gradient(to right, #10b981, #34d399)'
+                    : 'linear-gradient(to right, #3b82f6, #60a5fa)',
+                }}
+              />
+            </div>
+            <div className="flex items-center justify-between text-[9px]">
+              <span className="text-[#484f58]">
+                {ready
+                  ? 'Vá em Admin IA para ativar o modo Sombra e começar a treinar'
+                  : `Faltam ${XGB_MIN - labeled.length} trades para ativar o XGBoost`}
+              </span>
+              <span className="text-[#484f58]">{Math.round(pct)}%</span>
+            </div>
+            {!ready && (
+              <div className="flex gap-4 text-[9px] text-[#8b949e] pt-1 border-t border-[#30363d]">
+                <span>• Ativo a partir de 50 trades rotulados</span>
+                <span>• Modo Sombra: ambos operam — você compara</span>
+                <span>• Mode AND: os dois precisam concordar</span>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* ── O que a IA já sabe ──────────────────────────────────────────────── */}
       <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-5">

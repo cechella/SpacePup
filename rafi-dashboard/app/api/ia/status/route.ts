@@ -9,6 +9,7 @@ type IAConfigUpdate = {
   meta_diaria_pct?: number
   meta_semanal_pct?: number
   threshold_confianca?: number
+  xgboost_mode?: 'off' | 'shadow' | 'and' | 'xgboost'
 }
 
 function getClient() {
@@ -41,6 +42,7 @@ export async function POST(req: NextRequest) {
     'meta_diaria_pct',
     'meta_semanal_pct',
     'threshold_confianca',
+    'xgboost_mode',
   ]
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
   for (const key of allowed) {

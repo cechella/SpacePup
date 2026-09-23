@@ -1,20 +1,20 @@
 /**
  * POST /api/ml/signal
- * Avalia condições atuais do mercado contra o histórico de trades rotulados.
- * Retorna sugestão de entrada quando P(sucesso) ≥ 65% e há ≥ 3 trades similares.
+ * Avalia condições atuais do mercado.
+ * Modos XGBoost: off (similaridade), shadow (similaridade + log XGB), and (ambos devem concordar), xgboost (só XGB).
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { predictXGBoost, type XGBoostModel } from '@/lib/ml/xgboost'
+import { extractFeatures, featuresToArray } from '@/lib/ml/features'
 
-// Lotes padrão disponíveis nas corretoras
 const LOT_STEPS = [0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50, 0.60, 0.80, 1.00]
-const COMM_PER  = 0.35  // comissão estimada por corretora por lote
+const COMM_PER  = 0.35
 
-// Calcula lote e pips para bater a meta diária da corretora em 1 trade
 function calcLotFromMeta(capital: number, brokerCount: number, dailyTargetPct: number) {
-  const n          = Math.max(brokerCount, 1)
-  const dailyGoal  = capital * (dailyTargetPct / 100)
-  const perBroker  = dailyGoal / n
+  const n         = Math.max(brokerCount, 1)
+  const dailyGoal = capital * (dailyTargetPct / 100)
+  const perBroker = dailyGoal / n
 
   let lot = 0.10
   for (const l of LOT_STEPS) {
@@ -23,7 +23,7 @@ function calcLotFromMeta(capital: number, brokerCount: number, dailyTargetPct: n
   }
 
   const tpPips = Math.max(Math.round((perBroker + COMM_PER) / (lot * 10)), 4)
-  const slPips = Math.max(Math.round(tpPips / 1.5), 3)  // R:R mínimo 1:1.5, mínimo 3 pips
+  const slPips = Math.max(Math.round(tpPips / 1.5), 3)
   return { lot, tpPips, slPips, perBroker }
 }
 
@@ -47,16 +47,6 @@ function sessionLabel(horaUtc: number): string {
   return 'Overlap'
 }
 
-function calcLot(capital: number, slPips: number): number {
-  // 1% do capital como risco máximo
-  // valor por pip EURUSD lote 0.01 = ~$0.10 → $risco / (slPips * 10 * 10)
-  const risco = capital * 0.01
-  const lotCrudo = risco / (slPips * 10)
-  // Arredonda para lotes padrão: 0.01, 0.02, 0.03, 0.05, 0.10, 0.20, ...
-  const steps = [0.01, 0.02, 0.03, 0.05, 0.07, 0.10, 0.15, 0.20, 0.30, 0.50]
-  return steps.reduce((prev, cur) => Math.abs(cur - lotCrudo) < Math.abs(prev - lotCrudo) ? cur : prev)
-}
-
 interface SignalBody {
   rafi:            number
   bbWidth?:        number
@@ -65,13 +55,13 @@ interface SignalBody {
   horaUtc:         number
   diaSemana?:      number
   capital?:        number
-  brokerCount?:    number  // nº de corretoras ativas — para dividir a meta diária
-  dailyTargetPct?: number  // meta diária em % (padrão 7)
+  brokerCount?:    number
+  dailyTargetPct?: number
   checkinSono?:    string | null
   checkinEnergia?: string | null
   checkinMental?:  string | null
   checkinHumor?:   string | null
-  labeled_count:   number  // total de trades rotulados — ativa IA apenas com ≥ 10
+  labeled_count:   number
 }
 
 export async function POST(req: NextRequest) {
@@ -82,79 +72,147 @@ export async function POST(req: NextRequest) {
       capital = 100, brokerCount = 1, dailyTargetPct = 7,
       labeled_count,
       checkinSono, checkinEnergia, checkinMental, checkinHumor,
+      bbWidth,
     } = body
 
-    // IA só ativa com ≥ 10 trades rotulados
     if (labeled_count < 10) {
       return NextResponse.json({ suggestion: false, reason: `Aguardando 10 trades (atual: ${labeled_count})` })
     }
 
     const supa = getServiceClient()
 
-    // Busca todos os trades rotulados (win ou loss)
+    // Lê config para obter o modo XGBoost ativo
+    const { data: iaConfig } = await supa
+      .from('rafi_ia_config')
+      .select('xgboost_mode, threshold_confianca')
+      .eq('id', 'default')
+      .single()
+
+    const xgbMode  = (iaConfig?.xgboost_mode as string) ?? 'off'
+    const threshold = Number(iaConfig?.threshold_confianca ?? 0.65)
+
+    // Busca trades rotulados
     const { data: rows, error } = await supa
       .from('rafi_trades')
       .select('rafi, bb_width, direction, result, time, checkin_sono, checkin_energia, checkin_mental, checkin_humor')
       .in('result', ['win', 'loss'])
     if (error) throw error
 
-    const trades = rows ?? []
+    const trades      = rows ?? []
     const totalLabeled = trades.length
     if (totalLabeled < 10) {
       return NextResponse.json({ suggestion: false, reason: 'Poucos trades no banco' })
     }
 
-    const meuBucket  = rafiBucket(rafi)
+    // ── Similaridade estatística (sempre calculada) ─────────────────────
+    const meuBucket   = rafiBucket(rafi)
     const minhaSessao = sessionLabel(horaUtc)
-    const bomEstado  = !checkinSono || (
-      checkinSono    !== 'mal'    &&
+    const bomEstado   = !checkinSono || (
+      checkinSono    !== 'mal'   &&
       checkinMental  !== 'ruim'  &&
       checkinHumor   !== 'triste' &&
       checkinEnergia !== 'baixa'
     )
 
-    // Similaridade em camadas — mais similar = mais peso
-    // Camada 1: mesmo bucket RAFI + mesma direção (mandatório)
-    // Camada 2: mesma sessão (opcional, adiciona relevância)
-    // Camada 3: mesmo estado mental (opcional, quando há dados)
     const similar = trades.filter(t => {
       const tBucket = rafiBucket(Number(t.rafi ?? 0))
       return tBucket === meuBucket && t.direction === direction
     })
 
-    const comSessao  = similar.filter(t => {
+    const comSessao = similar.filter(t => {
       const h = new Date(Number(t.time) * 1000).getUTCHours()
       return sessionLabel(h) === minhaSessao
     })
 
-    // Usa grupo com sessão se tiver ≥ 3, senão usa grupo base
     const grupo = comSessao.length >= 3 ? comSessao : similar
-
-    if (grupo.length < 3) {
-      return NextResponse.json({
-        suggestion: false,
-        reason: `Apenas ${grupo.length} trades similares (mínimo 3)`,
-        similar_count: grupo.length,
-      })
-    }
-
-    const wins  = grupo.filter(t => t.result === 'win').length
+    const similarityOk = grupo.length >= 3
+    const wins  = similarityOk ? grupo.filter(t => t.result === 'win').length : 0
     const total = grupo.length
-    const prob  = wins / total
+    const simProb = similarityOk ? wins / total : 0
 
-    // Limiar: 65% para disparo confiante, 55% com badge "modelo inicial"
-    if (prob < 0.55) {
+    // ── XGBoost (quando modo não é 'off') ─────────────────────────────
+    let xgbProb: number | null = null
+    let xgbOk = false
+
+    if (xgbMode !== 'off' && totalLabeled >= 50) {
+      const { data: modelRow } = await supa
+        .from('rafi_ml_models')
+        .select('model_json')
+        .eq('name', 'xgboost_ts')
+        .single()
+
+      if (modelRow?.model_json) {
+        const model = modelRow.model_json as XGBoostModel
+        const feats = featuresToArray(extractFeatures({
+          rafi,
+          direction,
+          time: Math.floor(Date.now() / 1000),
+          bb_width: bbWidth,
+          checkin_sono:    checkinSono    ?? null,
+          checkin_energia: checkinEnergia ?? null,
+          checkin_mental:  checkinMental  ?? null,
+          checkin_humor:   checkinHumor   ?? null,
+        }))
+        xgbProb = predictXGBoost(model, feats)
+        xgbOk   = xgbProb >= threshold
+      }
+    }
+
+    // ── Decisão por modo ──────────────────────────────────────────────
+    let suggest = false
+    let activeProb = simProb
+    let modoUsado = 'similaridade'
+
+    if (xgbMode === 'off') {
+      suggest    = similarityOk && simProb >= (simProb >= 0.65 ? 0.65 : 0.55)
+      activeProb = simProb
+      modoUsado  = 'similaridade'
+    } else if (xgbMode === 'shadow') {
+      // Executa pela similaridade; XGBoost apenas observa
+      suggest    = similarityOk && simProb >= (simProb >= 0.65 ? 0.65 : 0.55)
+      activeProb = simProb
+      modoUsado  = 'similaridade (sombra)'
+    } else if (xgbMode === 'and') {
+      // Ambos precisam concordar
+      const simPass = similarityOk && simProb >= threshold
+      suggest    = simPass && xgbOk
+      activeProb = xgbProb ?? simProb
+      modoUsado  = 'AND (similaridade + XGBoost)'
+    } else if (xgbMode === 'xgboost') {
+      if (xgbProb === null) {
+        return NextResponse.json({ suggestion: false, reason: 'Modelo XGBoost não encontrado — treine primeiro' })
+      }
+      suggest    = xgbOk
+      activeProb = xgbProb
+      modoUsado  = 'XGBoost'
+    }
+
+    if (!suggest) {
+      const reasonMap: Record<string, string> = {
+        off:       `P(sucesso)=${Math.round(simProb * 100)}% abaixo do limiar · ${total} similares`,
+        shadow:    `P(sucesso)=${Math.round(simProb * 100)}% abaixo do limiar · ${total} similares`,
+        and:       `AND não satisfeito · similaridade=${Math.round(simProb * 100)}% · XGB=${xgbProb != null ? Math.round(xgbProb * 100) : 'N/A'}%`,
+        xgboost:   `P(XGBoost)=${xgbProb != null ? Math.round(xgbProb * 100) : 'N/A'}% abaixo de ${Math.round(threshold * 100)}%`,
+      }
+      if (!similarityOk && (xgbMode === 'off' || xgbMode === 'shadow')) {
+        return NextResponse.json({
+          suggestion: false,
+          reason: `Apenas ${total} trades similares (mínimo 3)`,
+          similar_count: total,
+        })
+      }
       return NextResponse.json({
-        suggestion: false,
-        reason: `P(sucesso)=${Math.round(prob * 100)}% abaixo do limiar`,
-        probability: Math.round(prob * 100),
-        similar_count: total,
+        suggestion:     false,
+        reason:         reasonMap[xgbMode] ?? 'Limiar não atingido',
+        probability:    Math.round(activeProb * 100),
+        xgb_prob:       xgbProb != null ? Math.round(xgbProb * 100) : null,
+        similar_count:  total,
+        xgboost_mode:   xgbMode,
       })
     }
 
-    // Lote calculado para bater a meta diária (7%) dividida pelas corretoras ativas
+    // ── Calcula lote e gera sugestão ──────────────────────────────────
     const { lot, tpPips, slPips, perBroker } = calcLotFromMeta(capital, brokerCount, dailyTargetPct)
-
     const p    = (v: number) => Math.round(v * 100000) / 100000
     const slOff = slPips * 0.0001
     const tpOff = tpPips * 0.0001
@@ -164,14 +222,13 @@ export async function POST(req: NextRequest) {
     const takeProfit = direction === 'buy' ? p(currentPrice + tpOff) : p(currentPrice - tpOff)
     const rr         = (tpPips / slPips).toFixed(1)
 
-    // Motivo legível para o trader
     const usouSessao = comSessao.length >= 3
     const sessaoStr  = usouSessao ? ` · sessão ${minhaSessao}` : ''
     const estadoStr  = bomEstado ? '' : ' ⚠ estado mental afetará resultado'
     const metaStr    = `meta +$${perBroker.toFixed(2)}/corretora`
-    const motivo = `RAFI ${meuBucket} (${rafi.toFixed(2)})${sessaoStr} · ${wins}/${total} similares · ${metaStr}${estadoStr}`
+    const xgbStr     = xgbProb != null ? ` · XGB ${Math.round(xgbProb * 100)}%` : ''
+    const motivo     = `RAFI ${meuBucket} (${rafi.toFixed(2)})${sessaoStr}${xgbStr} · ${wins}/${total} similares · ${metaStr}${estadoStr}`
 
-    // Trades similares recentes para exibir na UI (máx 5, mais recentes primeiro)
     const recentes = [...grupo]
       .sort((a, b) => Number(b.time) - Number(a.time))
       .slice(0, 5)
@@ -180,6 +237,20 @@ export async function POST(req: NextRequest) {
         rafi:   Number(t.rafi ?? 0).toFixed(2),
         hora:   new Date(Number(t.time) * 1000).toUTCString().slice(0, 16),
       }))
+
+    // Log do modo sombra no Supabase — fire-and-forget, não bloqueia a resposta
+    if (xgbMode === 'shadow' && xgbProb != null) {
+      void supa.from('rafi_xgb_shadow').insert({
+        similarity_prob:     Math.round(simProb * 100) / 100,
+        xgb_prob:            Math.round(xgbProb * 100) / 100,
+        similarity_decision: suggest,
+        xgb_decision:        xgbOk,
+        agreed:              suggest === xgbOk,
+        direction,
+        rafi,
+        sessao:              minhaSessao,
+      })
+    }
 
     return NextResponse.json({
       suggestion:    true,
@@ -191,16 +262,19 @@ export async function POST(req: NextRequest) {
       rr,
       slPips,
       tpPips,
-      perBroker,     // lucro alvo por corretora ($)
-      probability:   Math.round(prob * 100),
+      perBroker,
+      probability:   Math.round(activeProb * 100),
+      xgb_prob:      xgbProb != null ? Math.round(xgbProb * 100) : null,
       similar_count: total,
       wins,
       motivo,
       recentes,
-      confiante:     prob >= 0.65,
+      confiante:     activeProb >= 0.65,
       capital,
       brokerCount,
       dailyTargetPct,
+      xgboost_mode:  xgbMode,
+      modo_usado:    modoUsado,
     })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)

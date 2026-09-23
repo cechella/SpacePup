@@ -9,6 +9,8 @@ import { createClient } from '@supabase/supabase-js'
 import { calcRAFI, calcBollingerBands, autoScanBreakouts } from '@/lib/indicators'
 import { getActiveBrokers } from '@/lib/top-broker'
 import { logBrokerEvent } from '@/lib/broker-health'
+import { predictXGBoost, type XGBoostModel } from '@/lib/ml/xgboost'
+import { extractFeatures, featuresToArray } from '@/lib/ml/features'
 import type { CandleData } from '@/lib/types'
 
 export const runtime = 'nodejs'
@@ -329,6 +331,7 @@ export async function GET(req: NextRequest) {
     const metaDiariaUsd  = capital * (metaDiariaPct / 100)
     const metaSemanaUsd  = capital * (metaSemanaPct / 100)
     const threshold      = Number(config.threshold_confianca ?? 0.65)
+    const xgbMode        = (config.xgboost_mode as string) ?? 'off'
 
     const pnlHoje    = await getTodayIAPnl(supa)
     const pnlSemana  = await getWeekIAPnl(supa)
@@ -416,11 +419,49 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ skipped: true, reason: 'Poucos trades similares', log })
     }
 
-    const wins = grupo.filter(t => t.result === 'win').length
-    const prob = wins / grupo.length
-    log.push(`P(sucesso): ${Math.round(prob * 100)}% (${wins}/${grupo.length}) — threshold ${Math.round(threshold * 100)}%`)
+    const wins    = grupo.filter(t => t.result === 'win').length
+    const simProb = wins / grupo.length
+    log.push(`P(similaridade): ${Math.round(simProb * 100)}% (${wins}/${grupo.length}) — threshold ${Math.round(threshold * 100)}%`)
 
-    if (prob < threshold) {
+    // ── XGBoost (quando modo não é 'off') ─────────────────────────────
+    let xgbProb: number | null = null
+    let xgbOk = false
+
+    if (xgbMode !== 'off' && (labeledCount ?? 0) >= 50) {
+      const { data: modelRow } = await supa
+        .from('rafi_ml_models')
+        .select('model_json')
+        .eq('name', 'xgboost_ts')
+        .single()
+
+      if (modelRow?.model_json) {
+        const model = modelRow.model_json as XGBoostModel
+        const feats = featuresToArray(extractFeatures({
+          rafi: rafiAbs, direction,
+          time: Math.floor(Date.now() / 1000),
+          bb_width: bbWidth ?? null,
+        }))
+        xgbProb = predictXGBoost(model, feats)
+        xgbOk   = xgbProb >= threshold
+        log.push(`P(XGBoost): ${Math.round(xgbProb * 100)}% — modo ${xgbMode}`)
+      } else {
+        log.push('Modelo XGBoost não encontrado — usando similaridade')
+      }
+    }
+
+    // Decisão por modo
+    let proceed = false
+    if (xgbMode === 'off' || xgbMode === 'shadow') {
+      proceed = simProb >= threshold
+    } else if (xgbMode === 'and') {
+      proceed = simProb >= threshold && xgbOk
+    } else if (xgbMode === 'xgboost') {
+      proceed = xgbProb != null ? xgbOk : simProb >= threshold
+    }
+
+    const prob = xgbMode === 'xgboost' && xgbProb != null ? xgbProb : simProb
+
+    if (!proceed) {
       log.push('Probabilidade abaixo do threshold — sem ordem')
       return NextResponse.json({ skipped: true, reason: `P(sucesso)=${Math.round(prob * 100)}% < ${Math.round(threshold * 100)}%`, log })
     }

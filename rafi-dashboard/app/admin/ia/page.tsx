@@ -17,8 +17,16 @@ interface IAConfig {
   meta_diaria_pct: number
   meta_semanal_pct: number
   threshold_confianca: number
+  xgboost_mode: 'off' | 'shadow' | 'and' | 'xgboost'
   updated_at: string
 }
+
+const XGB_MODES: { key: 'off' | 'shadow' | 'and' | 'xgboost'; label: string; desc: string; color: string }[] = [
+  { key: 'off',      label: 'Desativado', desc: 'Usa só similaridade',       color: 'border-white/20 text-white/50' },
+  { key: 'shadow',   label: 'Sombra',     desc: 'Similaridade + observa XGB', color: 'border-blue-500/40 text-blue-400' },
+  { key: 'and',      label: 'AND',        desc: 'Ambos devem concordar',      color: 'border-amber-500/40 text-amber-400' },
+  { key: 'xgboost',  label: 'XGBoost',    desc: 'Só XGBoost decide',          color: 'border-violet-500/40 text-violet-400' },
+]
 
 interface IAStats {
   sinaisHoje: number    // registros Supabase (1 por sinal detectado)
@@ -447,6 +455,46 @@ export default function AdminIAPage() {
         </div>
         <p className="text-xs text-white/20 italic">
           Estas regras são invioláveis e não podem ser desativadas por aqui.
+        </p>
+      </div>
+
+      {/* ── Modo XGBoost ── */}
+      <div className="rounded-xl border border-white/10 bg-white/3 p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold text-white/40 uppercase tracking-wider flex items-center gap-1.5">
+            <Brain className="w-3.5 h-3.5 text-violet-400" />
+            Modo de decisão IA
+          </p>
+          {(config?.xgboost_mode ?? 'off') !== 'off' && (
+            <span className="text-[10px] text-violet-400 bg-violet-500/10 border border-violet-500/30 rounded px-2 py-0.5">
+              XGBoost ativo
+            </span>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {XGB_MODES.map(m => {
+            const isActive = (config?.xgboost_mode ?? 'off') === m.key
+            return (
+              <button
+                key={m.key}
+                disabled={updating === 'xgboost_mode'}
+                onClick={() => update({ xgboost_mode: m.key })}
+                className={cn(
+                  'rounded-lg border p-3 text-left transition-all',
+                  isActive
+                    ? `${m.color} bg-white/5`
+                    : 'border-white/10 text-white/30 hover:border-white/20 hover:text-white/50',
+                  updating === 'xgboost_mode' && 'opacity-50 cursor-not-allowed',
+                )}
+              >
+                <p className="text-xs font-bold">{m.label}</p>
+                <p className="text-[10px] mt-0.5 opacity-70">{m.desc}</p>
+              </button>
+            )
+          })}
+        </div>
+        <p className="text-[10px] text-white/20">
+          Ative <span className="text-blue-400">Sombra</span> a partir de 50 trades para comparar XGBoost vs similaridade antes de mudar para AND ou XGBoost.
         </p>
       </div>
 
