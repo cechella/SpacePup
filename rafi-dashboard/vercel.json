@@ -7,10 +7,6 @@
     {
       "path": "/api/ml/auto-scan-b",
       "schedule": "0 7 * * *"
-    },
-    {
-      "path": "/api/ml/reconcile-ia",
-      "schedule": "0 * * * *"
     }
   ]
 }

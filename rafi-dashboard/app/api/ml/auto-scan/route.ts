@@ -173,6 +173,70 @@ async function closeAllPositions(
   }
 }
 
+// Reconcilia trades IA pendentes com o histórico do MetaAPI
+// Executado no início de cada auto-scan para manter P(sucesso) atualizado
+async function reconcileIATrades(
+  supa: ReturnType<typeof getServiceClient>,
+  brokers: { accountId: string }[],
+  log: string[],
+): Promise<void> {
+  try {
+    const cutoff = Math.floor((Date.now() - 7 * 24 * 3600 * 1000) / 1000)
+    const { data: pending } = await supa
+      .from('rafi_trades')
+      .select('id, label')
+      .eq('entry_type', 'ia_autonoma')
+      .is('result', null)
+      .gte('time', cutoff)
+
+    const pendingTrades = pending ?? []
+    if (pendingTrades.length === 0) return
+
+    log.push(`[reconcile] ${pendingTrades.length} trade(s) pendentes`)
+
+    // Busca deals fechados (timeout curto para não estourar o maxDuration)
+    const startTime = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString()
+    const endTime   = new Date().toISOString()
+    const dealMap   = new Map<string, number>()
+
+    for (const broker of brokers) {
+      try {
+        const url = `${MT_BASE}/users/current/accounts/${broker.accountId}/history-deals/time/${startTime}/${endTime}`
+        const res = await fetch(url, {
+          headers: { 'auth-token': TOKEN },
+          signal: AbortSignal.timeout(3_000),
+          cache: 'no-store',
+        })
+        if (!res.ok) continue
+        const data = await res.json()
+        const arr  = Array.isArray(data) ? data : (data.deals ?? [])
+        for (const d of arr) {
+          if (d.entryType !== 'DEAL_ENTRY_OUT' && d.entryType !== 'DEAL_ENTRY_INOUT') continue
+          const pid = String(d.positionId ?? d.id)
+          dealMap.set(pid, (dealMap.get(pid) ?? 0) + Number(d.profit ?? 0))
+        }
+      } catch { /* timeout ou broker offline — ignora */ }
+    }
+
+    let reconciled = 0
+    for (const trade of pendingTrades) {
+      const labelStr  = String((trade as any).label ?? '')
+      const posMatch  = labelStr.match(/\|pos:(\S+)/)
+      if (!posMatch) continue
+      const profit = dealMap.get(posMatch[1])
+      if (profit === undefined) continue
+      const result: 'win' | 'loss' = profit > 0 ? 'win' : 'loss'
+      const { error } = await supa
+        .from('rafi_trades')
+        .update({ result, pnl_usd: profit, updated_at: new Date().toISOString() })
+        .eq('id', trade.id)
+      if (!error) reconciled++
+    }
+
+    if (reconciled > 0) log.push(`[reconcile] ${reconciled} trade(s) atualizados ✓`)
+  } catch { /* não bloqueia o scan principal */ }
+}
+
 // Envia ordem para uma corretora
 async function sendOrder(accountId: string, brokerId: string, symbol: string, payload: Record<string, unknown>) {
   const t0 = Date.now()
@@ -207,6 +271,10 @@ export async function GET(req: NextRequest) {
 
   try {
     const supa = getServiceClient()
+
+    // ── 0. Reconcilia trades IA pendentes (manter P(sucesso) atualizado) ─
+    const brokersForReconcile = await getActiveBrokers()
+    await reconcileIATrades(supa, brokersForReconcile, log)
 
     // ── 1. Verifica se IA Autônoma está ativa ──────────────────────────
     const { data: config } = await supa
