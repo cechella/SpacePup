@@ -13,6 +13,7 @@ import { fetchTrades, upsertTrades, updateTradeResult, fetchIATodayStats, fetchI
 import { getSessionConfig, saveSessionConfig, SESSION_DEFAULTS, type SessionConfig } from '@/lib/session-config'
 import { EpicJourneyBar, logPct, JOURNEY_MILESTONES } from '@/components/epic-journey-bar'
 import { MissaoHojePopup } from '@/components/missao-hoje-popup'
+import { ForexClocks } from '@/components/forex-clocks'
 
 // ─── Palette tokens ──────────────────────────────────────────────────────────
 const C = {
@@ -1546,6 +1547,9 @@ export default function AdminDashboard() {
 
         {/* ── EPIC JOURNEY BAR ──────────────────────────────────────────────── */}
         <EpicJourneyBar capital={capitalParaJornada} />
+
+        {/* ── Relógios Forex ─────────────────────────────────────────────────── */}
+        <ForexClocks />
 
         {/* ── Stats tiles ───────────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
