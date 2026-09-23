@@ -14,6 +14,7 @@ interface IAConfig {
   ia_autonoma_ativa: boolean
   sessao_sydney_tokyo: boolean
   sessao_tokyo_london: boolean
+  sessao_london_ny: boolean
   meta_diaria_pct: number
   meta_semanal_pct: number
   threshold_confianca: number
@@ -104,8 +105,8 @@ const SESSION_TIMES = [
     key: 'sessao_sydney_tokyo' as const,
     icon: <Globe className="w-4 h-4" />,
     name: 'Sydney / Tóquio',
-    horaBrasil: '20:00 – 04:00',
-    horaUtc: '23:00 – 07:00',
+    horaBrasil: '20:00 – 04:00 BRT',
+    horaUtc: '23:00 – 07:00 GMT',
     color: 'from-indigo-500 to-blue-600',
     bgColor: 'bg-indigo-500/10',
     borderColor: 'border-indigo-500/30',
@@ -116,13 +117,25 @@ const SESSION_TIMES = [
     key: 'sessao_tokyo_london' as const,
     icon: <Clock className="w-4 h-4" />,
     name: 'Tóquio / Londres',
-    horaBrasil: '04:00 – 05:00',
-    horaUtc: '07:00 – 08:00',
+    horaBrasil: '04:00 – 05:00 BRT',
+    horaUtc: '07:00 – 08:00 GMT',
     color: 'from-cyan-500 to-teal-600',
     bgColor: 'bg-cyan-500/10',
     borderColor: 'border-cyan-500/30',
     textColor: 'text-cyan-300',
     cronUtc: '07:00 UTC',
+  },
+  {
+    key: 'sessao_london_ny' as const,
+    icon: <TrendingUp className="w-4 h-4" />,
+    name: 'Londres / NY',
+    horaBrasil: '09:00 – 13:00 BRT',
+    horaUtc: '12:00 – 16:00 GMT',
+    color: 'from-orange-500 to-amber-600',
+    bgColor: 'bg-orange-500/10',
+    borderColor: 'border-orange-500/30',
+    textColor: 'text-orange-300',
+    cronUtc: '14:00 UTC',
   },
 ]
 
@@ -386,12 +399,15 @@ export default function AdminIAPage() {
         const minU       = now.getUTCMinutes()
         const scan02Done = horaU > 2 || (horaU === 2 && minU > 0)
         const scan07Done = horaU > 7 || (horaU === 7 && minU > 0)
+        const scan14Done = horaU > 14 || (horaU === 14 && minU > 0)
 
         let nextScanUtc: string, nextScanBRT: string, sessaoNome: string, sessaoOn: boolean
         if (!scan02Done) {
           nextScanUtc = 'hoje 02:00 UTC'; nextScanBRT = '23:00 BRT'; sessaoNome = 'Sydney / Tóquio'; sessaoOn = config?.sessao_sydney_tokyo ?? true
         } else if (!scan07Done) {
           nextScanUtc = 'hoje 07:00 UTC'; nextScanBRT = '04:00 BRT'; sessaoNome = 'Tóquio / Londres'; sessaoOn = config?.sessao_tokyo_london ?? true
+        } else if (!scan14Done) {
+          nextScanUtc = 'hoje 14:00 UTC'; nextScanBRT = '11:00 BRT'; sessaoNome = 'Londres / NY'; sessaoOn = config?.sessao_london_ny ?? false
         } else {
           nextScanUtc = 'amanhã 02:00 UTC'; nextScanBRT = '23:00 BRT'; sessaoNome = 'Sydney / Tóquio'; sessaoOn = config?.sessao_sydney_tokyo ?? true
         }
