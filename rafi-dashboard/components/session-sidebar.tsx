@@ -20,11 +20,11 @@ export interface TargetMetrics {
   WEEKLY_TARGET: number  // 25.0
 }
 
-// Janelas de sessão em minutos desde meia-noite UTC
-// NY Forex abre às 13:30 UTC, Londres fecha às 16:30 UTC
-const LONDON  = { start: 8 * 60,       end: 16 * 60 + 30, label: 'London',   color: '#4499ff' }
-const NY      = { start: 13 * 60 + 30, end: 20 * 60,      label: 'New York', color: '#aa55ff' }
-const OVERLAP = { start: 13 * 60 + 30, end: 16 * 60 + 30 }  // London–NY: 13:30–16:30 UTC
+// Janelas de sessão Forex em minutos desde meia-noite UTC
+// NY Forex abre às 12:00 UTC, Londres fecha às 16:00 UTC (diferente da bolsa de NY)
+const LONDON  = { start: 8 * 60,  end: 16 * 60, label: 'London',   color: '#4499ff' }
+const NY      = { start: 12 * 60, end: 20 * 60, label: 'New York', color: '#aa55ff' }
+const OVERLAP = { start: 12 * 60, end: 16 * 60 }  // London–NY Forex: 12:00–16:00 UTC
 
 function utcMin(): number {
   const d = new Date()
@@ -77,8 +77,8 @@ function computeCopilot(
   const checkinPenalty = checkin?.scorePenalty ?? 0
   const now    = new Date()
   const utcMin = now.getUTCHours() * 60 + now.getUTCMinutes()
-  const OVERLAP_START = OVERLAP.start  // 13:30 UTC
-  const OVERLAP_END   = OVERLAP.end    // 16:30 UTC
+  const OVERLAP_START = OVERLAP.start  // 12:00 UTC
+  const OVERLAP_END   = OVERLAP.end    // 16:00 UTC
   const inOverlap     = utcMin >= OVERLAP_START && utcMin < OVERLAP_END
   const sesMin        = utcMin - OVERLAP_START
   const overlapPhase  = inOverlap
@@ -173,7 +173,7 @@ function computeCopilot(
     {
       label: inOverlap
         ? `Overlap ativo${phaseLabel ? ` · ${phaseLabel}` : ''}`
-        : 'Overlap inativo · aguardar 13:30 UTC',
+        : 'Overlap inativo · aguardar 12:00 UTC',
       ok: inOverlap,
     },
     ...(rafiValue != null ? [{
@@ -394,7 +394,7 @@ export function SessionSidebar({
           <div className="rounded-lg border border-[#00e676]/30 bg-[#00e676]/[0.07] px-3 py-2 mb-2.5">
             <div className="flex items-center justify-between mb-1">
               <span className="text-[8px] font-bold text-[#00e676] uppercase tracking-widest animate-pulse">● Overlap ativo</span>
-              <span className="text-[7px] font-mono text-[#00e676]/50">13:30–16:30 UTC</span>
+              <span className="text-[7px] font-mono text-[#00e676]/50">12:00–16:00 UTC</span>
             </div>
             <div className="text-[24px] font-mono font-bold text-[#00e676] leading-none tabular-nums">
               {fmtMin(minsLeft(OVERLAP.end))}
@@ -410,7 +410,7 @@ export function SessionSidebar({
                 <span className="text-[8px] text-[#7a96b8] uppercase tracking-widest">
                   {done ? 'Overlap encerrado' : 'Overlap começa em'}
                 </span>
-                <span className="text-[7px] font-mono text-[#334455]">13:30–16:30 UTC</span>
+                <span className="text-[7px] font-mono text-[#334455]">12:00–16:00 UTC</span>
               </div>
               {done
                 ? <div className="text-[10px] font-mono text-[#334455]">retorna amanhã — {fmtMin(away)}</div>
