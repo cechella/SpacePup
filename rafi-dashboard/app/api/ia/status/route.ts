@@ -6,6 +6,7 @@ type IAConfigUpdate = {
   ia_autonoma_ativa?: boolean
   sessao_sydney_tokyo?: boolean
   sessao_tokyo_london?: boolean
+  sessao_london_ny?: boolean
   meta_diaria_pct?: number
   meta_semanal_pct?: number
   threshold_confianca?: number
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
     'ia_autonoma_ativa',
     'sessao_sydney_tokyo',
     'sessao_tokyo_london',
+    'sessao_london_ny',
     'meta_diaria_pct',
     'meta_semanal_pct',
     'threshold_confianca',
