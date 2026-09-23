@@ -197,6 +197,12 @@ export default function ChartPage() {
     volume: number; price: number; profit: number; time: string; comment: string
     entryPrice?: number | null; positionId?: string | null
   }>>([])
+  // Histórico semanal completo — sempre 7d, independente do filtro do painel de histórico
+  const [weekMetaHistory, setWeekMetaHistory] = useState<Array<{
+    id: string; symbol: string; type: string; direction: 'buy' | 'sell'
+    volume: number; price: number; profit: number; time: string; comment: string
+    entryPrice?: number | null; positionId?: string | null
+  }>>([])
   const [historyPeriod,      setHistoryPeriod]      = useState<'today' | '7d' | '30d' | '3m'>('today')
   const [historyLoading,     setHistoryLoading]     = useState(false)
   const [historyBroker,      setHistoryBroker]      = useState<string>('')  // '' = todas as corretoras (Auto)
@@ -720,7 +726,8 @@ export default function ChartPage() {
       .filter(t => toBrtDate(t.time ?? '') === today && isHuman(t))
       .reduce((s, t) => s + (t.profit ?? 0), 0)
 
-    const humanWeekPnl = metaHistory
+    // weekMetaHistory: sempre 7d (independente do filtro de período do painel de histórico)
+    const humanWeekPnl = weekMetaHistory
       .filter(t => {
         const dd = toBrtDate(t.time ?? '')
         return dd >= weekStart && dd <= today && isHuman(t)
@@ -774,7 +781,7 @@ export default function ChartPage() {
       locked: dailyMet || weeklyMet,
       DAILY_TARGET, WEEKLY_TARGET,
     }
-  }, [metaHistory, metaAccount, consolidatedBalance])
+  }, [metaHistory, weekMetaHistory, metaAccount, consolidatedBalance])
 
   // Dispara overlay somente quando temos o saldo consolidado de TODOS os brokers.
   // Usar só Pepperstone (metaAccount) inflaria o % (ex: $37/$71 = 52% vs real $37/$370 = 10%)
@@ -1648,6 +1655,44 @@ export default function ChartPage() {
     const id = setInterval(() => fetchHistory(historyPeriod, historyBroker), 60_000)
     return () => clearInterval(id)
   }, [metaConnected, historyPeriod, historyBroker, fetchHistory])
+
+  // Busca acumulado semanal do Supabase — sempre 7d, independente do filtro de período do painel
+  useEffect(() => {
+    const fetchWeek = async () => {
+      try {
+        const res = await fetch('/api/deals?period=7d')
+        if (!res.ok) return
+        const supaData = await res.json()
+        const rawDeals: any[] = supaData?.deals ?? []
+        const entryByPos: Record<string, number> = {}
+        rawDeals
+          .filter((d: any) => d.entry_type === 'DEAL_ENTRY_IN' && d.price && d.position_id)
+          .forEach((d: any) => { entryByPos[d.position_id] = d.price })
+        const trades = rawDeals
+          .filter((d: any) =>
+            d.entry_type === 'DEAL_ENTRY_OUT' &&
+            (d.deal_type === 'DEAL_TYPE_BUY' || d.deal_type === 'DEAL_TYPE_SELL')
+          )
+          .map((d: any) => ({
+            id:         d.id as string,
+            symbol:     d.symbol as string,
+            type:       d.deal_type as string,
+            direction:  (d.direction ?? (d.deal_type === 'DEAL_TYPE_SELL' ? 'buy' : 'sell')) as 'buy' | 'sell',
+            volume:     d.volume as number,
+            price:      d.price as number,
+            entryPrice: (entryByPos[d.position_id] ?? null) as number | null,
+            profit:     (d.profit ?? 0) as number,
+            time:       typeof d.time === 'string' ? d.time as string : new Date(d.time).toISOString(),
+            comment:    (d.comment ?? '') as string,
+            positionId: (d.position_id ?? null) as string | null,
+          }))
+        setWeekMetaHistory(trades)
+      } catch {}
+    }
+    fetchWeek()
+    const id = setInterval(fetchWeek, 60_000)
+    return () => clearInterval(id)
+  }, [])
 
   // Busca positionIds das posições abertas pela IA Autônoma (a cada 30s)
   // Usado para diferenciar 🤖 IA vs 👤 Humano no painel de posições abertas

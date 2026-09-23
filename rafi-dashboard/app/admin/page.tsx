@@ -929,6 +929,7 @@ export default function AdminDashboard() {
   const [tradeFilter, setTradeFilter] = useState<'hoje' | '7d' | '30d'>('hoje')
   const [iaTodayStats, setIaTodayStats] = useState<{ pnl: number; count: number } | null>(null)
   const [iaConfig,     setIaConfig]     = useState<IAConfig | null>(null)
+  const [weekBrokerStats, setWeekBrokerStats] = useState<{ humanPnl: number; iaPnl: number } | null>(null)
   const importRef                       = useRef<HTMLInputElement>(null)
 
   // Injeta fontes premium via Google Fonts
@@ -1034,6 +1035,45 @@ export default function AdminDashboard() {
 
     fetchBrokersSummary()
     const id = setInterval(fetchBrokersSummary, 60_000)
+    return () => clearInterval(id)
+  }, [mounted])
+
+  // Busca acumulado semanal humano/IA do Supabase (deals 7d) para barra de progresso
+  useEffect(() => {
+    if (!mounted) return
+    const fetchWeekly = async () => {
+      try {
+        const res = await fetch('/api/deals?period=7d')
+        if (!res.ok) return
+        const data = await res.json()
+        const rawDeals: any[] = data?.deals ?? []
+        // Início da semana (segunda-feira) no fuso BRT (UTC-3)
+        const nowBRT  = new Date(Date.now() - 3 * 60 * 60 * 1000)
+        const jsDay   = nowBRT.getUTCDay()
+        const daysMon = jsDay === 0 ? 6 : jsDay - 1
+        const monBRT  = new Date(nowBRT)
+        monBRT.setUTCDate(nowBRT.getUTCDate() - daysMon)
+        monBRT.setUTCHours(0, 0, 0, 0)
+        const weekStart = monBRT.toISOString().slice(0, 10)
+        const today     = nowBRT.toISOString().slice(0, 10)
+        const toBrtDate = (iso: string) =>
+          new Date(new Date(iso).getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
+
+        const weekDeals = rawDeals.filter((d: any) => {
+          if (d.entry_type !== 'DEAL_ENTRY_OUT') return false
+          if (d.deal_type !== 'DEAL_TYPE_BUY' && d.deal_type !== 'DEAL_TYPE_SELL') return false
+          const dd = toBrtDate(typeof d.time === 'string' ? d.time : new Date(d.time).toISOString())
+          return dd >= weekStart && dd <= today
+        })
+
+        const isHuman   = (d: any) => !String(d.comment ?? '').startsWith('IA|')
+        const humanPnl  = weekDeals.filter(isHuman).reduce((s: number, d: any) => s + (d.profit ?? 0), 0)
+        const iaPnl     = weekDeals.filter((d: any) => !isHuman(d)).reduce((s: number, d: any) => s + (d.profit ?? 0), 0)
+        setWeekBrokerStats({ humanPnl, iaPnl })
+      } catch {}
+    }
+    fetchWeekly()
+    const id = setInterval(fetchWeekly, 60_000)
     return () => clearInterval(id)
   }, [mounted])
 
@@ -1772,6 +1812,60 @@ export default function AdminDashboard() {
             pendingCount={pending}
           />
         </div>
+
+        {/* ── Meta Semanal Live — broker data (Seg→hoje, humano + IA, 25% cada) ── */}
+        {weekBrokerStats && capitalConsolidado > 0 && (() => {
+          const WEEKLY_TARGET = 25
+          const humanStartBal = Math.max(capitalConsolidado - weekBrokerStats.humanPnl, 1)
+          const humanPct      = capitalConsolidado > 0 ? (weekBrokerStats.humanPnl / humanStartBal) * 100 : 0
+          const iaStartBal    = Math.max(capitalConsolidado - weekBrokerStats.iaPnl, 1)
+          const iaPct         = capitalConsolidado > 0 ? (weekBrokerStats.iaPnl / iaStartBal)    * 100 : 0
+
+          const Bar = ({ label, pct, pnl, baseColor }: { label: string; pct: number; pnl: number; baseColor: string }) => {
+            const met     = pct >= WEEKLY_TARGET
+            const color   = met ? C.teal : pct >= WEEKLY_TARGET * 0.7 ? C.gold : baseColor
+            const fill    = Math.min(Math.max(pct / WEEKLY_TARGET * 100, 0), 100)
+            return (
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color: C.muted }}>{label}</span>
+                  <span className="text-[11px] font-mono font-black" style={{ color }}>
+                    {pct >= 0 ? '+' : ''}{pct.toFixed(1)}%{met ? ' ✓' : ''}
+                  </span>
+                </div>
+                <div className="h-3 rounded-full overflow-hidden" style={{ background: C.card2 }}>
+                  <div className="h-full rounded-full transition-all duration-700" style={{
+                    width: `${fill.toFixed(1)}%`, background: color, opacity: fill <= 0 ? 0.3 : 1,
+                  }} />
+                </div>
+                <div className="flex justify-between mt-1 text-[8px] font-mono" style={{ color: C.muted }}>
+                  <span>{pnl >= 0 ? '+' : ''}{pnl.toFixed(2)} USD</span>
+                  <span>META {WEEKLY_TARGET}%</span>
+                </div>
+              </div>
+            )
+          }
+
+          return (
+            <div className="rounded-xl p-5" style={{
+              background: C.card,
+              border: `1px solid ${C.blue}40`,
+              boxShadow: `inset 0 3px 0 ${C.blue}`,
+            }}>
+              <div className="flex items-center gap-2 mb-4">
+                <Target size={13} style={{ color: C.blue }} />
+                <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.blue }}>Meta Semanal Live</span>
+                <span className="ml-1 text-[8px] px-1.5 py-0.5 rounded font-bold uppercase" style={{
+                  background: `${C.blue}18`, border: `1px solid ${C.blue}40`, color: C.blue,
+                }}>25% · individual</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Bar label="👤 Vinícius" pct={humanPct} pnl={weekBrokerStats.humanPnl} baseColor={C.blue} />
+                <Bar label="🤖 IA Autônoma" pct={iaPct} pnl={weekBrokerStats.iaPnl} baseColor="#a855f7" />
+              </div>
+            </div>
+          )
+        })()}
 
         {/* ── Bottom section: 2 cols ────────────────────────────────────────── */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
