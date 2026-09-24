@@ -276,7 +276,8 @@ async function sendOrder(accountId: string, brokerId: string, symbol: string, pa
   }
   const result = await res.json()
   logBrokerEvent(brokerId, 'order', true, latency)
-  return { brokerId, ok: true, orderId: result?.orderId, positionId: result?.positionId }
+  // MetaAPI retorna orderId mas não sempre positionId — para ordens a mercado são equivalentes
+  return { brokerId, ok: true, orderId: result?.orderId, positionId: result?.positionId ?? result?.orderId }
 }
 
 export async function GET(req: NextRequest) {
