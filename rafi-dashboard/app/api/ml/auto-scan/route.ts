@@ -184,6 +184,18 @@ async function reconcileIATrades(
   log: string[],
 ): Promise<void> {
   try {
+    // Cancela automaticamente pré-registros orphans (label='AutoScan-IA|pending') com >3 min
+    // Esses surgem quando a função sofre timeout antes de enviar as ordens
+    const orphanCutoff = Math.floor((Date.now() - 3 * 60 * 1000) / 1000)
+    const { data: orphaned } = await supa
+      .from('rafi_trades')
+      .update({ result: 'cancelled' })
+      .eq('label', 'AutoScan-IA|pending')
+      .is('result', null)
+      .lte('time', orphanCutoff)
+      .select('id')
+    if (orphaned && orphaned.length > 0) log.push(`[reconcile] ${orphaned.length} orphan(s) cancelados`)
+
     const cutoff = Math.floor((Date.now() - 7 * 24 * 3600 * 1000) / 1000)
     const { data: pending } = await supa
       .from('rafi_trades')
