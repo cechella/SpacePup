@@ -233,6 +233,7 @@ export default function MonitorPage() {
   const [londonTime, setLondonTime] = useState('')
   const [botLogs,    setBotLogs]    = useState<BotLog[]>([])
   const [tradeFilter, setTradeFilter] = useState<'all' | 'wins' | 'losses' | 'today'>('all')
+  const [logFilter,   setLogFilter]   = useState<'all' | 'scans' | 'errors'>('all')
   const [selectedBroker, setSelectedBroker] = useState('pepperstone')
   const [allBrokerStatuses, setAllBrokerStatuses] = useState<Record<string, BotStatus>>({})
   const [brokerBalances, setBrokerBalances] = useState<Record<string, { balance: number; equity: number; online: boolean } | null>>({})
@@ -286,7 +287,7 @@ export default function MonitorPage() {
     if (!supa) return
     try {
       const { data: lg } = await supa.from('rafi_bot_logs')
-        .select('*').order('created_at', { ascending: false }).limit(50)
+        .select('*').order('created_at', { ascending: false }).limit(100)
       if (lg) setBotLogs(lg as BotLog[])
     } catch {}
   }, [])
@@ -392,9 +393,11 @@ export default function MonitorPage() {
     .filter(t => t.time >= todayStart && t.pnl != null)
     .reduce((s, t) => s + t.pnl!, 0)
   const pnlToday   = status?.pnl_today ?? pnlTodayCalc
-  const floatPnL   = status ? (status.equity - status.balance) : 0
-  const bal        = status?.balance ?? 0
-  const eq         = status?.equity ?? bal
+  const metaBal    = brokerBalances[selectedBroker]?.balance ?? null
+  const metaEq     = brokerBalances[selectedBroker]?.equity  ?? null
+  const bal        = metaBal ?? status?.balance ?? 0
+  const eq         = metaEq  ?? status?.equity  ?? bal
+  const floatPnL   = eq - bal
   const pctToday   = bal > 0 ? (pnlToday / Math.max(bal, 0.01)) * 100 : 0
   const tradesHoje = closed.filter(t => t.time >= todayStart).length
 
@@ -1485,45 +1488,140 @@ export default function MonitorPage() {
           </div>
         </div>
 
-        {/* ── Log panel ──────────────────────────────────────────────────── */}
+        {/* ── Feed de Atividade do VPS ───────────────────────────────────── */}
         <div style={{ ...card, marginBottom: 20 }}>
           <div style={{
             padding: '10px 16px', borderBottom: `1px solid ${C.bd}`,
-            fontSize: 11, fontWeight: 600, color: C.t2, fontFamily: "'Space Grotesk', sans-serif",
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
           }}>
-            Log do Bot
-          </div>
-          <div style={{ maxHeight: 260, overflowY: 'auto', padding: '8px 0' }}>
-            {botLogs.length === 0 ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: C.t3, fontSize: 11 }}>
-                Aguardando logs…
-              </div>
-            ) : botLogs.slice(0, 15).map(log => {
-              const lc = log.level === 'error' ? C.re
-                : log.level === 'warn' ? C.am
-                : log.level === 'signal' ? C.teal
-                : C.t2
-              return (
-                <div key={log.id} style={{
-                  display: 'flex', gap: 10, padding: '4px 16px',
-                  borderBottom: `1px solid ${C.bd}18`,
-                  alignItems: 'flex-start',
+            <span style={{ fontSize: 11, fontWeight: 600, color: C.t2, fontFamily: "'Space Grotesk', sans-serif" }}>
+              Feed de Atividade — VPS
+            </span>
+            <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+              {(['all', 'scans', 'errors'] as const).map(f => (
+                <button key={f} onClick={() => setLogFilter(f)} style={{
+                  fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                  border: `1px solid ${logFilter === f ? C.bl : C.bd}`,
+                  background: logFilter === f ? `${C.bl}18` : 'transparent',
+                  color: logFilter === f ? C.bl : C.t3,
+                  cursor: 'pointer', fontFamily: "'JetBrains Mono', monospace",
+                  textTransform: 'uppercase',
                 }}>
-                  <span style={{ fontSize: 9, color: C.t3, flexShrink: 0, ...mono, marginTop: 1 }}>
-                    {new Date(log.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                  </span>
-                  <span style={{
-                    fontSize: 9, fontWeight: 700, flexShrink: 0, width: 40,
-                    color: lc, ...mono, textTransform: 'uppercase',
-                  }}>
-                    {log.level}
-                  </span>
-                  <span style={{ fontSize: 11, color: C.tx, flex: 1, wordBreak: 'break-word' }}>
-                    {log.message}
-                  </span>
+                  {f === 'all' ? 'Todos' : f === 'scans' ? 'Scans' : 'Erros'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{ maxHeight: 320, overflowY: 'auto', padding: '4px 0' }}>
+            {(() => {
+              const filtered = botLogs.filter(log => {
+                if (logFilter === 'scans') return log.message.includes('AUTOSCAN') || log.message.includes('Ciclo M5')
+                if (logFilter === 'errors') return log.level === 'error' || log.message.includes('terminal errado') || log.message.includes('ERRO')
+                return true
+              })
+              if (filtered.length === 0) return (
+                <div style={{ padding: '20px', textAlign: 'center', color: C.t3, fontSize: 11 }}>
+                  {botLogs.length === 0 ? 'Aguardando logs do VPS…' : 'Nenhum log nesta categoria'}
                 </div>
               )
-            })}
+              return filtered.slice(0, 60).map(log => {
+                const msg = log.message
+                let icon = '·'
+                let rowColor = C.t2
+                let label = ''
+                let detail = ''
+
+                if (msg.includes('terminal errado') || msg.includes('ERRO')) {
+                  icon = '🚨'; rowColor = C.re
+                  label = 'ERRO TERMINAL'
+                  const m = msg.match(/conectado='([^']+)'.*esperado='([^']+)'/)
+                  detail = m ? `conectado=${m[1]} · esperado=${m[2]}` : msg.slice(0, 80)
+                } else if (msg.includes('AUTOSCAN REJEITADO') && msg.includes('BB')) {
+                  icon = '🔴'; rowColor = C.re
+                  label = 'BB FECHADO'
+                  const m = msg.match(/curr=([\d.]+)/)
+                  detail = m ? `BB curr=${m[1]}` : 'Bollinger sem expansão'
+                } else if (msg.includes('AUTOSCAN BB OK') || msg.includes('sem rompimento')) {
+                  icon = '🟡'; rowColor = C.am
+                  label = 'S/R NÃO ROMPIDO'
+                  const m = msg.match(/close=([\d.]+)/)
+                  detail = m ? `close=${m[1]}` : 'Sem rompimento S/R'
+                } else if (msg.includes('AUTOSCAN REJEITADO')) {
+                  icon = '🔴'; rowColor = C.re
+                  label = 'SCAN REJEITADO'
+                  detail = msg.replace('AUTOSCAN REJEITADO', '').replace(/^[—\s]+/, '').slice(0, 70)
+                } else if (msg.includes('AUTOSCAN') && (msg.includes('OK') || msg.includes('SINAL'))) {
+                  icon = '🟢'; rowColor = C.teal
+                  label = 'SCAN OK'
+                  detail = msg.replace('AUTOSCAN', '').replace(/^[—\s]+/, '').slice(0, 70)
+                } else if (msg.includes('Ciclo M5') || msg.includes('─── Ciclo')) {
+                  icon = '🔵'; rowColor = C.bl
+                  label = 'CICLO M5'
+                  const mb = msg.match(/broker=(\S+)/)
+                  const ms = msg.match(/saldo=\$?([\d.]+)/)
+                  detail = [mb ? `broker=${mb[1]}` : '', ms ? `$${ms[1]}` : ''].filter(Boolean).join(' · ')
+                } else if (msg.includes('Transição') || msg.includes('EstadoBroker')) {
+                  icon = '⚡'; rowColor = C.am
+                  label = 'ESTADO'
+                  detail = msg.replace('Transição', '').replace(/^[:\s]+/, '').slice(0, 70)
+                } else if (msg.includes('Health Score')) {
+                  icon = '📊'; rowColor = C.t2
+                  label = 'HEALTH'
+                  const mh = msg.match(/Health Score:\s*([\d.]+)/)
+                  const mp = msg.match(/pnl=([\d.-]+)/)
+                  detail = [mh ? `score=${mh[1]}` : '', mp ? `pnl=${mp[1]}` : ''].filter(Boolean).join(' · ')
+                } else if (msg.includes('RafiBot iniciado') || msg.includes('iniciado')) {
+                  icon = '✅'; rowColor = C.teal
+                  label = 'STARTUP'
+                  detail = msg.slice(0, 70)
+                } else if (log.level === 'error') {
+                  icon = '❌'; rowColor = C.re
+                  label = 'ERRO'
+                  detail = msg.slice(0, 80)
+                } else if (log.level === 'warn') {
+                  icon = '⚠️'; rowColor = C.am
+                  label = 'AVISO'
+                  detail = msg.slice(0, 80)
+                } else if (log.level === 'signal') {
+                  icon = '📡'; rowColor = C.teal
+                  label = 'SINAL'
+                  detail = msg.slice(0, 80)
+                } else {
+                  detail = msg.slice(0, 80)
+                }
+
+                const ts = new Date(log.created_at)
+                const hh = String(ts.getUTCHours()).padStart(2, '0')
+                const mm = String(ts.getUTCMinutes()).padStart(2, '0')
+                const ss = String(ts.getUTCSeconds()).padStart(2, '0')
+
+                return (
+                  <div key={log.id} style={{
+                    display: 'flex', gap: 8, padding: '5px 16px',
+                    borderBottom: `1px solid ${C.bd}18`,
+                    alignItems: 'center',
+                    background: rowColor === C.re ? `${C.re}05` : 'transparent',
+                  }}>
+                    <span style={{ fontSize: 12, flexShrink: 0 }}>{icon}</span>
+                    <span style={{ fontSize: 9, color: C.t3, flexShrink: 0, ...mono, minWidth: 58 }}>
+                      {hh}:{mm}:{ss}
+                    </span>
+                    {label && (
+                      <span style={{
+                        fontSize: 8, fontWeight: 700, flexShrink: 0, ...mono,
+                        color: rowColor, minWidth: 90,
+                        textTransform: 'uppercase', letterSpacing: '0.05em',
+                      }}>
+                        {label}
+                      </span>
+                    )}
+                    <span style={{ fontSize: 10, color: C.tx, flex: 1, wordBreak: 'break-word', opacity: 0.85 }}>
+                      {detail || msg.slice(0, 80)}
+                    </span>
+                  </div>
+                )
+              })
+            })()}
           </div>
         </div>
 
