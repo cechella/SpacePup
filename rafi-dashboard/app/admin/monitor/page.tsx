@@ -321,17 +321,18 @@ export default function MonitorPage() {
 
   const refresh = useCallback(async () => {
     setLoading(true)
-    await Promise.all([fetchAll(), fetchLogs(), fetchBrokerBalances()])
+    await Promise.all([fetchAll(), fetchLogs(), fetchScanLogs(), fetchBrokerBalances()])
     setLoading(false)
-  }, [fetchAll, fetchLogs, fetchBrokerBalances])
+  }, [fetchAll, fetchLogs, fetchScanLogs, fetchBrokerBalances])
 
   useEffect(() => {
     refresh()
     const iv1 = setInterval(fetchAll,          10_000)
     const iv2 = setInterval(fetchLogs,          5_000)
     const iv3 = setInterval(fetchBrokerBalances, 60_000) // MetaAPI: 1x por minuto
-    return () => { clearInterval(iv1); clearInterval(iv2); clearInterval(iv3) }
-  }, [fetchAll, fetchLogs, fetchBrokerBalances, refresh])
+    const iv4 = setInterval(fetchScanLogs,      30_000)  // scan logs: 30s
+    return () => { clearInterval(iv1); clearInterval(iv2); clearInterval(iv3); clearInterval(iv4) }
+  }, [fetchAll, fetchLogs, fetchScanLogs, fetchBrokerBalances, refresh])
 
   // ── M5 countdown ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -360,6 +361,22 @@ export default function MonitorPage() {
     }
     prevPendingLen.current = pending.length
   }, [pending])
+
+  // ── Alert on scan error / phantom ──────────────────────────────────────────
+  const prevScanLogId = useRef<string | null>(null)
+  useEffect(() => {
+    if (scanLogs.length === 0) return
+    const latest = scanLogs[0]
+    if (latest.id === prevScanLogId.current) return
+    prevScanLogId.current = latest.id
+    if (latest.status === 'error' || latest.status === 'phantom') {
+      const icon = latest.status === 'error' ? '⚠ ERRO IA' : '⚠ PHANTOM IA'
+      const msg  = `${icon}: ${latest.reason}`
+      setAlert(msg)
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted')
+        new Notification('RAFI Bot — Falha na Ordem!', { body: latest.reason })
+    }
+  }, [scanLogs])
 
   // ── Commands ───────────────────────────────────────────────────────────────
   const enviarComando = async (cmd: string) => {
@@ -521,25 +538,30 @@ export default function MonitorPage() {
       `}</style>
 
       {/* ── Alert toast ────────────────────────────────────────────────────── */}
-      {alert && (
-        <div style={{
-          position: 'fixed', top: 16, right: 16, zIndex: 50,
-          display: 'flex', alignItems: 'flex-start', gap: 10,
-          padding: '12px 16px', maxWidth: 360, borderRadius: 12,
-          background: C.s1, border: `1px solid ${C.teal}40`,
-          boxShadow: '0 8px 32px rgba(0,0,0,.6)', animation: 'fadeIn .2s ease',
-        }}>
-          <Bell size={14} style={{ color: C.teal, marginTop: 2, flexShrink: 0 }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: C.teal }}>Novo Trade Disparado!</div>
-            <div style={{ fontSize: 10, color: C.t2, marginTop: 2, wordBreak: 'break-all' }}>{alert}</div>
+      {alert && (() => {
+        const isErr = alert.startsWith('⚠')
+        const ac = isErr ? C.re : C.teal
+        const title = isErr ? 'Falha na Ordem IA!' : 'Novo Trade Disparado!'
+        return (
+          <div style={{
+            position: 'fixed', top: 16, right: 16, zIndex: 50,
+            display: 'flex', alignItems: 'flex-start', gap: 10,
+            padding: '12px 16px', maxWidth: 380, borderRadius: 12,
+            background: C.s1, border: `1px solid ${ac}50`,
+            boxShadow: `0 8px 32px rgba(0,0,0,.7)`, animation: 'fadeIn .2s ease',
+          }}>
+            <Bell size={14} style={{ color: ac, marginTop: 2, flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: ac }}>{title}</div>
+              <div style={{ fontSize: 10, color: C.t2, marginTop: 2, wordBreak: 'break-all' }}>{alert}</div>
+            </div>
+            <button onClick={() => setAlert(null)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.t3, padding: 0 }}>
+              <X size={12} />
+            </button>
           </div>
-          <button onClick={() => setAlert(null)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.t3, padding: 0 }}>
-            <X size={12} />
-          </button>
-        </div>
-      )}
+        )
+      })()}
 
       {/* ── Top bar ────────────────────────────────────────────────────────── */}
       <nav style={{
@@ -1149,6 +1171,63 @@ export default function MonitorPage() {
             </div>
           )}
         </div>
+
+        {/* ── Últimos Scans IA ──────────────────────────────────────────── */}
+        {scanLogs.length > 0 && (
+          <div style={{ ...card, padding: '14px 20px', marginBottom: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.tx,
+              fontFamily: "'Space Grotesk', sans-serif", marginBottom: 10 }}>
+              Últimos Scans IA
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {scanLogs.slice(0, 10).map(sl => {
+                const isExec    = sl.status === 'executed'
+                const isErr     = sl.status === 'error'
+                const isPhantom = sl.status === 'phantom'
+                const dotC = isExec ? C.teal : isErr ? C.re : isPhantom ? C.am : C.t2
+                const bg   = isExec ? C.gra  : isErr ? C.rea : isPhantom ? C.ama : 'transparent'
+                const d = new Date(sl.time * 1000)
+                const ts = `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`
+                return (
+                  <div key={sl.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '5px 8px',
+                    borderRadius: 6, background: bg, border: `1px solid ${dotC}25`,
+                  }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%',
+                      background: dotC, flexShrink: 0, display: 'inline-block' }} />
+                    <span style={{ fontSize: 9, color: C.t3, ...mono, flexShrink: 0, width: 36 }}>{ts}</span>
+                    {sl.sessao && (
+                      <span style={{ fontSize: 8, color: C.bl, padding: '1px 5px', borderRadius: 3,
+                        background: `${C.bl}12`, border: `1px solid ${C.bl}25`, flexShrink: 0, ...mono }}>
+                        {sl.sessao.replace('Sydney/Tóquio','Syd/Tok').replace('Londres manhã','LON').replace('Londres/NY','LON/NY')}
+                      </span>
+                    )}
+                    {sl.direction && (
+                      <span style={{ fontSize: 9, fontWeight: 700, flexShrink: 0,
+                        color: sl.direction === 'buy' ? C.teal : C.re, ...mono }}>
+                        {sl.direction === 'buy' ? '▲' : '▼'}
+                      </span>
+                    )}
+                    <span style={{ fontSize: 10, color: isErr || isPhantom ? dotC : C.t2,
+                      flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {sl.reason}
+                    </span>
+                    {sl.probability != null && (
+                      <span style={{ fontSize: 9, color: C.t3, flexShrink: 0, ...mono }}>
+                        P={sl.probability}%
+                      </span>
+                    )}
+                    {sl.lot != null && sl.status === 'executed' && (
+                      <span style={{ fontSize: 9, color: C.teal, flexShrink: 0, ...mono }}>
+                        {sl.lot}L
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* ── IA Status bar ──────────────────────────────────────────────── */}
         <div style={{ ...card, padding: '14px 20px', marginBottom: 20 }}>
