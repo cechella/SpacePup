@@ -37,9 +37,9 @@ export async function GET(req: NextRequest) {
   const { data, error, count } = await supa
     .from('rafi_trades')
     .select('id, time, direction, entry, result, pnl_usd, label, entry_type', { count: 'exact' })
-    .or('result.eq.loss,pnl_usd.lt.0')
     .gte('time', DAY_START)
     .lt('time', DAY_END)
+    .order('time', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
