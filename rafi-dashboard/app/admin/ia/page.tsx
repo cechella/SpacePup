@@ -15,6 +15,7 @@ interface IAConfig {
   ia_autonoma_ativa: boolean
   sessao_sydney_tokyo: boolean
   sessao_tokyo_london: boolean
+  sessao_london_morning: boolean
   sessao_london_ny: boolean
   meta_diaria_pct: number
   meta_semanal_pct: number
@@ -125,6 +126,18 @@ const SESSION_TIMES = [
     borderColor: 'border-cyan-500/30',
     textColor: 'text-cyan-300',
     cronUtc: '07:00 UTC',
+  },
+  {
+    key: 'sessao_london_morning' as const,
+    icon: <TrendingUp className="w-4 h-4" />,
+    name: 'Londres manhã',
+    horaBrasil: '04:00 – 09:00 BRT',
+    horaUtc: '07:00 – 12:00 GMT',
+    color: 'from-emerald-500 to-green-600',
+    bgColor: 'bg-emerald-500/10',
+    borderColor: 'border-emerald-500/30',
+    textColor: 'text-emerald-300',
+    cronUtc: '09:00 UTC',
   },
   {
     key: 'sessao_london_ny' as const,
@@ -416,6 +429,7 @@ export default function AdminIAPage() {
         const minU       = now.getUTCMinutes()
         const scan02Done = horaU > 2 || (horaU === 2 && minU > 0)
         const scan07Done = horaU > 7 || (horaU === 7 && minU > 0)
+        const scan09Done = horaU > 9 || (horaU === 9 && minU > 0)
         const scan14Done = horaU > 14 || (horaU === 14 && minU > 0)
 
         let nextScanUtc: string, nextScanBRT: string, sessaoNome: string, sessaoOn: boolean
@@ -423,6 +437,8 @@ export default function AdminIAPage() {
           nextScanUtc = 'hoje 02:00 UTC'; nextScanBRT = '23:00 BRT'; sessaoNome = 'Sydney / Tóquio'; sessaoOn = config?.sessao_sydney_tokyo ?? true
         } else if (!scan07Done) {
           nextScanUtc = 'hoje 07:00 UTC'; nextScanBRT = '04:00 BRT'; sessaoNome = 'Tóquio / Londres'; sessaoOn = config?.sessao_tokyo_london ?? true
+        } else if (!scan09Done) {
+          nextScanUtc = 'hoje 09:00 UTC'; nextScanBRT = '06:00 BRT'; sessaoNome = 'Londres manhã'; sessaoOn = config?.sessao_london_morning ?? true
         } else if (!scan14Done) {
           nextScanUtc = 'hoje 14:00 UTC'; nextScanBRT = '11:00 BRT'; sessaoNome = 'Londres / NY'; sessaoOn = config?.sessao_london_ny ?? false
         } else {

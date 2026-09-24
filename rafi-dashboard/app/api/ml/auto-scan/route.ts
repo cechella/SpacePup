@@ -300,24 +300,24 @@ export async function GET(req: NextRequest) {
 
     // ── 2. Identifica sessão atual e verifica toggle ───────────────────
     const horaUtc = new Date().getUTCHours()
-    const isSydneyTokyo  = horaUtc >= 23 || horaUtc < 4  // 23:00–04:00 UTC
-    const isTokyoLondon  = horaUtc >= 4  && horaUtc < 9  // 04:00–09:00 UTC
-    const isLondonNY     = horaUtc >= 12 && horaUtc < 16 // 12:00–16:00 UTC = 09:00–13:00 BRT
+    const isSydneyTokyo    = horaUtc >= 23 || horaUtc < 7  // 23:00–07:00 UTC
+    const isLondonMorning  = horaUtc >= 7  && horaUtc < 12 // 07:00–12:00 UTC = 04:00–09:00 BRT
+    const isLondonNY       = horaUtc >= 12 && horaUtc < 16 // 12:00–16:00 UTC = 09:00–13:00 BRT
 
     if (isSydneyTokyo && !config.sessao_sydney_tokyo) {
       log.push('Sessão Sydney/Tóquio desativada — abortando')
       return NextResponse.json({ skipped: true, reason: 'Sessão Sydney/Tóquio desativada', log })
     }
-    if (isTokyoLondon && !config.sessao_tokyo_london) {
-      log.push('Sessão Tóquio/Londres desativada — abortando')
-      return NextResponse.json({ skipped: true, reason: 'Sessão Tóquio/Londres desativada', log })
+    if (isLondonMorning && !(config as any).sessao_london_morning) {
+      log.push('Sessão Londres manhã desativada — abortando')
+      return NextResponse.json({ skipped: true, reason: 'Sessão Londres manhã desativada', log })
     }
     if (isLondonNY && !(config as any).sessao_london_ny) {
       log.push('Sessão Londres/NY desativada — abortando')
       return NextResponse.json({ skipped: true, reason: 'Sessão Londres/NY desativada', log })
     }
 
-    const sessao = isSydneyTokyo ? 'Sydney/Tóquio' : isLondonNY ? 'Londres/NY' : 'Tóquio/Londres'
+    const sessao = isSydneyTokyo ? 'Sydney/Tóquio' : isLondonMorning ? 'Londres manhã' : isLondonNY ? 'Londres/NY' : 'fora de sessão'
     log.push(`Sessão ativa: ${sessao}`)
 
     // ── 3. Verifica limites de risco ───────────────────────────────────
