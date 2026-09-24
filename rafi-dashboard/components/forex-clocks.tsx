@@ -14,6 +14,7 @@ const SESS = [
 const IA_W = [
   { name: 'Sydney × Tóquio',  sH: 23, sM: 0, eH: 7,  eM: 0, wrap: true,  cron: '02:00' },
   { name: 'Tóquio × Londres', sH: 7,  sM: 0, eH: 8,  eM: 0, wrap: false, cron: '07:00' },
+  { name: 'Londres manhã',    sH: 7,  sM: 0, eH: 12, eM: 0, wrap: false, cron: '09:00' },
   { name: 'Londres × NY',     sH: 12, sM: 0, eH: 16, eM: 0, wrap: false, cron: '14:00' },
 ] as const
 
@@ -25,7 +26,7 @@ const TL_SEGS = [
   { s: 13, e: 22, c: '#8b5cf6', o: 0.38 },
 ]
 const TL_IA = [
-  { s: 23, e: 24 }, { s: 0, e: 7 }, { s: 7, e: 8 }, { s: 12, e: 16 },
+  { s: 23, e: 24 }, { s: 0, e: 7 }, { s: 7, e: 12 }, { s: 12, e: 16 },
 ]
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -227,9 +228,11 @@ export function ForexClocks() {
         const mkChip = (key: string, label: string, on: boolean) =>
           `<div class="fc-chip fc-chip-${key}${on ? ' fc-chip-on' : ' fc-chip-off'}">` +
           `<span class="fc-cdot"></span>${label}</div>`
+        const lMorn = iaOpen(IA_W[2], now)
         chips.innerHTML =
           mkChip('syd', 'Sydney × Tóquio',  overlapST) +
           mkChip('tok', 'Tóquio × Londres', overlapTL) +
+          mkChip('lmorn', 'Londres manhã',  lMorn) +
           mkChip('lon', 'Londres × NY',      overlapLN) +
           mkChip('ia',  iaAny ? 'IA operando' : 'IA RAFI', iaAny)
       }
@@ -297,10 +300,11 @@ export function ForexClocks() {
         .fc-cdot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
         .fc-chip-on .fc-cdot { animation: fc-blink 1.6s ease-in-out infinite; }
         @keyframes fc-blink { 0%,100%{opacity:1} 50%{opacity:.25} }
-        .fc-chip-syd { background: rgba(16,185,129,.12); border-color: rgba(16,185,129,.3) !important; color: #10b981; }
-        .fc-chip-tok { background: rgba(16,185,129,.12); border-color: rgba(16,185,129,.3) !important; color: #10b981; }
-        .fc-chip-lon { background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.3) !important; color: #f59e0b; }
-        .fc-chip-ia  { background: rgba(236,72,153,.12); border-color: rgba(236,72,153,.3) !important; color: #ec4899; }
+        .fc-chip-syd   { background: rgba(16,185,129,.12); border-color: rgba(16,185,129,.3) !important; color: #10b981; }
+        .fc-chip-tok   { background: rgba(16,185,129,.12); border-color: rgba(16,185,129,.3) !important; color: #10b981; }
+        .fc-chip-lmorn { background: rgba(52,211,153,.12); border-color: rgba(52,211,153,.3) !important; color: #34d399; }
+        .fc-chip-lon   { background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.3) !important; color: #f59e0b; }
+        .fc-chip-ia    { background: rgba(236,72,153,.12); border-color: rgba(236,72,153,.3) !important; color: #ec4899; }
         .fc-chip-off { background: rgba(255,255,255,.04) !important; border-color: rgba(255,255,255,.07) !important; color: #4a6a88 !important; }
         /* ── Clocks grid ── */
         .fc-grid {
