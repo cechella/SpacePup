@@ -4210,7 +4210,7 @@ export default function ChartPage() {
               </p>
               <p className="text-[11px] text-[#8b949e] mt-1">
                 {targetMetrics.weeklyMet
-                  ? 'As operações retornam na segunda-feira.'
+                  ? 'As operações retornam na segunda-feira a partir das 00:00.'
                   : 'As operações retornam amanhã.'}
               </p>
             </div>
