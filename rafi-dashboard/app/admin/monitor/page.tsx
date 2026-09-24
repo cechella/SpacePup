@@ -235,6 +235,8 @@ export default function MonitorPage() {
   const [tradeFilter, setTradeFilter] = useState<'all' | 'wins' | 'losses' | 'today'>('all')
   const [selectedBroker, setSelectedBroker] = useState('pepperstone')
   const [allBrokerStatuses, setAllBrokerStatuses] = useState<Record<string, BotStatus>>({})
+  const [brokerBalances, setBrokerBalances] = useState<Record<string, { balance: number; equity: number; online: boolean } | null>>({})
+  const [capitalTotal, setCapitalTotal] = useState(0)
   const [utcHM, setUtcHM] = useState({ h: new Date().getUTCHours(), m: new Date().getUTCMinutes(), s: new Date().getUTCSeconds() })
   const prevPendingLen = useRef(0)
 
@@ -289,18 +291,30 @@ export default function MonitorPage() {
     } catch {}
   }, [])
 
+  // Busca saldos reais de todas as corretoras via MetaAPI
+  const fetchBrokerBalances = useCallback(async () => {
+    try {
+      const res = await fetch('/api/monitor/brokers', { cache: 'no-store' })
+      if (!res.ok) return
+      const json = await res.json()
+      if (json.brokers) setBrokerBalances(json.brokers)
+      if (typeof json.capitalTotal === 'number') setCapitalTotal(json.capitalTotal)
+    } catch {}
+  }, [])
+
   const refresh = useCallback(async () => {
     setLoading(true)
-    await Promise.all([fetchAll(), fetchLogs()])
+    await Promise.all([fetchAll(), fetchLogs(), fetchBrokerBalances()])
     setLoading(false)
-  }, [fetchAll, fetchLogs])
+  }, [fetchAll, fetchLogs, fetchBrokerBalances])
 
   useEffect(() => {
     refresh()
-    const iv1 = setInterval(fetchAll,   10_000)
-    const iv2 = setInterval(fetchLogs,   5_000)
-    return () => { clearInterval(iv1); clearInterval(iv2) }
-  }, [fetchAll, fetchLogs, refresh])
+    const iv1 = setInterval(fetchAll,          10_000)
+    const iv2 = setInterval(fetchLogs,          5_000)
+    const iv3 = setInterval(fetchBrokerBalances, 60_000) // MetaAPI: 1x por minuto
+    return () => { clearInterval(iv1); clearInterval(iv2); clearInterval(iv3) }
+  }, [fetchAll, fetchLogs, fetchBrokerBalances, refresh])
 
   // ── M5 countdown ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -411,7 +425,6 @@ export default function MonitorPage() {
   const iaHoje         = useMemo(() =>
     trades.filter(t => typeof t.label === 'string' && t.label.includes('AutoScan-IA') && t.time >= todayStart),
   [trades, todayStart])
-  const capitalTotal   = Object.values(allBrokerStatuses).reduce((s, st) => s + (st.balance ?? 0), 0)
 
   // IA milestones
   const IA_MILESTONES = [10, 20, 50, 100, 200, 300]
@@ -691,7 +704,7 @@ export default function MonitorPage() {
           <span style={{ fontSize: 9, color: C.t3, fontFamily: "'JetBrains Mono', monospace" }}>
             {sessaoAtual
               ? `${String(utcHM.h).padStart(2,'0')}:${String(utcHM.m).padStart(2,'0')} UTC`
-              : `→ ${proxSessao.nome} em ${Math.floor(proxSessao.mins/60)}h ${proxSessao.mins%60}min`}
+              : `→ ${proxSessao.nome} em ${proxSessao.mins >= 60 ? `${Math.floor(proxSessao.mins/60)}h ${proxSessao.mins%60}min` : `${proxSessao.mins} min`}`}
           </span>
         </div>
 
@@ -860,16 +873,26 @@ export default function MonitorPage() {
         {/* ── 4 Broker cards ─────────────────────────────────────────────── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
           {BROKERS.map(b => {
-            const bSt      = allBrokerStatuses[b.id]
-            const bBal     = bSt?.balance ?? null
-            const bPos     = bSt?.open_positions ?? 0
-            const bAge     = bSt ? (Date.now() - new Date(bSt.updated_at).getTime()) : Infinity
-            const bHealth  = bAge < 180_000 ? 'online' : bAge < 600_000 ? 'atenção' : 'offline'
-            const bColor   = bHealth === 'online' ? C.teal : bHealth === 'atenção' ? C.am : C.t3
-            const bLabel   = !bSt ? 'SEM DADOS' :
-              bHealth === 'offline' ? 'OFFLINE' :
-              bSt.status === 'running' ? 'EM POSIÇÃO' :
-              bSt.status === 'waiting' ? 'AGUARDANDO' : 'PARADO'
+            const bSt        = allBrokerStatuses[b.id]
+            const bMeta      = brokerBalances[b.id]        // saldo real MetaAPI
+            const bBal       = bMeta?.balance ?? bSt?.balance ?? null
+            const bPos       = bSt?.open_positions ?? 0
+            const isIaOnly   = b.id === 'icmarkets'        // IC Markets: sem executor VPS
+            // Status: IC Markets é online se MetaAPI responder, outros por heartbeat VPS
+            const bOnline    = isIaOnly
+              ? (bMeta?.online ?? false)
+              : (() => {
+                  const bAge = bSt ? (Date.now() - new Date(bSt.updated_at).getTime()) : Infinity
+                  return bAge < 180_000 ? 'online' : bAge < 600_000 ? 'atenção' : 'offline'
+                })()
+            const bHealth    = isIaOnly ? (bMeta?.online ? 'online' : 'offline') : bOnline as string
+            const bColor     = bHealth === 'online' ? C.teal : bHealth === 'atenção' ? C.am : C.t3
+            const bLabel     = isIaOnly
+              ? (bMeta?.online ? 'APENAS IA' : 'OFFLINE')
+              : (!bSt ? 'SEM DADOS' :
+                  bHealth === 'offline' ? 'OFFLINE' :
+                  bSt.status === 'running' ? 'EM POSIÇÃO' :
+                  bSt.status === 'waiting' ? 'AGUARDANDO' : 'PARADO')
             const isSelected = selectedBroker === b.id
             return (
               <div key={b.id}
@@ -897,7 +920,11 @@ export default function MonitorPage() {
                       animation: bHealth === 'online' ? 'pulse 1.8s ease-in-out infinite' : 'none',
                       display: 'inline-block',
                     }} />
-                    <span style={{ fontSize: 8, fontWeight: 700, color: bColor, fontFamily: "'JetBrains Mono', monospace" }}>
+                    <span style={{
+                      fontSize: 8, fontWeight: 700,
+                      color: isIaOnly && bMeta?.online ? C.bl : bColor,
+                      fontFamily: "'JetBrains Mono', monospace",
+                    }}>
                       {bLabel}
                     </span>
                   </div>
@@ -913,7 +940,12 @@ export default function MonitorPage() {
                     {bPos > 0 ? `${bPos} pos.` : '0 pos.'}
                   </span>
                 </div>
-                {bSt && (
+                {isIaOnly && (
+                  <div style={{ fontSize: 8, color: C.bl, marginTop: 4, fontFamily: "'JetBrains Mono', monospace" }}>
+                    via MetaAPI · sem VPS
+                  </div>
+                )}
+                {!isIaOnly && bSt && (
                   <div style={{ fontSize: 8, color: C.t3, marginTop: 4, fontFamily: "'JetBrains Mono', monospace" }}>
                     {secondsAgo(bSt.updated_at)}
                   </div>
