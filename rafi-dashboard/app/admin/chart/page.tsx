@@ -4209,7 +4209,9 @@ export default function ChartPage() {
                 Você já cumpriu sua meta do dia/semana.
               </p>
               <p className="text-[11px] text-[#8b949e] mt-1">
-                As operações retornam na segunda-feira.
+                {targetMetrics.weeklyMet
+                  ? 'As operações retornam na segunda-feira.'
+                  : 'As operações retornam amanhã.'}
               </p>
             </div>
             <button
