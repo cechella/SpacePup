@@ -29,6 +29,27 @@ function getServiceClient() {
   )
 }
 
+async function saveScanLog(
+  supa: ReturnType<typeof getServiceClient>,
+  status: 'executed' | 'skipped' | 'error' | 'phantom',
+  reason: string,
+  log: string[],
+  details: { direction?: string; lot?: number; probability?: number; sessao?: string } = {},
+) {
+  try {
+    await supa.from('rafi_scan_logs').insert({
+      time:        Math.floor(Date.now() / 1000),
+      status,
+      reason,
+      direction:   details.direction   ?? null,
+      lot:         details.lot         ?? null,
+      probability: details.probability ?? null,
+      sessao:      details.sessao      ?? null,
+      log_lines:   log,
+    })
+  } catch { /* não bloqueia o scan */ }
+}
+
 function rafiBucket(rafi: number): 'forte' | 'moderado' | 'fraco' {
   if (rafi >= 2.5) return 'forte'
   if (rafi >= 1.0) return 'moderado'
