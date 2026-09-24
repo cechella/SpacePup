@@ -313,9 +313,9 @@ export async function GET(req: NextRequest) {
   const timestamp = new Date().toISOString()
   log.push(`[auto-scan] iniciado: ${timestamp}`)
 
-  try {
-    const supa = getServiceClient()
+  const supa = getServiceClient()
 
+  try {
     // ── 0. Reconcilia trades IA pendentes (manter P(sucesso) atualizado) ─
     const brokersForReconcile = await getActiveBrokers()
     await reconcileIATrades(supa, brokersForReconcile, log)
@@ -329,6 +329,7 @@ export async function GET(req: NextRequest) {
 
     if (!config?.ia_autonoma_ativa) {
       log.push('IA Autônoma desativada — abortando')
+      await saveScanLog(supa, 'skipped', 'IA desativada', log)
       return NextResponse.json({ skipped: true, reason: 'IA desativada', log })
     }
 
@@ -340,14 +341,17 @@ export async function GET(req: NextRequest) {
 
     if (isSydneyTokyo && !config.sessao_sydney_tokyo) {
       log.push('Sessão Sydney/Tóquio desativada — abortando')
+      await saveScanLog(supa, 'skipped', 'Sessão Sydney/Tóquio desativada', log)
       return NextResponse.json({ skipped: true, reason: 'Sessão Sydney/Tóquio desativada', log })
     }
     if (isLondonMorning && !(config as any).sessao_london_morning) {
       log.push('Sessão Londres manhã desativada — abortando')
+      await saveScanLog(supa, 'skipped', 'Sessão Londres manhã desativada', log)
       return NextResponse.json({ skipped: true, reason: 'Sessão Londres manhã desativada', log })
     }
     if (isLondonNY && !(config as any).sessao_london_ny) {
       log.push('Sessão Londres/NY desativada — abortando')
+      await saveScanLog(supa, 'skipped', 'Sessão Londres/NY desativada', log)
       return NextResponse.json({ skipped: true, reason: 'Sessão Londres/NY desativada', log })
     }
 
@@ -357,6 +361,7 @@ export async function GET(req: NextRequest) {
     // ── 3. Verifica limites de risco ───────────────────────────────────
     const brokers = await getActiveBrokers()
     if (brokers.length === 0) {
+      await saveScanLog(supa, 'skipped', 'Nenhuma corretora ativa', log)
       return NextResponse.json({ skipped: true, reason: 'Nenhuma corretora ativa', log })
     }
 
@@ -384,19 +389,23 @@ export async function GET(req: NextRequest) {
     if (pnlHoje >= metaDiariaUsd) {
       log.push(`Meta diária atingida ($${pnlHoje.toFixed(2)} >= $${metaDiariaUsd.toFixed(2)}) — encerrando posições e parando`)
       await closeAllPositions(brokers, log)
+      await saveScanLog(supa, 'skipped', 'Meta diária atingida', log, { sessao })
       return NextResponse.json({ skipped: true, reason: 'Meta diária atingida', closed: true, log })
     }
     if (pnlSemana >= metaSemanaUsd) {
       log.push(`Meta semanal atingida ($${pnlSemana.toFixed(2)} >= $${metaSemanaUsd.toFixed(2)}) — encerrando posições e parando até segunda`)
       await closeAllPositions(brokers, log)
+      await saveScanLog(supa, 'skipped', 'Meta semanal atingida', log, { sessao })
       return NextResponse.json({ skipped: true, reason: 'Meta semanal atingida', closed: true, log })
     }
     if (pnlHoje <= -(capital * 0.05)) {
       log.push('Perda máxima diária (5%) atingida — IA para hoje')
+      await saveScanLog(supa, 'skipped', 'Perda máxima 5% diária', log, { sessao })
       return NextResponse.json({ skipped: true, reason: 'Perda máxima 5% diária', log })
     }
     if (posAbertas >= 2) {
       log.push('Máximo de 2 posições simultâneas atingido')
+      await saveScanLog(supa, 'skipped', 'Máximo de posições atingido', log, { sessao })
       return NextResponse.json({ skipped: true, reason: 'Máximo de posições atingido', log })
     }
 
@@ -408,6 +417,7 @@ export async function GET(req: NextRequest) {
 
     if ((labeledCount ?? 0) < 10) {
       log.push(`Poucos trades rotulados: ${labeledCount} (mínimo 10)`)
+      await saveScanLog(supa, 'skipped', 'Poucos trades rotulados', log, { sessao })
       return NextResponse.json({ skipped: true, reason: 'Poucos trades rotulados', log })
     }
 
@@ -417,12 +427,14 @@ export async function GET(req: NextRequest) {
     log.push(`Candles carregados: ${candles.length}`)
 
     if (candles.length < 30) {
+      await saveScanLog(supa, 'skipped', 'Candles insuficientes', log, { sessao })
       return NextResponse.json({ skipped: true, reason: 'Candles insuficientes', log })
     }
 
     const breakouts = autoScanBreakouts(candles)
     if (breakouts.length === 0) {
       log.push('Nenhum rompimento detectado')
+      await saveScanLog(supa, 'skipped', 'Sem rompimentos detectados', log, { sessao })
       return NextResponse.json({ skipped: true, reason: 'Sem rompimentos detectados', log })
     }
 
@@ -456,6 +468,7 @@ export async function GET(req: NextRequest) {
 
     if (grupo.length < 3) {
       log.push(`Trades similares insuficientes: ${grupo.length}`)
+      await saveScanLog(supa, 'skipped', 'Poucos trades similares', log, { sessao, direction })
       return NextResponse.json({ skipped: true, reason: 'Poucos trades similares', log })
     }
 
@@ -503,6 +516,7 @@ export async function GET(req: NextRequest) {
 
     if (!proceed) {
       log.push('Probabilidade abaixo do threshold — sem ordem')
+      await saveScanLog(supa, 'skipped', `P(sucesso)=${Math.round(prob * 100)}% < ${Math.round(threshold * 100)}%`, log, { sessao, direction, probability: Math.round(prob * 100) })
       return NextResponse.json({ skipped: true, reason: `P(sucesso)=${Math.round(prob * 100)}% < ${Math.round(threshold * 100)}%`, log })
     }
 
@@ -565,6 +579,7 @@ export async function GET(req: NextRequest) {
       // Nenhuma corretora executou — remove o pré-registro para não poluir o histórico
       await supa.from('rafi_trades').delete().eq('id', tradeId)
       log.push('ERRO: nenhuma corretora executou a ordem — pré-registro removido')
+      await saveScanLog(supa, 'error', 'Nenhuma corretora executou a ordem', log, { sessao, direction, lot, probability: Math.round(prob * 100) })
       return NextResponse.json({ error: 'Nenhuma corretora executou a ordem', details: parsed, log }, { status: 500 })
     }
 
@@ -580,10 +595,12 @@ export async function GET(req: NextRequest) {
     if (allPositionIds.length === 0) {
       await supa.from('rafi_trades').update({ result: 'cancelled', label: finalLabel }).eq('id', tradeId)
       log.push('Aviso: ordens enviadas mas sem positionIds — trade marcado como cancelled')
+      await saveScanLog(supa, 'phantom', 'Ordens enviadas mas sem positionIds retornados', log, { sessao, direction, lot, probability: Math.round(prob * 100) })
     } else {
       const { error: updateErr } = await supa.from('rafi_trades').update({ label: finalLabel }).eq('id', tradeId)
       if (updateErr) log.push(`Aviso: erro ao atualizar positionIds: ${updateErr.message}`)
       else log.push(`Label atualizado: ${finalLabel}`)
+      await saveScanLog(supa, 'executed', `Ordem ${direction.toUpperCase()} executada em ${parsed.filter(r => r.ok).length}/${brokers.length} corretoras`, log, { sessao, direction, lot, probability: Math.round(prob * 100) })
     }
 
     log.push(`Concluído: ${parsed.filter(r => r.ok).length}/${brokers.length} corretoras executaram · positionIds: ${allPositionIds.join(', ') || 'nenhum'}`)
@@ -603,6 +620,7 @@ export async function GET(req: NextRequest) {
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
     log.push(`ERRO FATAL: ${msg}`)
+    await saveScanLog(supa, 'error', `Erro fatal: ${msg.slice(0, 120)}`, log)
     return NextResponse.json({ error: msg, log }, { status: 500 })
   }
 }

@@ -70,6 +70,11 @@ interface BotLog {
   id: string; level: 'info' | 'warn' | 'error' | 'signal'; message: string
   created_at: string; details?: string | null
 }
+interface ScanLog {
+  id: string; time: number; status: 'executed' | 'skipped' | 'error' | 'phantom'
+  reason: string; direction?: string | null; lot?: number | null
+  probability?: number | null; sessao?: string | null; log_lines?: string[] | null
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function secondsAgo(iso: string) {
@@ -232,6 +237,7 @@ export default function MonitorPage() {
   const [m5Secs,     setM5Secs]     = useState(0)
   const [londonTime, setLondonTime] = useState('')
   const [botLogs,    setBotLogs]    = useState<BotLog[]>([])
+  const [scanLogs,    setScanLogs]    = useState<ScanLog[]>([])
   const [tradeFilter, setTradeFilter] = useState<'all' | 'wins' | 'losses' | 'today'>('all')
   const [logFilter,   setLogFilter]   = useState<'all' | 'scans' | 'errors'>('all')
   const [selectedBroker, setSelectedBroker] = useState('pepperstone')
@@ -289,6 +295,16 @@ export default function MonitorPage() {
       const { data: lg } = await supa.from('rafi_bot_logs')
         .select('*').order('created_at', { ascending: false }).limit(100)
       if (lg) setBotLogs(lg as BotLog[])
+    } catch {}
+  }, [])
+
+  const fetchScanLogs = useCallback(async () => {
+    if (!supa) return
+    try {
+      const { data: sl } = await supa.from('rafi_scan_logs')
+        .select('id,time,status,reason,direction,lot,probability,sessao,log_lines')
+        .order('time', { ascending: false }).limit(20)
+      if (sl) setScanLogs(sl as ScanLog[])
     } catch {}
   }, [])
 
