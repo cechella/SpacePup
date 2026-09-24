@@ -23,14 +23,14 @@ except ImportError:
 # ── Configuração ───────────────────────────────────────────────────────────────
 VERCEL_URL  = "https://space-pup.vercel.app"
 CRON_SECRET = os.environ.get("CRON_SECRET", "rafi-ia-autonoma-2026-secret-xk9m")
-INTERVALO_S = 5 * 60  # varre a cada 5 minutos (1 candle M5)
+INTERVALO_S = 60  # varre a cada 1 minuto — captura rompimentos intracandle M5
 
 # Janelas de sessão em UTC: (hora_inicio, hora_fim)
-# Quando inicio > fim, a sessão cruza a meia-noite (ex: 23h–04h)
+# Quando inicio > fim, a sessão cruza a meia-noite (ex: 23h–07h)
 SESSOES = [
-    (23, 4,  "Sydney / Tóquio"),
-    (4,  9,  "Tóquio / Londres"),
-    (12, 16, "Londres / NY"),
+    (23, 7,  "Sydney / Tóquio"),      # 23h–07h UTC (cruza meia-noite)
+    (7,  12, "Londres manhã"),         # 07h–12h UTC (abertura Londres, alta volatilidade)
+    (12, 16, "Londres / NY"),          # 12h–16h UTC (sobreposição London/NY)
 ]
 
 # ── Logging ────────────────────────────────────────────────────────────────────
@@ -108,7 +108,7 @@ def main():
     log.info("=" * 60)
     log.info("Scanner IA Autônoma iniciado")
     log.info(f"Endpoint: {VERCEL_URL}/api/ml/auto-scan")
-    log.info(f"Intervalo: {INTERVALO_S // 60} minutos por candle M5")
+    log.info(f"Intervalo: {INTERVALO_S}s por varredura (intracandle M5)")
     log.info("=" * 60)
 
     while True:
