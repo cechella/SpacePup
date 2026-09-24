@@ -245,7 +245,7 @@ export function autoScanBreakouts(
       trades.push({
         time: c.time, direction: 'buy',
         entry,
-        stopLoss:   p(entry - fixedStop),   // SL fixo: 7 pips abaixo da entrada
+        stopLoss:   p(entry - fixedStop),   // SL FIXO de 7 pips (não usa o risco real!)
         takeProfit: p(entry + targetDist),   // TP fixo: 11 pips acima da entrada
         rafi: rafiPt.value, rafiDir: rafiPt.dir, bbWidth: bbCurr.width,
       })
@@ -257,7 +257,7 @@ export function autoScanBreakouts(
       trades.push({
         time: c.time, direction: 'sell',
         entry,
-        stopLoss:   p(entry + fixedStop),   // SL fixo: 7 pips acima da entrada
+        stopLoss:   p(entry + fixedStop),   // SL FIXO de 7 pips (não usa o risco real!)
         takeProfit: p(entry - targetDist),   // TP fixo: 11 pips abaixo da entrada
         rafi: rafiPt.value, rafiDir: rafiPt.dir, bbWidth: bbCurr.width,
       })
