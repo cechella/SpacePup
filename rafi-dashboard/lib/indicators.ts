@@ -171,8 +171,8 @@ export function autoScanBreakouts(
   options: {
     srLookback?:     number   // candles para identificar S/R (padrão 20)
     bbPeriod?:       number   // período BB (padrão 8)
-    targetPips?:     number   // alvo fixo em pips (padrão 5 = $5 no 0.1L, $10 no 0.2L)
-    minStopPips?:    number   // stop mínimo em pips para não ser comido pelo spread (padrão 3)
+    fixedStopPips?:  number   // SL fixo em pips a partir da entrada (padrão 7)
+    targetPips?:     number   // alvo fixo em pips (padrão 11 → R:R ~1.57:1 com SL=7)
     minBreakout?:    number   // distância mínima do rompimento em preço
     minGapCandles?:  number   // mínimo de candles entre trades
     squeezeRatio?:   number   // largura máxima das BB (relativo ao mid) p/ squeeze
@@ -181,15 +181,15 @@ export function autoScanBreakouts(
   const {
     srLookback    = 20,
     bbPeriod      = 8,
-    targetPips    = 5,       // $5 no 0.1L | $10 no 0.2L
-    minStopPips   = 3,       // mínimo 3 pips de stop (evita stop comido pelo spread)
+    fixedStopPips = 7,        // SL FIXO: 7 pips a partir da entrada
+    targetPips    = 11,       // TP FIXO: 11 pips → R:R ~1.57:1
     minBreakout   = 0.00003,
     minGapCandles = 8,
     squeezeRatio  = 0.0012,
   } = options
 
-  const targetDist = targetPips  * 0.0001   // distância fixa do alvo em preço
-  const minStop    = minStopPips * 0.0001   // stop mínimo em preço
+  const fixedStop  = fixedStopPips * 0.0001  // 7 pips em preço = 0.00070
+  const targetDist = targetPips    * 0.0001  // 11 pips em preço = 0.00110
 
   // Opera 24h nos dias de semana — sem filtro de horário
   const inSession = (_ts: number) => true
@@ -241,24 +241,24 @@ export function autoScanBreakouts(
 
     // ── COMPRA: fecha acima da resistência com candle de alta (verde) ──
     if (c.close > resistance && c.close - resistance >= minBreakout && c.close >= c.open) {
-      const entry    = p(resistance)
-      const rawStop  = p(c.low - 0.00015)                        // stop abaixo do fundo do candle
-      const stopLoss = p(Math.min(rawStop, entry - minStop))     // garante mínimo de 3 pips
+      const entry = p(resistance)
       trades.push({
         time: c.time, direction: 'buy',
-        entry, stopLoss, takeProfit: p(entry + targetDist),       // alvo fixo: +5 pips
+        entry,
+        stopLoss:   p(entry - fixedStop),   // SL fixo: 7 pips abaixo da entrada
+        takeProfit: p(entry + targetDist),   // TP fixo: 11 pips acima da entrada
         rafi: rafiPt.value, rafiDir: rafiPt.dir, bbWidth: bbCurr.width,
       })
       lastIdx = i
     }
     // ── VENDA: fecha abaixo do suporte com candle de baixa (vermelho) ──
     else if (c.close < support && support - c.close >= minBreakout && c.close < c.open) {
-      const entry    = p(support)
-      const rawStop  = p(c.high + 0.00015)                       // stop acima do topo do candle
-      const stopLoss = p(Math.max(rawStop, entry + minStop))     // garante mínimo de 3 pips
+      const entry = p(support)
       trades.push({
         time: c.time, direction: 'sell',
-        entry, stopLoss, takeProfit: p(entry - targetDist),       // alvo fixo: -5 pips
+        entry,
+        stopLoss:   p(entry + fixedStop),   // SL fixo: 7 pips acima da entrada
+        takeProfit: p(entry - targetDist),   // TP fixo: 11 pips abaixo da entrada
         rafi: rafiPt.value, rafiDir: rafiPt.dir, bbWidth: bbCurr.width,
       })
       lastIdx = i
