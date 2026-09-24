@@ -540,11 +540,17 @@ export async function GET(req: NextRequest) {
       .filter(r => r.ok && r.positionId)
       .map(r => r.positionId!)
     const positionId = allPositionIds[0] ?? null
-    const finalLabel = allPositionIds.length > 0 ? `AutoScan-IA|pos:${allPositionIds.join(',')}` : 'AutoScan-IA'
+    const finalLabel = allPositionIds.length > 0 ? `AutoScan-IA|pos:${allPositionIds.join(',')}` : 'AutoScan-IA|sem-positionId'
 
-    const { error: updateErr } = await supa.from('rafi_trades').update({ label: finalLabel }).eq('id', tradeId)
-    if (updateErr) log.push(`Aviso: erro ao atualizar positionIds: ${updateErr.message}`)
-    else log.push(`Label atualizado: ${finalLabel}`)
+    // Se nenhum broker retornou positionId, a posição não abriu — cancela o registro
+    if (allPositionIds.length === 0) {
+      await supa.from('rafi_trades').update({ result: 'cancelled', label: finalLabel }).eq('id', tradeId)
+      log.push('Aviso: ordens enviadas mas sem positionIds — trade marcado como cancelled')
+    } else {
+      const { error: updateErr } = await supa.from('rafi_trades').update({ label: finalLabel }).eq('id', tradeId)
+      if (updateErr) log.push(`Aviso: erro ao atualizar positionIds: ${updateErr.message}`)
+      else log.push(`Label atualizado: ${finalLabel}`)
+    }
 
     log.push(`Concluído: ${parsed.filter(r => r.ok).length}/${brokers.length} corretoras executaram · positionIds: ${allPositionIds.join(', ') || 'nenhum'}`)
 
