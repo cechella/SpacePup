@@ -183,9 +183,45 @@ function EquityCurve({ trades }: { trades: Trade[] }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const BROKERS = [
-  { id: 'pepperstone', label: 'Pepperstone', abbr: 'PP' },
-  { id: 'exness',      label: 'Exness',      abbr: 'EX' },
+  { id: 'icmarkets',   label: 'IC Markets',  abbr: 'IC', color: '#EF4444' },
+  { id: 'exness',      label: 'Exness',      abbr: 'EX', color: '#3B82F6' },
+  { id: 'pepperstone', label: 'Pepperstone', abbr: 'PP', color: '#00C896' },
+  { id: 'tickmill',    label: 'Tickmill',    abbr: 'TK', color: '#F59E0B' },
 ]
+
+// ── Sessões de operação (espelho de scanner_ia.py) ────────────────────────────
+const SESSOES_OP = [
+  { nome: 'Sydney / Tóquio', ini: 23, fim: 4,  duracaoH: 5 },
+  { nome: 'Tóquio / Londres', ini: 4,  fim: 9,  duracaoH: 5 },
+  { nome: 'Londres / NY',     ini: 12, fim: 16, duracaoH: 4 },
+]
+function getSessaoAtual(h: number, m: number) {
+  for (const s of SESSOES_OP) {
+    const inside = s.ini < s.fim
+      ? (h >= s.ini && h < s.fim)
+      : (h >= s.ini || h < s.fim)
+    if (!inside) continue
+    const iniTotal = s.ini * 60
+    const fimTotal = s.fim * 60
+    const agoraMin = h * 60 + m
+    const elapsed  = ((agoraMin - iniTotal) + 1440) % 1440
+    const total    = s.duracaoH * 60
+    const pct      = Math.min(100, (elapsed / total) * 100)
+    const restMins = total - elapsed
+    return { ...s, pct, restMins }
+  }
+  return null
+}
+function getMinsParaProximaSessao(h: number, m: number) {
+  const agoraMin = h * 60 + m
+  let best = { nome: '', mins: Infinity }
+  for (const s of SESSOES_OP) {
+    const iniMin = s.ini * 60
+    const diff   = ((iniMin - agoraMin) + 1440) % 1440
+    if (diff > 0 && diff < best.mins) best = { nome: s.nome, mins: diff }
+  }
+  return best
+}
 
 export default function MonitorPage() {
   const [status,     setStatus]     = useState<BotStatus | null>(null)
@@ -198,17 +234,23 @@ export default function MonitorPage() {
   const [botLogs,    setBotLogs]    = useState<BotLog[]>([])
   const [tradeFilter, setTradeFilter] = useState<'all' | 'wins' | 'losses' | 'today'>('all')
   const [selectedBroker, setSelectedBroker] = useState('pepperstone')
+  const [allBrokerStatuses, setAllBrokerStatuses] = useState<Record<string, BotStatus>>({})
+  const [utcHM, setUtcHM] = useState({ h: new Date().getUTCHours(), m: new Date().getUTCMinutes(), s: new Date().getUTCSeconds() })
   const prevPendingLen = useRef(0)
 
-  // ── London clock ──────────────────────────────────────────────────────────
+  // ── London clock + UTC clock ───────────────────────────────────────────────
   useEffect(() => {
-    const tick = () => setLondonTime(
-      new Date().toLocaleString('pt-BR', {
-        weekday: 'short', day: '2-digit', month: 'short',
-        hour: '2-digit', minute: '2-digit', second: '2-digit',
-        timeZone: 'Europe/London',
-      }) + ' · LON'
-    )
+    const tick = () => {
+      setLondonTime(
+        new Date().toLocaleString('pt-BR', {
+          weekday: 'short', day: '2-digit', month: 'short',
+          hour: '2-digit', minute: '2-digit', second: '2-digit',
+          timeZone: 'Europe/London',
+        }) + ' · LON'
+      )
+      const now = new Date()
+      setUtcHM({ h: now.getUTCHours(), m: now.getUTCMinutes(), s: now.getUTCSeconds() })
+    }
     tick(); const iv = setInterval(tick, 1000); return () => clearInterval(iv)
   }, [])
 
@@ -216,18 +258,25 @@ export default function MonitorPage() {
   const fetchAll = useCallback(async () => {
     if (!supa) return
     try {
-      const [{ data: st }, { data: tr }] = await Promise.all([
+      const brokerIds = BROKERS.map(b => b.id)
+      const [{ data: st }, { data: tr }, ...brokerResults] = await Promise.all([
         supa.from('rafi_bot_status').select('*').eq('id', selectedBroker).single(),
         supa.from('rafi_trades').select('*').order('time', { ascending: false }).limit(200),
+        ...brokerIds.map(id => supa.from('rafi_bot_status').select('*').eq('id', id).single()),
       ])
       if (st) {
         setStatus(st as BotStatus)
       } else {
-        // Fallback: bot ainda usa id='main' (código antigo na VPS)
         const { data: stMain } = await supa.from('rafi_bot_status').select('*').eq('id', 'main').single()
         if (stMain) setStatus(stMain as BotStatus)
       }
       if (tr) setTrades(tr as Trade[])
+      // Carrega status de todas as 4 corretoras
+      const allSt: Record<string, BotStatus> = {}
+      brokerIds.forEach((id, i) => {
+        if (brokerResults[i]?.data) allSt[id] = brokerResults[i].data as BotStatus
+      })
+      setAllBrokerStatuses(allSt)
     } catch {}
   }, [selectedBroker])
 
@@ -355,6 +404,14 @@ export default function MonitorPage() {
     else if (r === streakType) streak++
     else break
   }
+
+  // ── Scanner IA / Sessão ───────────────────────────────────────────────────
+  const sessaoAtual    = getSessaoAtual(utcHM.h, utcHM.m)
+  const proxSessao     = getMinsParaProximaSessao(utcHM.h, utcHM.m)
+  const iaHoje         = useMemo(() =>
+    trades.filter(t => typeof t.label === 'string' && t.label.includes('AutoScan-IA') && t.time >= todayStart),
+  [trades, todayStart])
+  const capitalTotal   = Object.values(allBrokerStatuses).reduce((s, st) => s + (st.balance ?? 0), 0)
 
   // IA milestones
   const IA_MILESTONES = [10, 20, 50, 100, 200, 300]
@@ -511,9 +568,9 @@ export default function MonitorPage() {
             style={{
               padding: '3px 10px', borderRadius: 6, fontSize: 10, fontWeight: 700,
               cursor: 'pointer', border: '1px solid',
-              borderColor: selectedBroker === b.id ? `${C.teal}60` : C.bd,
-              background: selectedBroker === b.id ? `${C.teal}15` : C.s2,
-              color: selectedBroker === b.id ? C.teal : C.t2,
+              borderColor: selectedBroker === b.id ? `${b.color}60` : C.bd,
+              background: selectedBroker === b.id ? `${b.color}15` : C.s2,
+              color: selectedBroker === b.id ? b.color : C.t2,
               transition: 'all .15s',
             }}>
             {b.abbr}
@@ -614,6 +671,80 @@ export default function MonitorPage() {
           )}
         </div>
       )}
+
+      {/* ── Session Banner ─────────────────────────────────────────────────── */}
+      <div style={{
+        background: sessaoAtual ? `${C.teal}0A` : C.s2,
+        borderBottom: `1px solid ${sessaoAtual ? C.teal + '30' : C.bd}`,
+        padding: '8px 24px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+      }}>
+        {/* Indicador de sessão */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <span style={{
+            width: 7, height: 7, borderRadius: '50%', display: 'inline-block', flexShrink: 0,
+            background: sessaoAtual ? C.teal : C.t3,
+            animation: sessaoAtual ? 'pulse 1.8s ease-in-out infinite' : 'none',
+          }} />
+          <span style={{ fontSize: 11, fontWeight: 700, color: sessaoAtual ? C.teal : C.t3 }}>
+            {sessaoAtual ? sessaoAtual.nome : 'FORA DE SESSÃO'}
+          </span>
+          <span style={{ fontSize: 9, color: C.t3, fontFamily: "'JetBrains Mono', monospace" }}>
+            {sessaoAtual
+              ? `${String(utcHM.h).padStart(2,'0')}:${String(utcHM.m).padStart(2,'0')} UTC`
+              : `→ ${proxSessao.nome} em ${Math.floor(proxSessao.mins/60)}h ${proxSessao.mins%60}min`}
+          </span>
+        </div>
+
+        {/* Barra de progresso da sessão */}
+        {sessaoAtual && (
+          <div style={{ flex: 1, minWidth: 140, maxWidth: 280 }}>
+            <div style={{ height: 4, background: C.b1, borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{
+                height: '100%', borderRadius: 2, transition: 'width 1s linear',
+                width: `${sessaoAtual.pct}%`,
+                background: `linear-gradient(90deg, ${C.teal}60, ${C.teal})`,
+              }} />
+            </div>
+            <div style={{ fontSize: 8, color: C.t3, marginTop: 2, fontFamily: "'JetBrains Mono', monospace" }}>
+              {Math.floor(sessaoAtual.restMins / 60)}h {sessaoAtual.restMins % 60}min restantes
+            </div>
+          </div>
+        )}
+
+        <div style={{ width: 1, height: 20, background: C.bd, flexShrink: 0 }} />
+
+        {/* Scanner IA status */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <span style={{ fontSize: 9, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Scanner IA</span>
+          <span style={{
+            fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4,
+            fontFamily: "'JetBrains Mono', monospace",
+            background: sessaoAtual ? `${C.teal}15` : `${C.am}12`,
+            border: `1px solid ${sessaoAtual ? C.teal : C.am}40`,
+            color: sessaoAtual ? C.teal : C.am,
+          }}>
+            {sessaoAtual ? 'VARRENDO' : 'EM ESPERA'}
+          </span>
+          {sessaoAtual && (
+            <span style={{ fontSize: 9, color: C.t2, fontFamily: "'JetBrains Mono', monospace" }}>
+              próx. scan {String(Math.floor(m5Secs/60)).padStart(2,'0')}:{String(m5Secs%60).padStart(2,'0')}
+            </span>
+          )}
+        </div>
+
+        {/* Ordens IA hoje */}
+        {iaHoje.length > 0 && (
+          <>
+            <div style={{ width: 1, height: 20, background: C.bd, flexShrink: 0 }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <span style={{ fontSize: 9, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Ordens IA hoje</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: C.teal, fontFamily: "'JetBrains Mono', monospace" }}>
+                {iaHoje.length}
+              </span>
+            </div>
+          </>
+        )}
+      </div>
 
       {/* ── Main content ───────────────────────────────────────────────────── */}
       <main style={{ width: '100%', padding: '20px 24px 40px' }}>
@@ -726,6 +857,72 @@ export default function MonitorPage() {
           </div>
         </div>
 
+        {/* ── 4 Broker cards ─────────────────────────────────────────────── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
+          {BROKERS.map(b => {
+            const bSt      = allBrokerStatuses[b.id]
+            const bBal     = bSt?.balance ?? null
+            const bPos     = bSt?.open_positions ?? 0
+            const bAge     = bSt ? (Date.now() - new Date(bSt.updated_at).getTime()) : Infinity
+            const bHealth  = bAge < 180_000 ? 'online' : bAge < 600_000 ? 'atenção' : 'offline'
+            const bColor   = bHealth === 'online' ? C.teal : bHealth === 'atenção' ? C.am : C.t3
+            const bLabel   = !bSt ? 'SEM DADOS' :
+              bHealth === 'offline' ? 'OFFLINE' :
+              bSt.status === 'running' ? 'EM POSIÇÃO' :
+              bSt.status === 'waiting' ? 'AGUARDANDO' : 'PARADO'
+            const isSelected = selectedBroker === b.id
+            return (
+              <div key={b.id}
+                onClick={() => setSelectedBroker(b.id)}
+                style={{
+                  background: isSelected ? `${b.color}0C` : C.s1,
+                  border: `1px solid ${isSelected ? b.color + '50' : C.bd}`,
+                  borderRadius: 10, padding: '12px 14px', cursor: 'pointer',
+                  transition: 'all .15s',
+                }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <div style={{
+                      width: 26, height: 26, borderRadius: 7, flexShrink: 0,
+                      background: `${b.color}18`, border: `1px solid ${b.color}30`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 9, fontWeight: 800, color: b.color,
+                      fontFamily: "'JetBrains Mono', monospace",
+                    }}>{b.abbr}</div>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: C.tx }}>{b.label}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{
+                      width: 5, height: 5, borderRadius: '50%', background: bColor,
+                      animation: bHealth === 'online' ? 'pulse 1.8s ease-in-out infinite' : 'none',
+                      display: 'inline-block',
+                    }} />
+                    <span style={{ fontSize: 8, fontWeight: 700, color: bColor, fontFamily: "'JetBrains Mono', monospace" }}>
+                      {bLabel}
+                    </span>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontSize: 18, fontWeight: 700, color: C.tx, fontFamily: "'JetBrains Mono', monospace" }}>
+                    {bBal != null ? `$${bBal.toFixed(2)}` : '—'}
+                  </span>
+                  <span style={{
+                    fontSize: 9, color: bPos > 0 ? C.am : C.t3,
+                    fontFamily: "'JetBrains Mono', monospace",
+                  }}>
+                    {bPos > 0 ? `${bPos} pos.` : '0 pos.'}
+                  </span>
+                </div>
+                {bSt && (
+                  <div style={{ fontSize: 8, color: C.t3, marginTop: 4, fontFamily: "'JetBrains Mono', monospace" }}>
+                    {secondsAgo(bSt.updated_at)}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
         {/* ── Main grid: Position card + Equity curve ───────────────────── */}
         <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 16, marginBottom: 20 }}>
 
@@ -815,6 +1012,94 @@ export default function MonitorPage() {
             </div>
             <EquityCurve trades={trades} />
           </div>
+        </div>
+
+        {/* ── Scanner IA Panel ──────────────────────────────────────────── */}
+        <div style={{ ...card, padding: '14px 20px', marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.tx, fontFamily: "'Space Grotesk', sans-serif" }}>
+              Scanner IA Autônoma — VPS
+            </div>
+            <span style={{
+              fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 4,
+              fontFamily: "'JetBrains Mono', monospace",
+              background: sessaoAtual ? `${C.teal}15` : `${C.am}12`,
+              border: `1px solid ${sessaoAtual ? C.teal : C.am}40`,
+              color: sessaoAtual ? C.teal : C.am,
+            }}>
+              {sessaoAtual ? `${sessaoAtual.nome} ativo` : `Aguardando → ${proxSessao.nome}`}
+            </span>
+            {capitalTotal > 0 && (
+              <span style={{ fontSize: 10, color: C.t2, fontFamily: "'JetBrains Mono', monospace", marginLeft: 'auto' }}>
+                Capital consolidado: <span style={{ color: C.tx }}>${capitalTotal.toFixed(2)}</span>
+              </span>
+            )}
+          </div>
+
+          {/* Stats row */}
+          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 14 }}>
+            {[
+              { label: 'Sessão UTC', value: sessaoAtual
+                  ? `${String(sessaoAtual.ini).padStart(2,'0')}:00 – ${String(sessaoAtual.fim).padStart(2,'0')}:00`
+                  : `Próxima: ${String(SESSOES_OP.find(s=>s.nome===proxSessao.nome)?.ini??0).padStart(2,'0')}:00 UTC`,
+                color: C.tx },
+              { label: 'Horário UTC', value: `${String(utcHM.h).padStart(2,'0')}:${String(utcHM.m).padStart(2,'0')}`, color: C.bl },
+              { label: 'Próx. scan', value: sessaoAtual ? `${String(Math.floor(m5Secs/60)).padStart(2,'0')}:${String(m5Secs%60).padStart(2,'0')}` : '—', color: C.am },
+              { label: 'Ordens IA hoje', value: String(iaHoje.length), color: iaHoje.length > 0 ? C.teal : C.t3 },
+              { label: 'Corretoras ativas', value: `${Object.values(allBrokerStatuses).filter(s => (Date.now() - new Date(s.updated_at).getTime()) < 180_000).length}/4`, color: C.tx },
+            ].map(item => (
+              <div key={item.label}>
+                <div style={{ fontSize: 8, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 3 }}>
+                  {item.label}
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: item.color, fontFamily: "'JetBrains Mono', monospace" }}>
+                  {item.value}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Timeline de ordens IA hoje */}
+          {iaHoje.length > 0 && (
+            <>
+              <div style={{ fontSize: 9, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+                Ordens IA hoje
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {[...iaHoje].sort((a, b) => a.time - b.time).map(t => {
+                  const isWin  = t.result === 'win'
+                  const isPend = t.result === 'pending' || t.result == null
+                  const dotC   = isPend ? C.am : isWin ? C.teal : C.re
+                  const dirArrow = t.direction === 'buy' ? '▲' : '▼'
+                  const h = new Date(t.time * 1000).getUTCHours()
+                  const m = new Date(t.time * 1000).getUTCMinutes()
+                  return (
+                    <div key={t.id} style={{
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                    }}>
+                      <div style={{
+                        width: 28, height: 28, borderRadius: 8,
+                        background: `${dotC}15`, border: `1px solid ${dotC}50`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 11, fontWeight: 800, color: dotC,
+                      }}>{dirArrow}</div>
+                      <span style={{ fontSize: 8, color: C.t3, fontFamily: "'JetBrains Mono', monospace" }}>
+                        {String(h).padStart(2,'0')}:{String(m).padStart(2,'0')}
+                      </span>
+                      <span style={{ fontSize: 8, color: dotC, fontFamily: "'JetBrains Mono', monospace" }}>
+                        {isPend ? 'aberta' : isWin ? 'win' : 'loss'}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+          {iaHoje.length === 0 && (
+            <div style={{ fontSize: 10, color: C.t3 }}>
+              {sessaoAtual ? 'Aguardando sinal para entrar…' : `Sessão abre ${proxSessao.nome.includes('Tóquio') ? 'às 04:00' : proxSessao.nome.includes('Sydney') ? 'às 23:00' : 'às 12:00'} UTC`}
+            </div>
+          )}
         </div>
 
         {/* ── IA Status bar ──────────────────────────────────────────────── */}
