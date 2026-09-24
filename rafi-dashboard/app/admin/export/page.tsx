@@ -61,7 +61,7 @@ interface ManualTrade {
   time:            number
   lot:             number
   leverage:        number
-  result?:         'win' | 'loss' | 'pending'
+  result?:         'win' | 'loss' | 'pending' | 'cancelled'
   rafi?:           number
   rafiDir?:        'bull' | 'bear'
   bbWidth?:        number

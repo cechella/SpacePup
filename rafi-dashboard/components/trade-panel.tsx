@@ -17,7 +17,7 @@ export interface ManualTrade {
   time:       number
   lot:        number
   leverage:   number
-  result?:    'win' | 'loss' | 'pending'
+  result?:    'win' | 'loss' | 'pending' | 'cancelled'
   // Features para ML (indicadores técnicos)
   rafi?:         number
   rafiDir?:      'bull' | 'bear'

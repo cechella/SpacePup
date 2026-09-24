@@ -62,7 +62,7 @@ interface BotStatus {
 interface Trade {
   id: string; direction: 'buy' | 'sell'; entry: number
   stop_loss: number; take_profit: number; lot: number
-  result: 'win' | 'loss' | 'pending'
+  result: 'win' | 'loss' | 'pending' | 'cancelled'
   rafi: number | null; pnl: number | null; time: number; label: string
   close_price?: number | null
 }

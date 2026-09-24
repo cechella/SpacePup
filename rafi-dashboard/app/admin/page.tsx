@@ -93,7 +93,7 @@ interface ManualTrade {
   id: string; direction: 'buy' | 'sell'; entry: number
   stopLoss: number; takeProfit: number; label: string
   time: number; lot: number; leverage: number
-  result?: 'win' | 'loss' | 'pending'
+  result?: 'win' | 'loss' | 'pending' | 'cancelled'
   rafi?: number; rafiDir?: 'bull' | 'bear'; bbWidth?: number
   snapshot?: string; pnlUsd?: number; capitalInicial?: number
 }
