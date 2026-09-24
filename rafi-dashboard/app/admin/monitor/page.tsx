@@ -426,7 +426,7 @@ export default function MonitorPage() {
   const sessaoAtual    = getSessaoAtual(utcHM.h, utcHM.m)
   const proxSessao     = getMinsParaProximaSessao(utcHM.h, utcHM.m)
   const iaHoje         = useMemo(() =>
-    trades.filter(t => typeof t.label === 'string' && t.label.includes('AutoScan-IA') && t.time >= todayStart),
+    trades.filter(t => typeof t.label === 'string' && t.label.includes('AutoScan-IA') && t.time >= todayStart && t.result !== 'cancelled'),
   [trades, todayStart])
 
   // IA milestones
