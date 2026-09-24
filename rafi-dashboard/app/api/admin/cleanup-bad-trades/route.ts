@@ -36,8 +36,7 @@ export async function GET(req: NextRequest) {
   const supa = getServiceClient()
   const { data, error, count } = await supa
     .from('rafi_trades')
-    .select('id, time, direction, entry, result, pnl_usd, label', { count: 'exact' })
-    .eq('entry_type', 'ia_autonoma')
+    .select('id, time, direction, entry, result, pnl_usd, label, entry_type', { count: 'exact' })
     .eq('result', 'loss')
     .gte('time', DAY_START)
     .lt('time', DAY_END)
@@ -71,7 +70,6 @@ export async function DELETE(req: NextRequest) {
   const { data: toDelete, error: selectErr } = await supa
     .from('rafi_trades')
     .select('id, time, direction, pnl_usd')
-    .eq('entry_type', 'ia_autonoma')
     .eq('result', 'loss')
     .gte('time', DAY_START)
     .lt('time', DAY_END)
