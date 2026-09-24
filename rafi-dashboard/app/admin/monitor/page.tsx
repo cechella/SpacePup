@@ -880,15 +880,12 @@ export default function MonitorPage() {
             const bMeta      = brokerBalances[b.id]        // saldo real MetaAPI
             const bBal       = bMeta?.balance ?? bSt?.balance ?? null
             const bPos       = bSt?.open_positions ?? 0
-            const isIaOnly   = b.id === 'icmarkets'        // IC Markets: sem executor VPS
-            // Status: IC Markets é online se MetaAPI responder, outros por heartbeat VPS
-            const bOnline    = isIaOnly
-              ? (bMeta?.online ?? false)
-              : (() => {
+            const isIaOnly   = false                        // todos os brokers têm executor VPS
+            const bOnline    = (() => {
                   const bAge = bSt ? (Date.now() - new Date(bSt.updated_at).getTime()) : Infinity
                   return bAge < 180_000 ? 'online' : bAge < 600_000 ? 'atenção' : 'offline'
                 })()
-            const bHealth    = isIaOnly ? (bMeta?.online ? 'online' : 'offline') : bOnline as string
+            const bHealth    = bOnline as string
             const bColor     = bHealth === 'online' ? C.teal : bHealth === 'atenção' ? C.am : C.t3
             const bLabel     = isIaOnly
               ? (bMeta?.online ? 'APENAS IA' : 'OFFLINE')
