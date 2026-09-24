@@ -276,13 +276,28 @@ class RafiBot:
             if self._broker_mt5_path:
                 logger.info(f"MT5 path: {self._broker_mt5_path}")
         else:
-            # Fallback: usa o par do config.yaml sem autenticação separada
-            self._broker_id       = config.get('corretora', 'pepperstone').lower()
-            self._broker_login    = None
-            self._broker_senha    = None
-            self._broker_servidor = None
-            self._broker_mt5_path = None
-            logger.warning("rafi_brokers indisponível — usando par do config.yaml (fallback)")
+            # Fallback: Supabase não retornou dados para este broker.
+            # Usa o broker_id do --broker arg (se fornecido) ou 'corretora' do config.yaml.
+            # Tenta carregar mt5_path da seção 'corretoras' do config.yaml para que
+            # múltiplos terminais MT5 abertos sejam identificados corretamente.
+            bid = broker_id_arg or config.get('corretora', 'pepperstone').lower()
+            creds = config.get('corretoras', {}).get(bid, {})
+            self._broker_id       = bid
+            self._broker_login    = creds.get('login')
+            self._broker_senha    = creds.get('senha')
+            self._broker_servidor = creds.get('servidor')
+            self._broker_mt5_path = creds.get('mt5_path')
+            simbolo_cfg           = creds.get('simbolo')
+            if simbolo_cfg:
+                self.par        = simbolo_cfg
+                self.cfg['par'] = self.par
+                self.mt5.par    = self.par
+            if broker_id_arg:
+                logger.warning(f"rafi_brokers sem registro ativo para '{bid}' — usando config.yaml")
+            else:
+                logger.warning("rafi_brokers indisponível — usando par do config.yaml (fallback)")
+            if self._broker_mt5_path:
+                logger.info(f"MT5 path (config.yaml): {self._broker_mt5_path}")
 
         # Monitor de performance ML — rastreia WR/PF rolling e aciona retreino
         self._monitor = MonitorPerformance(
