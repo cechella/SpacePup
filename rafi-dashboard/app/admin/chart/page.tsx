@@ -184,7 +184,8 @@ export default function ChartPage() {
   const metaPositionsRef = useRef<typeof metaPositions>([])
   useEffect(() => { metaPositionsRef.current = metaPositions }, [metaPositions])
   // Feature 3: toast de feedback ao enviar ordem
-  const [orderToast, setOrderToast] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [orderToast,    setOrderToast]    = useState<{ ok: boolean; msg: string } | null>(null)
+  const [goalBlockMsg,  setGoalBlockMsg]  = useState<string | null>(null)
   // Feature 4: countdown para próximo auto-refresh dos candles
   const [refreshIn,  setRefreshIn]  = useState(0)
   // Countdown regressivo até o fechamento da barra atual
@@ -1300,6 +1301,8 @@ export default function ChartPage() {
   //   MetaAPI OFF → Supabase /api/deals (bridge, ignora RLS)
   const fetchHistory = useCallback(async (period = '7d', broker = '') => {
     setHistoryLoading(true)
+    setMetaHistory([])    // limpa dados velhos imediatamente — evita "Carregando..." preso
+    setHistoryGroups([])
 
     const todayBRT  = brtDateStr()
     const toBrtDate = (iso: string) =>
@@ -1312,121 +1315,118 @@ export default function ChartPage() {
     const dealsParams = new URLSearchParams({ period })
     if (broker) dealsParams.set('broker', broker)
 
-    const [metaResult, supaResult] = await Promise.allSettled([
-      metaConnected
-        ? fetch(`/api/metaapi/history?${metaParams}`).then(r => r.ok ? r.json() : null).catch(() => null)
-        : Promise.resolve(null),
-      fetch(`/api/deals?${dealsParams}`).then(r => r.ok ? r.json() : null).catch(() => null),
-    ])
+    let merged: typeof metaHistory = []
 
-    const metaData = metaResult.status === 'fulfilled' ? metaResult.value : null
-    const supaData = supaResult.status === 'fulfilled' ? supaResult.value : null
+    try {
+      const [metaResult, supaResult] = await Promise.allSettled([
+        metaConnected
+          ? fetch(`/api/metaapi/history?${metaParams}`).then(r => r.ok ? r.json() : null).catch(() => null)
+          : Promise.resolve(null),
+        fetch(`/api/deals?${dealsParams}`).then(r => r.ok ? r.json() : null).catch(() => null),
+      ])
 
-    // ── Processa MetaAPI ──────────────────────────────────────────────────────
-    let metaTrades: typeof metaHistory = metaData && !metaData.error ? (metaData.history ?? []) : []
-    let metaGroupsRaw: typeof historyGroups | undefined =
-      metaData && !metaData.error ? metaData.groups : undefined
+      const metaData = metaResult.status === 'fulfilled' ? metaResult.value : null
+      const supaData = supaResult.status === 'fulfilled' ? supaResult.value : null
 
-    if (period === 'today') {
-      metaTrades = metaTrades.filter(t => toBrtDate(t.time ?? '') === todayBRT)
-      if (metaGroupsRaw) {
-        metaGroupsRaw = metaGroupsRaw.map(g => ({
-          ...g,
-          trades: g.trades.filter(t => toBrtDate(t.time ?? '') === todayBRT),
-        }))
-      }
-    }
+      // ── Processa MetaAPI ──────────────────────────────────────────────────────
+      let metaTrades: typeof metaHistory = metaData && !metaData.error ? (metaData.history ?? []) : []
+      let metaGroupsRaw: typeof historyGroups | undefined =
+        metaData && !metaData.error ? metaData.groups : undefined
 
-    // ── Processa Supabase ─────────────────────────────────────────────────────
-    const rawDeals: any[] = supaData?.deals ?? []
-    const entryByPos: Record<string, number> = {}
-    rawDeals
-      .filter((d: any) => d.entry_type === 'DEAL_ENTRY_IN' && d.price && d.position_id)
-      .forEach((d: any) => { entryByPos[d.position_id] = d.price })
-
-    // brokerId auxiliar mantido em campo separado para agrupamento
-    const supaTradesAnnotated: Array<typeof metaHistory[0] & { _brokerId: string }> = rawDeals
-      .filter((d: any) =>
-        d.entry_type === 'DEAL_ENTRY_OUT' &&
-        (d.deal_type === 'DEAL_TYPE_BUY' || d.deal_type === 'DEAL_TYPE_SELL'),
-      )
-      .map((d: any) => ({
-        id:         d.id as string,
-        symbol:     d.symbol as string,
-        type:       d.deal_type as string,
-        direction:  (d.direction ?? (d.deal_type === 'DEAL_TYPE_SELL' ? 'buy' : 'sell')) as 'buy' | 'sell',
-        volume:     d.volume as number,
-        price:      d.price as number,
-        entryPrice: (entryByPos[d.position_id] ?? null) as number | null,
-        profit:     (d.profit ?? 0) as number,
-        time:       typeof d.time === 'string' ? d.time as string : new Date(d.time).toISOString(),
-        comment:    (d.comment ?? '') as string,
-        positionId: (d.position_id ?? null) as string | null,
-        _brokerId:  d.broker_id as string,
-      }))
-
-    // ── Mescla: MetaAPI é base; Supabase preenche deals ausentes ─────────────
-    const seenIds = new Set(metaTrades.map(t => t.id))
-    const supaOnlyAnnotated = supaTradesAnnotated.filter(t => !seenIds.has(t.id))
-
-    // Remove campo auxiliar antes de persistir no estado
-    const stripBid = ({ _brokerId: _, ...t }: typeof supaOnlyAnnotated[0]) => t
-    const supaOnly = supaOnlyAnnotated.map(stripBid)
-    const merged   = [...metaTrades, ...supaOnly]
-
-    if (merged.length === 0) {
-      setMetaHistory([])
-      if (metaGroupsRaw) setHistoryGroups(metaGroupsRaw)
-      setHistoryLoading(false)
-      return
-    }
-
-    setMetaHistory(merged)
-
-    // ── Reconstrói grupos com os deals extras do Supabase ────────────────────
-    if (metaGroupsRaw) {
-      // Tem grupos do MetaAPI — insere supaOnly no grupo correto
-      const groupMap: Record<string, typeof metaGroupsRaw[0]> = {}
-      for (const g of metaGroupsRaw) groupMap[g.brokerId] = { ...g, trades: [...g.trades] }
-
-      for (let i = 0; i < supaOnlyAnnotated.length; i++) {
-        const bid = supaOnlyAnnotated[i]._brokerId
-        if (!bid) continue
-        if (!groupMap[bid]) {
-          const nome = enabledBrokers.find(b => b.id === bid)?.nome ?? bid
-          groupMap[bid] = { rank: 99, brokerId: bid, nome, trades: [] }
+      if (period === 'today') {
+        metaTrades = metaTrades.filter(t => toBrtDate(t.time ?? '') === todayBRT)
+        if (metaGroupsRaw) {
+          metaGroupsRaw = metaGroupsRaw.map(g => ({
+            ...g,
+            trades: g.trades.filter(t => toBrtDate(t.time ?? '') === todayBRT),
+          }))
         }
-        groupMap[bid].trades.push(supaOnly[i])
       }
 
-      setHistoryGroups(Object.values(groupMap).sort((a, b) => a.rank - b.rank))
-    } else {
-      // Sem grupos do MetaAPI — agrupa via broker_id do Supabase
-      const brokerDeals: Record<string, typeof merged> = {}
-      for (const trade of merged) {
-        const raw = rawDeals.find((x: any) => x.id === trade.id)
-        const bid = raw?.broker_id ?? broker ?? 'unknown'
-        if (!brokerDeals[bid]) brokerDeals[bid] = []
-        brokerDeals[bid].push(trade)
-      }
-      if (broker) {
-        const nome = enabledBrokers.find(b => b.id === broker)?.nome ?? broker
-        setHistoryGroups([{ rank: 0, brokerId: broker, nome, trades: merged }])
-      } else {
-        const groups = enabledBrokers.map((b, idx) => ({
-          rank:     idx + 1,
-          brokerId: b.id,
-          nome:     b.nome,
-          trades:   brokerDeals[b.id] ?? [],
+      // ── Processa Supabase ─────────────────────────────────────────────────────
+      const rawDeals: any[] = supaData?.deals ?? []
+      const entryByPos: Record<string, number> = {}
+      rawDeals
+        .filter((d: any) => d.entry_type === 'DEAL_ENTRY_IN' && d.price && d.position_id)
+        .forEach((d: any) => { entryByPos[d.position_id] = d.price })
+
+      // brokerId auxiliar mantido em campo separado para agrupamento
+      const supaTradesAnnotated: Array<typeof metaHistory[0] & { _brokerId: string }> = rawDeals
+        .filter((d: any) =>
+          d.entry_type === 'DEAL_ENTRY_OUT' &&
+          (d.deal_type === 'DEAL_TYPE_BUY' || d.deal_type === 'DEAL_TYPE_SELL'),
+        )
+        .map((d: any) => ({
+          id:         d.id as string,
+          symbol:     d.symbol as string,
+          type:       d.deal_type as string,
+          direction:  (d.direction ?? (d.deal_type === 'DEAL_TYPE_SELL' ? 'buy' : 'sell')) as 'buy' | 'sell',
+          volume:     d.volume as number,
+          price:      d.price as number,
+          entryPrice: (entryByPos[d.position_id] ?? null) as number | null,
+          profit:     (d.profit ?? 0) as number,
+          time:       typeof d.time === 'string' ? d.time as string : new Date(d.time).toISOString(),
+          comment:    (d.comment ?? '') as string,
+          positionId: (d.position_id ?? null) as string | null,
+          _brokerId:  d.broker_id as string,
         }))
-        setHistoryGroups(groups)
+
+      // ── Mescla: MetaAPI é base; Supabase preenche deals ausentes ─────────────
+      const seenIds = new Set(metaTrades.map(t => t.id))
+      const supaOnlyAnnotated = supaTradesAnnotated.filter(t => !seenIds.has(t.id))
+
+      // Remove campo auxiliar antes de persistir no estado
+      const stripBid = ({ _brokerId: _, ...t }: typeof supaOnlyAnnotated[0]) => t
+      const supaOnly = supaOnlyAnnotated.map(stripBid)
+      merged = [...metaTrades, ...supaOnly]
+
+      setMetaHistory(merged)
+
+      // ── Reconstrói grupos com os deals extras do Supabase ────────────────────
+      if (metaGroupsRaw) {
+        // Tem grupos do MetaAPI — insere supaOnly no grupo correto
+        const groupMap: Record<string, typeof metaGroupsRaw[0]> = {}
+        for (const g of metaGroupsRaw) groupMap[g.brokerId] = { ...g, trades: [...g.trades] }
+
+        for (let i = 0; i < supaOnlyAnnotated.length; i++) {
+          const bid = supaOnlyAnnotated[i]._brokerId
+          if (!bid) continue
+          if (!groupMap[bid]) {
+            const nome = enabledBrokers.find(b => b.id === bid)?.nome ?? bid
+            groupMap[bid] = { rank: 99, brokerId: bid, nome, trades: [] }
+          }
+          groupMap[bid].trades.push(supaOnly[i])
+        }
+
+        setHistoryGroups(Object.values(groupMap).sort((a, b) => a.rank - b.rank))
+      } else {
+        // Sem grupos do MetaAPI — agrupa via broker_id do Supabase
+        const brokerDeals: Record<string, typeof merged> = {}
+        for (const trade of merged) {
+          const raw = rawDeals.find((x: any) => x.id === trade.id)
+          const bid = raw?.broker_id ?? broker ?? 'unknown'
+          if (!brokerDeals[bid]) brokerDeals[bid] = []
+          brokerDeals[bid].push(trade)
+        }
+        if (broker) {
+          const nome = enabledBrokers.find(b => b.id === broker)?.nome ?? broker
+          setHistoryGroups([{ rank: 0, brokerId: broker, nome, trades: merged }])
+        } else {
+          const groups = enabledBrokers.map((b, idx) => ({
+            rank:     idx + 1,
+            brokerId: b.id,
+            nome:     b.nome,
+            trades:   brokerDeals[b.id] ?? [],
+          }))
+          setHistoryGroups(groups)
+        }
       }
+    } finally {
+      // Garante que o spinner sempre para — mesmo se der erro no meio
+      setHistoryLoading(false)
     }
 
-    setHistoryLoading(false)
-
-    // Proposta A — sincroniza deals fechados com rafi_trades para alimentar o aprendizado da IA
-    // Enriquece cada deal com RAFI e BB Width do candle mais próximo ao horário de entrada
+    // Sincroniza deals fechados com rafi_trades para alimentar o aprendizado da IA
     if (merged.length > 0) {
       const rafiMap = rafiEnrichRef.current
       const ck      = checkinSyncRef.current
@@ -2130,6 +2130,16 @@ export default function ChartPage() {
   // Executa OCO — captura features RAFI + BB para dataset ML
   const handleOCOExecute = useCallback((direction: 'buy' | 'sell') => {
     if (!ocoState) return
+
+    // Bloqueia ordem se meta diária ou semanal foi atingida
+    if (effectiveTargets.locked) {
+      const motivo = targetMetrics.weeklyMet
+        ? `Meta semanal atingida (+${targetMetrics.weeklyPct?.toFixed(1) ?? ''}%)`
+        : `Meta diária atingida (+${targetMetrics.dailyPct?.toFixed(1) ?? ''}%)`
+      setGoalBlockMsg(motivo)
+      return
+    }
+
     const { entry } = ocoState
     const tpDist = Math.abs(ocoState.tp - entry)
     const slDist = Math.abs(ocoState.sl - entry)
@@ -2205,7 +2215,7 @@ export default function ChartPage() {
         setOrderToast({ ok: false, msg: err.message ?? 'Falha de rede ao enviar ordem' })
         setTimeout(() => setOrderToast(null), 6000)
       })
-  }, [ocoState, lastTime, rafiData, bbBands, handleAdd])
+  }, [ocoState, lastTime, rafiData, bbBands, handleAdd, effectiveTargets, targetMetrics, setGoalBlockMsg])
 
   const handleOCOClose = useCallback(() => setOcoVisible(false), [])
 
@@ -4183,6 +4193,32 @@ export default function ChartPage() {
               <span>{alert.text}</span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Modal de bloqueio: meta atingida — impede envio de ordens */}
+      {goalBlockMsg && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="bg-[#0d1117] border border-[#f59e0b]/60 rounded-2xl shadow-2xl p-6 max-w-sm w-full mx-4 flex flex-col items-center gap-4">
+            <div className="w-14 h-14 rounded-full bg-[#f59e0b]/10 border border-[#f59e0b]/40 flex items-center justify-center text-3xl">
+              🔒
+            </div>
+            <div className="text-center">
+              <p className="text-[13px] font-bold text-[#f59e0b] mb-1">{goalBlockMsg}</p>
+              <p className="text-[12px] text-[#f0f6fc] font-semibold leading-snug">
+                Você já cumpriu sua meta do dia/semana.
+              </p>
+              <p className="text-[11px] text-[#8b949e] mt-1">
+                As operações retornam na segunda-feira.
+              </p>
+            </div>
+            <button
+              onClick={() => setGoalBlockMsg(null)}
+              className="mt-1 px-6 py-2 rounded-lg bg-[#f59e0b] text-[#0d1117] text-[12px] font-bold hover:bg-[#fbbf24] transition-colors"
+            >
+              Entendido
+            </button>
+          </div>
         </div>
       )}
 
