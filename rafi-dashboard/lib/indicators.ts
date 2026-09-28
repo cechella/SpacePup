@@ -164,32 +164,34 @@ export interface AutoScanTrade {
 
 /**
  * Detecta rompimentos de S/R com BB expandindo e gera trades automaticamente.
- * Stop na estrutura do candle (topo/fundo). Alvo fixo em pips — igual ao manual.
+ * SL na estrutura do candle de rompimento (topo para sell / fundo para buy) + buffer.
+ * TP fixo em pips com R:R mínimo de 1.5:1 calculado sobre o SL real.
  */
 export function autoScanBreakouts(
   candles:    CandleData[],
   options: {
     srLookback?:     number   // candles para identificar S/R (padrão 20)
     bbPeriod?:       number   // período BB (padrão 8)
-    fixedStopPips?:  number   // SL fixo em pips a partir da entrada (padrão 7)
-    targetPips?:     number   // alvo fixo em pips (padrão 11 → R:R ~1.57:1 com SL=7)
+    slBufferPips?:   number   // buffer acima/abaixo do candle para o SL (padrão 3)
+    rrRatio?:        number   // R:R mínimo para calcular o TP a partir do SL real (padrão 1.6)
     minBreakout?:    number   // distância mínima do rompimento em preço
     minGapCandles?:  number   // mínimo de candles entre trades
     squeezeRatio?:   number   // largura máxima das BB (relativo ao mid) p/ squeeze
+    minRafi?:        number   // RAFI mínimo para considerar sinal válido (padrão 1.5)
   } = {},
 ): AutoScanTrade[] {
   const {
     srLookback    = 20,
     bbPeriod      = 8,
-    fixedStopPips = 7,        // SL FIXO: 7 pips a partir da entrada
-    targetPips    = 11,       // TP FIXO: 11 pips → R:R ~1.57:1
+    slBufferPips  = 3,        // 3 pips de buffer além do topo/fundo do candle
+    rrRatio       = 1.6,      // TP = SL_distância × 1.6 → R:R 1:1.6
     minBreakout   = 0.00003,
     minGapCandles = 8,
     squeezeRatio  = 0.0012,
+    minRafi       = 1.5,      // exige RAFI ≥ 1.5 — filtra rompimentos fracos (< 2.5 = moderado)
   } = options
 
-  const fixedStop  = fixedStopPips * 0.0001  // 7 pips em preço = 0.00070
-  const targetDist = targetPips    * 0.0001  // 11 pips em preço = 0.00110
+  const bufferPrice = slBufferPips * 0.0001  // 3 pips em preço = 0.00030
 
   // Opera 24h nos dias de semana — sem filtro de horário
   const inSession = (_ts: number) => true
@@ -226,6 +228,9 @@ export function autoScanBreakouts(
     if (!bbCurr || !bbPrev || !rafiPt) continue
     if (!inSession(c.time)) continue
 
+    // Filtra RAFI fraco — exige magnitude mínima para validar o rompimento
+    if (Math.abs(rafiPt.value) < minRafi) continue
+
     // BB squeeze no candle anterior e expandindo agora
     const prevRatio = bbPrev.width / bbPrev.mid
     const currRatio = bbCurr.width / bbCurr.mid
@@ -233,7 +238,7 @@ export function autoScanBreakouts(
     if (currRatio <= prevRatio * 1.05) continue  // não está expandindo
 
     // S/R = máxima/mínima dos N candles anteriores (sem lookahead)
-    const window    = candles.slice(i - srLookback, i)
+    const window     = candles.slice(i - srLookback, i)
     const resistance = Math.max(...window.map(w => w.high))
     const support    = Math.min(...window.map(w => w.low))
 
@@ -241,24 +246,32 @@ export function autoScanBreakouts(
 
     // ── COMPRA: fecha acima da resistência com candle de alta (verde) ──
     if (c.close > resistance && c.close - resistance >= minBreakout && c.close >= c.open) {
-      const entry = p(resistance)
+      const entry     = p(resistance)
+      // SL abaixo do fundo do candle de rompimento + buffer — posição na estrutura real
+      const slPrice   = p(Math.min(c.low, resistance) - bufferPrice)
+      const slDist    = entry - slPrice
+      const tpPrice   = p(entry + slDist * rrRatio)
       trades.push({
         time: c.time, direction: 'buy',
         entry,
-        stopLoss:   p(entry - fixedStop),   // SL FIXO de 7 pips (não usa o risco real!)
-        takeProfit: p(entry + targetDist),   // TP fixo: 11 pips acima da entrada
+        stopLoss:   slPrice,
+        takeProfit: tpPrice,
         rafi: rafiPt.value, rafiDir: rafiPt.dir, bbWidth: bbCurr.width,
       })
       lastIdx = i
     }
     // ── VENDA: fecha abaixo do suporte com candle de baixa (vermelho) ──
     else if (c.close < support && support - c.close >= minBreakout && c.close < c.open) {
-      const entry = p(support)
+      const entry     = p(support)
+      // SL acima do topo do candle de rompimento + buffer — posição na estrutura real
+      const slPrice   = p(Math.max(c.high, support) + bufferPrice)
+      const slDist    = slPrice - entry
+      const tpPrice   = p(entry - slDist * rrRatio)
       trades.push({
         time: c.time, direction: 'sell',
         entry,
-        stopLoss:   p(entry + fixedStop),   // SL FIXO de 7 pips (não usa o risco real!)
-        takeProfit: p(entry - targetDist),   // TP fixo: 11 pips abaixo da entrada
+        stopLoss:   slPrice,
+        takeProfit: tpPrice,
         rafi: rafiPt.value, rafiDir: rafiPt.dir, bbWidth: bbCurr.width,
       })
       lastIdx = i

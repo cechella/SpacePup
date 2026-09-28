@@ -421,6 +421,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ skipped: true, reason: 'Poucos trades rotulados', log })
     }
 
+    // ── 4b. Anti-duplicata global: bloqueia se há trade IA nos últimos 40min ──
+    // Previne que múltiplas rotas (auto-scan-01h, 02h, 03h…) executem o mesmo
+    // rompimento quando disparam com poucos minutos de diferença.
+    const antiDupCutoff = Math.floor((Date.now() - 40 * 60 * 1000) / 1000)
+    const { count: recentCount } = await supa
+      .from('rafi_trades')
+      .select('id', { count: 'exact', head: true })
+      .eq('entry_type', 'ia_autonoma')
+      .gte('time', antiDupCutoff)
+    if ((recentCount ?? 0) > 0) {
+      log.push(`Anti-duplicata: trade IA já executado nos últimos 40min (${recentCount} registro(s)) — abortando`)
+      await saveScanLog(supa, 'skipped', 'Trade IA recente (anti-duplicata 40min)', log, { sessao })
+      return NextResponse.json({ skipped: true, reason: 'Trade IA recente (anti-duplicata 40min)', log })
+    }
+
     // ── 5. Busca candles e detecta rompimentos ─────────────────────────
     const { accountId, symbol } = brokers[0]
     const candles = await fetchCandles(accountId, symbol, 60)
