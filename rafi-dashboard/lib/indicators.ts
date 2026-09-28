@@ -246,11 +246,13 @@ export function autoScanBreakouts(
 
     // ── COMPRA: fecha acima da resistência com candle de alta (verde) ──
     if (c.close > resistance && c.close - resistance >= minBreakout && c.close >= c.open) {
-      const entry     = p(resistance)
-      // SL abaixo do fundo do candle de rompimento + buffer — posição na estrutura real
-      const slPrice   = p(Math.min(c.low, resistance) - bufferPrice)
-      const slDist    = entry - slPrice
-      const tpPrice   = p(entry + slDist * rrRatio)
+      const entry    = p(resistance)
+      // SL abaixo do mínimo dos últimos 5 candles (swing low da estrutura) + buffer
+      const slWindow = candles.slice(Math.max(0, i - 4), i + 1)
+      const swingLow = Math.min(...slWindow.map(w => w.low))
+      const slPrice  = p(swingLow - bufferPrice)
+      const slDist   = entry - slPrice
+      const tpPrice  = p(entry + slDist * rrRatio)
       trades.push({
         time: c.time, direction: 'buy',
         entry,
@@ -262,11 +264,13 @@ export function autoScanBreakouts(
     }
     // ── VENDA: fecha abaixo do suporte com candle de baixa (vermelho) ──
     else if (c.close < support && support - c.close >= minBreakout && c.close < c.open) {
-      const entry     = p(support)
-      // SL acima do topo do candle de rompimento + buffer — posição na estrutura real
-      const slPrice   = p(Math.max(c.high, support) + bufferPrice)
-      const slDist    = slPrice - entry
-      const tpPrice   = p(entry - slDist * rrRatio)
+      const entry    = p(support)
+      // SL acima do máximo dos últimos 5 candles (swing high da estrutura) + buffer
+      const slWindow = candles.slice(Math.max(0, i - 4), i + 1)
+      const swingHigh = Math.max(...slWindow.map(w => w.high))
+      const slPrice  = p(swingHigh + bufferPrice)
+      const slDist   = slPrice - entry
+      const tpPrice  = p(entry - slDist * rrRatio)
       trades.push({
         time: c.time, direction: 'sell',
         entry,

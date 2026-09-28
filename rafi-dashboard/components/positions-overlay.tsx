@@ -84,7 +84,7 @@ export function PositionsOverlay({ positions, livePrice, getY, getPrice, onModif
       style={{ zIndex: 10, pointerEvents: 'none' }}
     >
       {positions.map(pos => {
-        const isBuy      = pos.type === 'POSITION_TYPE_BUY'
+        const isBuy      = pos.type === 'POSITION_TYPE_BUY' || pos.type === 'buy'
         const entryColor = isBuy ? '#3b82f6' : '#f59e0b'
         const tpColor    = '#10b981'
         const slColor    = '#ef4444'

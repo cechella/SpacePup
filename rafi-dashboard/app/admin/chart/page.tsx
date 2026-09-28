@@ -3297,7 +3297,7 @@ export default function ChartPage() {
               livePrice={livePrice}
               livePriceRef={livePriceRef}
               chartUpdateCandleRef={chartUpdateCandleRef}
-              positions={metaPositions as any}
+              positions={(flatBrokerPositions.length > 0 ? flatBrokerPositions : metaPositions) as any}
               onModifyPosition={(id, sl, tp) => handleModifyPosition(id, String(sl), String(tp))}
               snapshotCaptureRef={snapshotCaptureRef}
               shiftRangeRef={shiftRangeRef}
