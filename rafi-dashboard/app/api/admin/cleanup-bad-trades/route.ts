@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
   })
 }
 
-// DELETE: apaga os registros
+// DELETE: apaga os registros do dia 24/09 + quaisquer OCO pendentes com timestamp em ms
 export async function DELETE(req: NextRequest) {
   if (!checkAuth(req)) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
@@ -66,19 +66,33 @@ export async function DELETE(req: NextRequest) {
 
   const supa = getServiceClient()
 
-  // Primeiro busca os IDs para confirmar o que será apagado
-  const { data: toDelete, error: selectErr } = await supa
+  // 1) Trades do dia 24/09 (timestamp em segundos)
+  const { data: byDay, error: dayErr } = await supa
     .from('rafi_trades')
-    .select('id, time, direction, pnl_usd')
+    .select('id')
     .gte('time', DAY_START)
     .lt('time', DAY_END)
 
-  if (selectErr) return NextResponse.json({ error: selectErr.message }, { status: 500 })
-  if (!toDelete || toDelete.length === 0) {
+  if (dayErr) return NextResponse.json({ error: dayErr.message }, { status: 500 })
+
+  // 2) Trades OCO pendentes com timestamp em milissegundos (time > 9_999_999_999)
+  // Esses escaparam do filtro anterior porque usam ms em vez de segundos
+  const { data: byMs, error: msErr } = await supa
+    .from('rafi_trades')
+    .select('id, label')
+    .eq('result', 'pending')
+    .gt('time', 9_999_999_999)
+
+  if (msErr) return NextResponse.json({ error: msErr.message }, { status: 500 })
+
+  const ids = [
+    ...(byDay ?? []).map((t: { id: string }) => t.id),
+    ...(byMs  ?? []).map((t: { id: string }) => t.id),
+  ]
+
+  if (ids.length === 0) {
     return NextResponse.json({ deleted: 0, message: 'Nenhum registro encontrado para deletar' })
   }
-
-  const ids = toDelete.map(t => t.id)
 
   const { error: deleteErr } = await supa
     .from('rafi_trades')
@@ -89,6 +103,8 @@ export async function DELETE(req: NextRequest) {
 
   return NextResponse.json({
     deleted: ids.length,
+    by_day:  (byDay ?? []).length,
+    by_ms:   (byMs  ?? []).length,
     message: `${ids.length} trade(s) apagados com sucesso`,
     ids,
   })
