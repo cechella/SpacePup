@@ -1278,30 +1278,31 @@ export default function ChartPage() {
             return prevBroker ?? nb
           }
           // Filtra posições recém-fechadas do poll (MetaAPI tem cache de ~15s)
-          if (nb.positions) {
-            nb = { ...nb, positions: nb.positions.filter((p: any) => !closedPositionIdsRef.current.has(p.id)) }
-          }
+          const filteredPositions = nb.positions
+            ? nb.positions.filter((p: any) => !closedPositionIdsRef.current.has(p.id))
+            : nb.positions
+          const nbf = filteredPositions !== nb.positions ? { ...nb, positions: filteredPositions } : nb
           // Equity ≈ saldo: API de posições ainda tem cache antigo; não há posição real
           // (a limpeza já foi feita na API all-positions, mas garantimos aqui também)
-          if (nb.balance !== undefined && nb.equity !== undefined &&
-              Math.abs(nb.equity - nb.balance) < 0.50) {
-            brokerZeroCountRef.current[nb.brokerId] = 0
-            return { ...nb, positions: [], totalPnl: 0 }
+          if (nbf.balance !== undefined && nbf.equity !== undefined &&
+              Math.abs(nbf.equity - nbf.balance) < 0.50) {
+            brokerZeroCountRef.current[nbf.brokerId] = 0
+            return { ...nbf, positions: [], totalPnl: 0 }
           }
           // Tem posições → atualiza e reseta o contador de zeros
-          if ((nb.positions?.length ?? 0) > 0) {
-            brokerZeroCountRef.current[nb.brokerId] = 0
-            return nb
+          if ((nbf.positions?.length ?? 0) > 0) {
+            brokerZeroCountRef.current[nbf.brokerId] = 0
+            return nbf
           }
           // Retornou 0 posições: aplica grace period se broker tinha posições antes
           if ((prevBroker?.positions?.length ?? 0) > 0) {
-            const zeros = (brokerZeroCountRef.current[nb.brokerId] ?? 0) + 1
-            brokerZeroCountRef.current[nb.brokerId] = zeros
+            const zeros = (brokerZeroCountRef.current[nbf.brokerId] ?? 0) + 1
+            brokerZeroCountRef.current[nbf.brokerId] = zeros
             if (zeros < 2) return prevBroker!  // ainda dentro do grace period
           }
           // Confirmado vazio (2+ polls ou broker nunca teve posições)
-          brokerZeroCountRef.current[nb.brokerId] = 0
-          return nb
+          brokerZeroCountRef.current[nbf.brokerId] = 0
+          return nbf
         }))
       }
     } catch {}
