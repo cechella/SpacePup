@@ -1476,8 +1476,9 @@ export default function ChartPage() {
 
   // Feature 2: fecha posição individual via MetaAPI
   const handleClosePosition = useCallback(async (positionId: string) => {
-    // Busca símbolo e volume da posição para replicar o fechamento nas demais corretoras
+    // Busca símbolo e volume — tenta metaPositions primeiro, depois allBrokerPositions
     const pos = metaPositionsRef.current.find(p => p.id === positionId)
+      ?? allBrokerPositionsRef.current.flatMap(b => b.positions).find(p => p.id === positionId)
     try {
       const res = await fetch('/api/metaapi/positions', {
         method:  'DELETE',
@@ -1485,16 +1486,24 @@ export default function ChartPage() {
         body:    JSON.stringify({ positionId, symbol: pos?.symbol, volume: pos?.volume }),
       })
       if (res.ok) {
+        // Remove imediatamente de ambos os estados — não espera o próximo poll
         setMetaPositions(prev => prev.filter(p => p.id !== positionId))
+        setAllBrokerPositions(prev => prev.map(b => ({
+          ...b,
+          positions: b.positions.filter(p => p.id !== positionId),
+        })))
       }
     } catch {}
   }, [])
 
-  // Fecha todas as posições abertas de todas as corretoras de uma vez
+  // Fecha todas as posições de TODAS as corretoras (usa allBrokerPositionsRef, não só a primária)
   const handleCloseAll = useCallback(async () => {
     setClosingAll(true)
-    const positions = [...metaPositionsRef.current]
-    for (const pos of positions) {
+    const allPositions = allBrokerPositionsRef.current.flatMap(b => b.positions)
+    const seen = new Set<string>()
+    for (const pos of allPositions) {
+      if (seen.has(pos.id)) continue
+      seen.add(pos.id)
       await handleClosePosition(pos.id)
     }
     setClosingAll(false)
@@ -1504,8 +1513,11 @@ export default function ChartPage() {
   // Fecha todas as posições a partir do pop-up de meta ao vivo
   const handleLiveMetaCloseAll = useCallback(async () => {
     setLiveMetaClosing(true)
-    const positions = [...metaPositionsRef.current]
-    for (const pos of positions) {
+    const allPositions = allBrokerPositionsRef.current.flatMap(b => b.positions)
+    const seen = new Set<string>()
+    for (const pos of allPositions) {
+      if (seen.has(pos.id)) continue
+      seen.add(pos.id)
       await handleClosePosition(pos.id)
     }
     setLiveMetaClosing(false)
@@ -3349,7 +3361,7 @@ export default function ChartPage() {
             </div>
             <div className="divide-y divide-[#21262d]">
               {(flatBrokerPositions.length > 0 ? flatBrokerPositions : metaPositions.map(p => ({ ...p, brokerId: '', brokerNome: routeBroker?.nome ?? '', rank: 1 }))).map(pos => {
-                const isBuy     = pos.type === 'POSITION_TYPE_BUY'
+                const isBuy     = pos.type === 'POSITION_TYPE_BUY' || pos.type === 'buy'
                 const pnlColor  = pos.profit >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'
                 const isEditing = editingPos?.id === pos.id
                 const isIA      = iaPositionIds.has(pos.id)
@@ -3582,7 +3594,7 @@ export default function ChartPage() {
                     ? flatBrokerPositions
                     : metaPositions.map(p => ({ ...p, brokerId: '', brokerNome: routeBroker?.nome ?? '', rank: 1 }))
                   ).map(pos => {
-                    const isBuy  = pos.type === 'POSITION_TYPE_BUY'
+                    const isBuy  = pos.type === 'POSITION_TYPE_BUY' || pos.type === 'buy'
                     // P&L tick-a-tick para EURUSD da corretora top; demais usam último valor da API
                     const pnl    = (livePrice && /eurusd/i.test(pos.symbol) && pos.rank === 1)
                       ? (isBuy ? 1 : -1) * (livePrice - pos.openPrice) * pos.volume * 100000
@@ -3975,7 +3987,7 @@ export default function ChartPage() {
               ? flatBrokerPositions
               : metaPositions.map(p => ({ ...p, brokerId: '', brokerNome: routeBroker?.nome ?? '', rank: 1 }))
             ).map(pos => {
-              const isBuy     = pos.type === 'POSITION_TYPE_BUY'
+              const isBuy     = pos.type === 'POSITION_TYPE_BUY' || pos.type === 'buy'
               const pnlColor  = pos.profit >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'
               const isEditing = editingPos?.id === pos.id
               return (
