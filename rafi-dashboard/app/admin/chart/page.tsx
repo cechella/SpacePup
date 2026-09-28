@@ -1220,9 +1220,9 @@ export default function ChartPage() {
         const data = await posRes.value.json()
         // Filtra posições recém-fechadas (MetaAPI pode ter cache por ~15s)
         const now20 = Date.now()
-        for (const [id, ts] of closedPositionIdsRef.current) {
+        closedPositionIdsRef.current.forEach((ts, id) => {
           if (now20 - ts > 20_000) closedPositionIdsRef.current.delete(id)
-        }
+        })
         const newPos = (data.positions ?? []).filter((p: any) => !closedPositionIdsRef.current.has(p.id))
         setMetaPositions(prev => {
           const opened = newPos.filter((p: any) => !prev.find(pp => pp.id === p.id))
