@@ -151,6 +151,7 @@ export default function ChartPage() {
   const [clickedEntry, setClickedEntry] = useState<number | null>(null)
   const [clickedTime,  setClickedTime]  = useState<number | undefined>(undefined)
   const [ocoState,     setOcoState]     = useState<OCOState | null>(null)
+  const [ocoLot,       setOcoLot]       = useState(0.01)  // lote padrão do painel OCO
   const [ocoVisible,   setOcoVisible]   = useState(true)
   const [csvData,      setCsvData]      = useState<LoadResult | null>(null)
   const [csvError,     setCsvError]     = useState<string | null>(null)
@@ -2080,13 +2081,22 @@ export default function ChartPage() {
   const currentLot     = useMemo(() => getLotForCapital(currentCapital),   [currentCapital])
   const nextTier       = useMemo(() => getNextTier(currentCapital),        [currentCapital])
 
-  // Inicializa/reseta OCO quando o timeframe ou o lote calculado muda
+  // Sincroniza ocoLot quando o usuário muda o lote no painel OCO
+  useEffect(() => {
+    if (ocoState?.lot !== undefined && ocoState.lot !== ocoLot) {
+      setOcoLot(ocoState.lot)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ocoState?.lot])
+
+  // Inicializa/reseta OCO quando o timeframe muda — usa ocoLot (não currentLot)
   useEffect(() => {
     if (lastPrice > 0) {
-      setOcoState(makeOCO(lastPrice, currentLot))
+      setOcoState(makeOCO(lastPrice, ocoLot))
       setOcoVisible(true)
     }
-  }, [lastPrice, currentLot])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastPrice])
 
   // Auto-muda para Navegar quando há posição aberta — overlay OCO atrapalha a visão
   // O usuário pode voltar para OCO manualmente a qualquer momento
@@ -2101,7 +2111,7 @@ export default function ChartPage() {
     const timer = setTimeout(() => {
       const price = livePriceRef.current ?? lastPrice
       if (price > 0) {
-        setOcoState(makeOCO(price, currentLot))
+        setOcoState(makeOCO(price, ocoLot))
         setClickedEntry(null)
         setClickedTime(undefined)
       }
@@ -3166,7 +3176,7 @@ export default function ChartPage() {
                     if (!ocoVisible && ocoState) {
                       setOcoVisible(true)
                     } else if (!ocoVisible) {
-                      setOcoState(makeOCO(lastPrice, currentLot))
+                      setOcoState(makeOCO(lastPrice, ocoLot))
                       setOcoVisible(true)
                     }
                   }}
@@ -3282,7 +3292,7 @@ export default function ChartPage() {
                 setClickedEntry(price)
                 setClickedTime(time)
                 setOcoState(prev => {
-                  if (!prev) return makeOCO(price, currentLot, time)
+                  if (!prev) return makeOCO(price, ocoLot, time)
                   const p = (v: number) => Math.round(v * 100000) / 100000
                   const dSL = prev.sl - prev.entry
                   const dTP = prev.tp - prev.entry
