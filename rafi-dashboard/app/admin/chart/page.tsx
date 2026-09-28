@@ -223,6 +223,8 @@ export default function ChartPage() {
   }>>([])
   const allBrokerPositionsRef = useRef<typeof allBrokerPositions>([])
   useEffect(() => { allBrokerPositionsRef.current = allBrokerPositions }, [allBrokerPositions])
+  // IDs de posições recém-fechadas: ignorados nos próximos polls por 20s (MetaAPI tem cache)
+  const closedPositionIdsRef = useRef<Map<string, number>>(new Map())
   // Preço ao vivo: atualiza o último candle tick a tick
   const [livePrice, setLivePrice] = useState<number | null>(null)
   // Ref direto para RAF no gráfico — sem passar pelo scheduler do React
@@ -1216,7 +1218,12 @@ export default function ChartPage() {
       }
       if (posRes.status === 'fulfilled' && posRes.value.ok) {
         const data = await posRes.value.json()
-        const newPos = data.positions ?? []
+        // Filtra posições recém-fechadas (MetaAPI pode ter cache por ~15s)
+        const now20 = Date.now()
+        for (const [id, ts] of closedPositionIdsRef.current) {
+          if (now20 - ts > 20_000) closedPositionIdsRef.current.delete(id)
+        }
+        const newPos = (data.positions ?? []).filter((p: any) => !closedPositionIdsRef.current.has(p.id))
         setMetaPositions(prev => {
           const opened = newPos.filter((p: any) => !prev.find(pp => pp.id === p.id))
           const closed  = prev.filter(p => !newPos.find((pp: any) => pp.id === p.id))
@@ -1269,6 +1276,10 @@ export default function ChartPage() {
           if (nb.error) {
             brokerZeroCountRef.current[nb.brokerId] = 0
             return prevBroker ?? nb
+          }
+          // Filtra posições recém-fechadas do poll (MetaAPI tem cache de ~15s)
+          if (nb.positions) {
+            nb = { ...nb, positions: nb.positions.filter((p: any) => !closedPositionIdsRef.current.has(p.id)) }
           }
           // Equity ≈ saldo: API de posições ainda tem cache antigo; não há posição real
           // (a limpeza já foi feita na API all-positions, mas garantimos aqui também)
@@ -1486,6 +1497,8 @@ export default function ChartPage() {
         body:    JSON.stringify({ positionId, symbol: pos?.symbol, volume: pos?.volume }),
       })
       if (res.ok) {
+        // Marca como fechado para ignorar nos próximos polls (MetaAPI tem cache de ~15s)
+        closedPositionIdsRef.current.set(positionId, Date.now())
         // Remove imediatamente de ambos os estados — não espera o próximo poll
         setMetaPositions(prev => prev.filter(p => p.id !== positionId))
         setAllBrokerPositions(prev => prev.map(b => ({
