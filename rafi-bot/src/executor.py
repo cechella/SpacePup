@@ -67,6 +67,8 @@ from .supabase_sync import (
     verificar_upload_pendente,
     atualizar_status_upload,
     buscar_trades_pendentes,
+    publicar_bloqueio_global,
+    verificar_bloqueio_global,
 )
 from . import supabase_sync as _supabase_sync_mod
 from .broker_coordinator import BrokerCoordinator
@@ -846,7 +848,12 @@ class RafiBot:
             self.capital = cap_atual
 
         # Avança calendário do gestor de risco (reset diário/semanal automático)
-        self.gestor_risco.avancar_data(datetime.utcnow().date())
+        data_hoje = datetime.utcnow().date()
+        data_anterior = self.gestor_risco._data_atual
+        self.gestor_risco.avancar_data(data_hoje)
+        # Se virou o dia, reseta flag de bloqueio global (novo dia = novas operações)
+        if data_hoje != data_anterior:
+            self._bloqueio_global_publicado = False
 
         # 2. Verifica posições abertas (exaustão / SL/TP atingido)
         self._monitorar_posicoes()
@@ -894,13 +901,27 @@ class RafiBot:
             servidor_real  = self._conta_server,  # valida terminal MT5
         )
 
-        # 4. Verifica limite diário de perda
+        # 4. Verifica limite diário de perda (USD)
         if self._limite_diario_atingido():
             logger.warning("Limite de perda diária atingido — sem novas entradas hoje.")
             publicar_log(
                 f"Limite de perda diária atingido (−${self._perda_hoje:.2f}) — bot parado até amanhã",
                 level='warn',
             )
+            return
+
+        # 4b. Verifica regras internas do GestorRisco (stops diários/consecutivos)
+        pode, motivo_risco = self.gestor_risco.pode_operar(self.capital)
+        if not pode:
+            logger.warning(f"[GestorRisco] Bloqueado: {motivo_risco}")
+            publicar_log(f"Bot bloqueado pelo GestorRisco: {motivo_risco}", level='warn')
+            return
+
+        # 4c. Verifica bloqueio global publicado por outro broker
+        if verificar_bloqueio_global(self._broker_id):
+            self.gestor_risco._parado_hoje = True
+            logger.warning(f"[GestorRisco] Bloqueio global ativado em '{self._broker_id}' — sem novas entradas hoje")
+            publicar_log(f"Bloqueio global recebido — '{self._broker_id}' parado até amanhã", level='warn')
             return
 
         # 5. Verifica número máximo de posições abertas
@@ -1544,6 +1565,12 @@ class RafiBot:
             # drawdown semanal e pico de capital para proteção de escalonamento
             self.gestor_risco.fechar_trade(pnl_trade, cap_novo if cap_novo is not None else self.capital)
 
+            # Publica bloqueio global se este broker acabou de ser bloqueado
+            if self.gestor_risco._parado_hoje and not getattr(self, '_bloqueio_global_publicado', False):
+                publicar_bloqueio_global(self._broker_id)
+                self._bloqueio_global_publicado = True
+                logger.warning(f"[GestorRisco] Bloqueio global publicado — todos os brokers vão parar")
+
             # Atualiza saldo e Supabase (tabela rafi_bot_status)
             if cap_novo is not None:
                 self.capital = cap_novo
@@ -1761,6 +1788,8 @@ def main() -> None:
     parser.add_argument('--config', default='config.yaml', help='Arquivo de configuração YAML')
     parser.add_argument('--broker', default=None,
                         help='ID da corretora a usar: xm | pepperstone (padrão: primeira ativa no Supabase)')
+    parser.add_argument('--lot', type=float, default=None,
+                        help='Força tamanho de lote fixo (ex.: 0.01) — para testes. Ignora tabela de faixas.')
     args = parser.parse_args()
 
     # Carrega variáveis de ambiente do .env — busca na pasta atual e na raiz do repo
@@ -1779,6 +1808,12 @@ def main() -> None:
     if args.broker:
         cfg['_broker_arg'] = args.broker.lower()
     bot = RafiBot(cfg)
+
+    # Lote fixo para testes — sobrescreve tabela de faixas do Supabase
+    if args.lot is not None:
+        bot.gestor_risco._faixa_forcada = args.lot
+        logger.info(f"[--lot] Lote fixo forçado: {args.lot} (modo teste)")
+
     bot.rodar()
 
 

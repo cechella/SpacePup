@@ -714,6 +714,70 @@ def gravar_rafi_trade(
         return False
 
 
+def publicar_bloqueio_global(broker_id: str) -> bool:
+    """
+    Publica um bloqueio global no Supabase quando este broker atinge o limite de stops.
+
+    Todos os outros processos executores vão detectar e parar também.
+    Usa rafi_bot_commands com command='bloquear_todos' e pending=True.
+    Não é consumido — cada broker lê e reage independentemente.
+    """
+    cliente = _get_cliente()
+    if cliente is None:
+        return False
+    try:
+        row = {
+            'command':    'bloquear_todos',
+            'pending':    True,
+            'data':       {'origem': broker_id, 'data_utc': datetime.utcnow().date().isoformat()},
+            'created_at': datetime.utcnow().isoformat(),
+        }
+        cliente.table('rafi_bot_commands').insert(row).execute()
+        logger.warning(f"[Supabase] Bloqueio global publicado por '{broker_id}' — todos os brokers vão parar")
+        return True
+    except Exception as e:
+        logger.error(f"[Supabase] Erro ao publicar bloqueio global: {e}")
+        return False
+
+
+def verificar_bloqueio_global(broker_id: str) -> bool:
+    """
+    Verifica se algum outro broker publicou um bloqueio global hoje.
+
+    Retorna True se há bloqueio ativo de outro broker (este deve parar também).
+    Não consome o comando — cada broker verifica independentemente.
+    """
+    cliente = _get_cliente()
+    if cliente is None:
+        return False
+
+    hoje = datetime.utcnow().date().isoformat()
+    try:
+        res = (
+            cliente.table('rafi_bot_commands')
+            .select('id,data')
+            .eq('command', 'bloquear_todos')
+            .eq('pending', True)
+            .gte('created_at', f"{hoje}T00:00:00")
+            .execute()
+        )
+        if not res.data:
+            return False
+
+        for row in (res.data or []):
+            origem = (row.get('data') or {}).get('origem', '')
+            if origem != broker_id:
+                logger.warning(
+                    f"[Supabase] Bloqueio global detectado (originado por '{origem}') "
+                    f"— parando operações em '{broker_id}'"
+                )
+                return True
+        return False
+    except Exception as e:
+        logger.error(f"[Supabase] Erro ao verificar bloqueio global: {e}")
+        return False
+
+
 def verificar_backtest_pendente() -> Optional[dict]:
     """
     Retorna o run de backtest mais antigo com status='pending', ou None.

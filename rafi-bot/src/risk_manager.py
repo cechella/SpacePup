@@ -258,10 +258,18 @@ class GestorRisco:
                 f"| Resultado: ${resultado_usd:.2f}"
             )
 
-            if self._losses_seguidos >= self.max_losses_seguidos:
+            # Para por stops no dia OU por stops consecutivos — o que acontecer primeiro
+            if self._perdas_dia >= self.max_losses_seguidos and not self._parado_hoje:
                 self._parado_hoje = True
                 logger.warning(
-                    f"BOT PAUSADO: {self.max_losses_seguidos} stops consecutivos. Retoma amanhã (Londres/NY)."
+                    f"BOT PAUSADO: {self._perdas_dia} stop(s) no dia (limite: {self.max_losses_seguidos}). "
+                    f"Retoma amanhã (abertura de sessão)."
+                )
+            elif self._losses_seguidos >= self.max_losses_seguidos and not self._parado_hoje:
+                self._parado_hoje = True
+                logger.warning(
+                    f"BOT PAUSADO: {self.max_losses_seguidos} stops consecutivos. "
+                    f"Retoma amanhã (abertura de sessão)."
                 )
         else:
             self._losses_seguidos = 0
@@ -303,6 +311,7 @@ class GestorRisco:
             self._data_atual      = data
             self._perdas_dia      = 0
             self._parado_hoje     = False
+            self._losses_seguidos = 0   # consecutivos não carregan entre dias
 
     def _resetar_se_nova_semana(self, data: date) -> None:
         iso    = data.isocalendar()
