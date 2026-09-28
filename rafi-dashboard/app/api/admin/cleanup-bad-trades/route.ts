@@ -1,8 +1,10 @@
 /**
- * GET  /api/admin/cleanup-bad-trades  — lista os trades IA do dia 24/09/2026 com resultado loss
+ * GET  /api/admin/cleanup-bad-trades  — lista os trades IA dos dias 24-25/09/2026 corrompidos
  * DELETE /api/admin/cleanup-bad-trades — apaga esses trades do Supabase
  *
- * Protegido pelo CRON_SECRET. Uso único para limpar dados corrompidos pelo bug do SL.
+ * Cobre 24/09 e 25/09 BRT: bug do SL fixo + RAFI 0.8 sem filtro mínimo.
+ * Só apaga entry_type='ia_autonoma' — trades manuais não são tocados.
+ * Protegido pelo CRON_SECRET.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -18,8 +20,8 @@ function getServiceClient() {
 
 // 24/09/2026 00:00:00 BRT = 03:00:00 UTC
 const DAY_START = Math.floor(new Date('2026-09-24T03:00:00.000Z').getTime() / 1000)
-// 25/09/2026 00:00:00 BRT = 03:00:00 UTC
-const DAY_END   = Math.floor(new Date('2026-09-25T03:00:00.000Z').getTime() / 1000)
+// 26/09/2026 00:00:00 BRT = 03:00:00 UTC — cobre 24/09 e 25/09 completos
+const DAY_END   = Math.floor(new Date('2026-09-26T03:00:00.000Z').getTime() / 1000)
 
 function checkAuth(req: NextRequest) {
   const auth     = req.headers.get('authorization')
@@ -39,6 +41,7 @@ export async function GET(req: NextRequest) {
     .select('id, time, direction, entry, result, pnl_usd, label, entry_type', { count: 'exact' })
     .gte('time', DAY_START)
     .lt('time', DAY_END)
+    .eq('entry_type', 'ia_autonoma')
     .order('time', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -66,12 +69,13 @@ export async function DELETE(req: NextRequest) {
 
   const supa = getServiceClient()
 
-  // 1) Trades do dia 24/09 (timestamp em segundos)
+  // 1) Trades IA dos dias 24-25/09 (timestamp em segundos)
   const { data: byDay, error: dayErr } = await supa
     .from('rafi_trades')
     .select('id')
     .gte('time', DAY_START)
     .lt('time', DAY_END)
+    .eq('entry_type', 'ia_autonoma')
 
   if (dayErr) return NextResponse.json({ error: dayErr.message }, { status: 500 })
 
