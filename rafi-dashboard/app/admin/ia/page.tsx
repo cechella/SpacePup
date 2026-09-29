@@ -94,7 +94,7 @@ function ToggleSwitch({
 }
 
 const SECURITY_RULES = [
-  { icon: <AlertTriangle className="w-4 h-4" />, color: 'text-red-400', label: 'Perda diária > 5%', desc: 'IA para imediatamente até meia-noite' },
+  { icon: <AlertTriangle className="w-4 h-4" />, color: 'text-red-400', label: '2 stops consecutivos no dia', desc: 'Bot para até a abertura da sessão seguinte' },
   { icon: <CheckCircle className="w-4 h-4" />,   color: 'text-emerald-400', label: 'Meta diária atingida (7%)', desc: 'IA para até o próximo dia' },
   { icon: <Calendar className="w-4 h-4" />,      color: 'text-blue-400', label: 'Meta semanal atingida (25%)', desc: 'IA para até segunda-feira 00:00 (Brasília)' },
   { icon: <Shield className="w-4 h-4" />,        color: 'text-violet-400', label: 'Máx. 2 posições simultâneas', desc: 'Nunca abre 3ª posição enquanto houver 2 abertas' },
