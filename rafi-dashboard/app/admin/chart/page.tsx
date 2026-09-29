@@ -1755,7 +1755,11 @@ export default function ChartPage() {
     // Realtime: qualquer mudança em rafi_positions → rebusca tudo
     const posChannel = supa
       .channel('rafi-positions-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rafi_positions' }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rafi_positions' }, (payload) => {
+        // Posição removida pelo bridge (SL/TP automático): adiciona ao filtro de cache MetaAPI
+        if (payload.eventType === 'DELETE' && payload.old?.id) {
+          closedPositionIdsRef.current.set(String(payload.old.id), Date.now())
+        }
         supa.from('rafi_positions').select('*').then(({ data }) => {
           if (!data) return
           supaRtActiveRef.current = true
