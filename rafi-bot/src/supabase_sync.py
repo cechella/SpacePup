@@ -270,6 +270,9 @@ def publicar_heartbeat(
     ml_aprovados_hoje:   int             = 0,
     ml_treinado_em:      Optional[str]   = None,
     ml_threshold:        float           = 0.65,
+    # ── disciplina de risco ───────────────────────────────────────────────
+    pode_operar:         bool            = True,
+    motivo_bloqueio:     str             = '',
 ) -> bool:
     """
     Publica o status atual do bot na tabela rafi_bot_status (heartbeat).
@@ -312,6 +315,8 @@ def publicar_heartbeat(
         'ml_aprovados_hoje':   ml_aprovados_hoje,
         'ml_treinado_em':      ml_treinado_em,
         'ml_threshold':        round(ml_threshold, 4),
+        'pode_operar':         pode_operar,
+        'motivo_bloqueio':     motivo_bloqueio,
         'updated_at':          datetime.utcnow().isoformat(),
     }
 

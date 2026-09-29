@@ -46,6 +46,7 @@ interface BotStatus {
   balance: number; equity: number; open_positions: number; pnl_today: number
   par: string; server: string; account: number
   last_signal: string | null; updated_at: string
+  pode_operar?: boolean; motivo_bloqueio?: string
   forming_signal?: boolean; forming_direction?: 'buy' | 'sell'
   forming_rafi?: number; forming_tf_count?: number
   forming_bb_open?: boolean; forming_price?: number
@@ -608,6 +609,20 @@ export default function MonitorPage() {
           )}
         </div>
 
+        {/* Badge BLOQUEADO quando gestor_risco bloqueou por stops */}
+        {status && status.pode_operar === false && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 5, padding: '3px 8px', borderRadius: 6,
+            background: `${C.re}18`, border: `1px solid ${C.re}50`,
+          }}>
+            <span style={{ fontSize: 13 }}>🔒</span>
+            <span style={{ fontSize: 10, fontWeight: 700, color: C.re, ...mono }}>BOT BLOQUEADO</span>
+            {status.motivo_bloqueio && (
+              <span style={{ fontSize: 9, color: C.t3, ...mono }}>· {status.motivo_bloqueio}</span>
+            )}
+          </div>
+        )}
+
         {/* EURUSD chip */}
         <span style={{
           fontSize: 10, padding: '2px 8px', borderRadius: 6,
@@ -929,8 +944,10 @@ export default function MonitorPage() {
               ? (bMeta?.online ? 'APENAS IA' : 'OFFLINE')
               : (!bSt ? 'SEM DADOS' :
                   bHealth === 'offline' ? 'OFFLINE' :
+                  bSt.pode_operar === false ? 'BLOQUEADO' :
                   bSt.status === 'running' ? 'EM POSIÇÃO' :
                   bSt.status === 'waiting' ? 'AGUARDANDO' : 'PARADO')
+            const bLabelColor = bSt?.pode_operar === false ? C.re : bColor
             const isSelected = selectedBroker === b.id
             return (
               <div key={b.id}
@@ -960,7 +977,7 @@ export default function MonitorPage() {
                     }} />
                     <span style={{
                       fontSize: 8, fontWeight: 700,
-                      color: isIaOnly && bMeta?.online ? C.bl : bColor,
+                      color: isIaOnly && bMeta?.online ? C.bl : bLabelColor,
                       fontFamily: "'JetBrains Mono', monospace",
                     }}>
                       {bLabel}

@@ -868,6 +868,7 @@ class RafiBot:
             status_hb = 'waiting'
         _info_ml   = modelo_info()
         _status_ml = self._monitor.status()
+        _pode, _motivo = self.gestor_risco.pode_operar(self.capital)
         publicar_heartbeat(
             status         = status_hb,
             balance        = self.capital,
@@ -888,6 +889,9 @@ class RafiBot:
             ml_aprovados_hoje   = self._ml_aprovados_hoje,
             ml_treinado_em      = _info_ml.get('treinado_em') or None,
             ml_threshold        = _info_ml.get('threshold', 0.65),
+            # disciplina de risco
+            pode_operar     = _pode,
+            motivo_bloqueio = _motivo,
         )
         # Atualiza card da corretora no /admin/brokers (valida terminal correto)
         publicar_status_broker(
