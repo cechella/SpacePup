@@ -685,26 +685,42 @@ export default function ChartPage() {
 
   // Estado de disciplina derivado do histórico de operações já carregado
   const disciplineState = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10)  // 'YYYY-MM-DD'
+    const today = new Date().toISOString().slice(0, 10)  // 'YYYY-MM-DD' UTC
 
-    // Stops hoje: trades fechados com lucro negativo no dia atual
-    const stopsToday = metaHistory.filter(t => {
-      const tradeDate = t.time?.slice(0, 10) ?? ''
-      return tradeDate === today && t.profit < 0
-    }).length
+    // Agrupa deals por trade LÓGICO: deals fechados dentro de 30s = mesma ordem replicada em vários brokers
+    // Sem isso, 1 trade em 4 corretoras geraria 4 stops, bloqueando após o 1º trade
+    const WINDOW_MS = 30_000
+    const sorted = [...metaHistory].sort((a, b) =>
+      new Date(a.time ?? 0).getTime() - new Date(b.time ?? 0).getTime()
+    )
+    const logicalTrades: Array<{ timeStr: string; profit: number }> = []
+    for (const t of sorted) {
+      const ts  = new Date(t.time ?? 0).getTime()
+      const last = logicalTrades[logicalTrades.length - 1]
+      if (last && ts - new Date(last.timeStr).getTime() <= WINDOW_MS) {
+        last.profit += t.profit ?? 0   // acumula P&L do mesmo trade lógico
+      } else {
+        logicalTrades.push({ timeStr: t.time ?? '', profit: t.profit ?? 0 })
+      }
+    }
 
-    // Perdas consecutivas: contar da trade mais recente para trás
+    // Stops hoje: trades lógicos com resultado negativo no dia atual
+    const stopsToday = logicalTrades.filter(lt =>
+      lt.timeStr.slice(0, 10) === today && lt.profit < 0
+    ).length
+
+    // Perdas consecutivas: da mais recente para trás (em trades lógicos)
     let consecutiveLosses = 0
-    for (const t of [...metaHistory].reverse()) {
-      if (t.profit < 0) consecutiveLosses++
+    for (const lt of [...logicalTrades].reverse()) {
+      if (lt.profit < 0) consecutiveLosses++
       else break
     }
 
-    // Drawdown semanal: soma de todas as perdas dos últimos 7 dias / saldo atual
+    // Drawdown semanal: P&L total de trades lógicos nos últimos 7 dias / saldo atual
     const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1_000
-    const weeklyPnl = metaHistory
-      .filter(t => new Date(t.time).getTime() >= weekAgo)
-      .reduce((sum, t) => sum + (t.profit ?? 0), 0)
+    const weeklyPnl = logicalTrades
+      .filter(lt => new Date(lt.timeStr).getTime() >= weekAgo)
+      .reduce((sum, lt) => sum + lt.profit, 0)
     const bal = metaAccount?.balance ?? 100
     const weeklyDrawdownPct = bal > 0 ? (weeklyPnl / bal) * 100 : 0
 
