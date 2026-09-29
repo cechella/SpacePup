@@ -258,6 +258,7 @@ export default function ChartPage() {
   // Só zeramos as posições de um broker após 2 polls consecutivas confirmando 0
   // (≈6s de grace period para o MetaAPI sincronizar trades abertos manualmente no VPS).
   const brokerZeroCountRef  = useRef<Record<string, number>>({})
+  const prevDisciplineLockedRef = useRef(false)
   // IA Suggestion — pop-up de sugestão de entrada
   const [iaSuggestion,     setIaSuggestion]     = useState<IASuggestion | null>(null)
   const [showIASuggestion, setShowIASuggestion] = useState(false)
@@ -547,6 +548,13 @@ export default function ChartPage() {
   }
 
   async function handleIAAuthorize(s: IASuggestion) {
+    if (isDisciplineLocked) {
+      const motivo = disciplineState.consecutiveLosses >= 2
+        ? `${disciplineState.consecutiveLosses} perdas consecutivas — operações bloqueadas até amanhã`
+        : `${disciplineState.stopsToday} stops hoje — limite diário atingido`
+      setGoalBlockMsg(motivo)
+      return
+    }
     await fetch('/api/metaapi/order', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -804,6 +812,8 @@ export default function ChartPage() {
 
   // Quando usuário fez check-in após IA cumprir a meta, desbloqueia SessionSidebar
   const effectiveTargets = manualUnlocked ? { ...targetMetrics, locked: false } : targetMetrics
+  // Bloqueio por disciplina: 2 stops no dia OU 2 perdas consecutivas
+  const isDisciplineLocked = disciplineState.stopsToday >= 2 || disciplineState.consecutiveLosses >= 2
 
   useEffect(() => {
     if (!balanceLoaded) return
@@ -874,6 +884,17 @@ export default function ChartPage() {
       }).catch(() => {/* falha silenciosa */})
     }
   }, [balanceLoaded, showWeeklyOverlay, targetMetrics.weeklyMet])
+
+  // Pop-up quando disciplina é bloqueada pela 1ª vez na sessão (2 stops/perdas)
+  useEffect(() => {
+    if (isDisciplineLocked && !prevDisciplineLockedRef.current && balanceLoaded) {
+      const motivo = disciplineState.consecutiveLosses >= 2
+        ? `${disciplineState.consecutiveLosses} perdas consecutivas atingidas`
+        : `${disciplineState.stopsToday} stops no dia atingidos`
+      setGoalBlockMsg(motivo)
+    }
+    prevDisciplineLockedRef.current = isDisciplineLocked
+  }, [isDisciplineLocked, balanceLoaded, disciplineState, setGoalBlockMsg])
 
   // Inicializa altura do gráfico e detecta desktop
   useEffect(() => {
@@ -2161,6 +2182,15 @@ export default function ChartPage() {
   const handleOCOExecute = useCallback((direction: 'buy' | 'sell') => {
     if (!ocoState) return
 
+    // Bloqueia ordem se limite de disciplina atingido (2 stops ou 2 perdas consecutivas)
+    if (isDisciplineLocked) {
+      const motivo = disciplineState.consecutiveLosses >= 2
+        ? `${disciplineState.consecutiveLosses} perdas consecutivas — operações bloqueadas até amanhã`
+        : `${disciplineState.stopsToday} stops hoje — limite diário atingido`
+      setGoalBlockMsg(motivo)
+      return
+    }
+
     // Bloqueia ordem se meta diária ou semanal foi atingida
     if (effectiveTargets.locked) {
       const motivo = targetMetrics.weeklyMet
@@ -2245,7 +2275,7 @@ export default function ChartPage() {
         setOrderToast({ ok: false, msg: err.message ?? 'Falha de rede ao enviar ordem' })
         setTimeout(() => setOrderToast(null), 6000)
       })
-  }, [ocoState, lastTime, rafiData, bbBands, handleAdd, effectiveTargets, targetMetrics, setGoalBlockMsg])
+  }, [ocoState, lastTime, rafiData, bbBands, handleAdd, effectiveTargets, targetMetrics, disciplineState, isDisciplineLocked, setGoalBlockMsg])
 
   const handleOCOClose = useCallback(() => setOcoVisible(false), [])
 
@@ -2812,7 +2842,7 @@ export default function ChartPage() {
                 }}
               />
             </div>
-            {targetMetrics.locked && (
+            {(targetMetrics.locked || isDisciplineLocked) && (
               <>
                 <span className="text-[#1c3050]">|</span>
                 <span className="text-[8px] font-bold text-[#ef4444] bg-[#ef4444]/10 border border-[#ef4444]/30 px-1.5 py-0.5 rounded">
@@ -4236,12 +4266,16 @@ export default function ChartPage() {
             <div className="text-center">
               <p className="text-[13px] font-bold text-[#f59e0b] mb-1">{goalBlockMsg}</p>
               <p className="text-[12px] text-[#f0f6fc] font-semibold leading-snug">
-                Você já cumpriu sua meta do dia/semana.
+                {isDisciplineLocked && !effectiveTargets.locked
+                  ? 'Operações bloqueadas por disciplina de risco.'
+                  : 'Você já cumpriu sua meta do dia/semana.'}
               </p>
               <p className="text-[11px] text-[#8b949e] mt-1">
-                {targetMetrics.weeklyMet
-                  ? 'As operações retornam na segunda-feira a partir das 00:00.'
-                  : 'As operações retornam amanhã.'}
+                {isDisciplineLocked && !effectiveTargets.locked
+                  ? 'As operações retornam amanhã a partir das 00:00.'
+                  : targetMetrics.weeklyMet
+                    ? 'As operações retornam na segunda-feira a partir das 00:00.'
+                    : 'As operações retornam amanhã.'}
               </p>
             </div>
             <button
