@@ -550,8 +550,8 @@ export default function ChartPage() {
   async function handleIAAuthorize(s: IASuggestion) {
     if (isDisciplineLocked) {
       const motivo = disciplineState.consecutiveLosses >= 2
-        ? `${disciplineState.consecutiveLosses} perdas consecutivas — operações bloqueadas até amanhã`
-        : `${disciplineState.stopsToday} stops hoje — limite diário atingido`
+        ? 'Limite de 2 perdas consecutivas atingido — operações bloqueadas até amanhã'
+        : 'Limite de 2 stops diários atingido — operações bloqueadas até amanhã'
       setGoalBlockMsg(motivo)
       return
     }
@@ -905,8 +905,8 @@ export default function ChartPage() {
   useEffect(() => {
     if (isDisciplineLocked && !prevDisciplineLockedRef.current && balanceLoaded) {
       const motivo = disciplineState.consecutiveLosses >= 2
-        ? `${disciplineState.consecutiveLosses} perdas consecutivas atingidas`
-        : `${disciplineState.stopsToday} stops no dia atingidos`
+        ? 'Limite de 2 perdas consecutivas atingido'
+        : 'Limite de 2 stops diários atingido'
       setGoalBlockMsg(motivo)
     }
     prevDisciplineLockedRef.current = isDisciplineLocked
@@ -2201,8 +2201,8 @@ export default function ChartPage() {
     // Bloqueia ordem se limite de disciplina atingido (2 stops ou 2 perdas consecutivas)
     if (isDisciplineLocked) {
       const motivo = disciplineState.consecutiveLosses >= 2
-        ? `${disciplineState.consecutiveLosses} perdas consecutivas — operações bloqueadas até amanhã`
-        : `${disciplineState.stopsToday} stops hoje — limite diário atingido`
+        ? 'Limite de 2 perdas consecutivas atingido — operações bloqueadas até amanhã'
+        : 'Limite de 2 stops diários atingido — operações bloqueadas até amanhã'
       setGoalBlockMsg(motivo)
       return
     }
