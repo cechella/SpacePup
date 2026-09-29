@@ -1177,10 +1177,7 @@ export default function ChartPage() {
       byBroker[r.broker_id].push(r)
     }
     const groups = enabledBrokers.map((b, idx) => {
-      // Verifica equity vs saldo: se iguais (< $0.50) descarta posições do Supabase (cache antigo)
-      const acct = brokerEquityRef.current[b.id]
-      const hasRealPositions = !acct || Math.abs(acct.equity - acct.balance) >= 0.50
-      const bRows = hasRealPositions ? (byBroker[b.id] ?? []) : []
+      const bRows = byBroker[b.id] ?? []
       const positions = bRows.map((r: any) => ({
         id:           r.id,
         symbol:       r.symbol,
@@ -1282,13 +1279,6 @@ export default function ChartPage() {
             ? nb.positions.filter((p: any) => !closedPositionIdsRef.current.has(p.id))
             : nb.positions
           const nbf = filteredPositions !== nb.positions ? { ...nb, positions: filteredPositions } : nb
-          // Equity ≈ saldo: API de posições ainda tem cache antigo; não há posição real
-          // (a limpeza já foi feita na API all-positions, mas garantimos aqui também)
-          if (nbf.balance !== undefined && nbf.equity !== undefined &&
-              Math.abs(nbf.equity - nbf.balance) < 0.50) {
-            brokerZeroCountRef.current[nbf.brokerId] = 0
-            return { ...nbf, positions: [], totalPnl: 0 }
-          }
           // Tem posições → atualiza e reseta o contador de zeros
           if ((nbf.positions?.length ?? 0) > 0) {
             brokerZeroCountRef.current[nbf.brokerId] = 0

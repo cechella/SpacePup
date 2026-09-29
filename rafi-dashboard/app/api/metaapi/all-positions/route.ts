@@ -49,7 +49,8 @@ export async function GET() {
         openTime:     p.time,
       }))
 
-      // Valida equity vs saldo: se iguais (< $0.50 de diferença) não há posição real aberta
+      // Busca saldo/equity para exibição no painel (não filtra posições por equity≈balance —
+      // o closedPositionIdsRef no cliente já cobre o caso de cache pós-fechamento)
       let balance: number | undefined
       let equity:  number | undefined
       if (accRes.status === 'fulfilled' && accRes.value.ok) {
@@ -57,9 +58,6 @@ export async function GET() {
         if (acc) {
           balance = acc.balance
           equity  = acc.equity
-          if (balance !== undefined && equity !== undefined && Math.abs(equity - balance) < 0.50) {
-            positions = []  // equity ≈ saldo: sem posições reais (MetaAPI ainda com cache antigo)
-          }
         }
       }
 
