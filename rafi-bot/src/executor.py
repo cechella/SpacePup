@@ -1656,27 +1656,33 @@ class RafiBot:
             c = df.iloc[-1]
             lote = lote_por_faixa(self.capital)
             p = lambda v: round(v, 5)
-            rr = self.cfg['ratio_risco_retorno']
-            # Stop usa o mesmo offset do autoscan (ex.: 5 pips) — nunca hardcoded
-            stop_offset = float(self.cfg.get('autoscan_stop_offset', 0.0005))
+            rr  = self.cfg['ratio_risco_retorno']
+            # Stop baseado no swing dos últimos N candles (mesma lógica do modo RAFI).
+            # Mínimo absoluto de 15 pips para garantir stop saudável independente do config.
+            sw_lb      = int(self.cfg.get('swing_stop_lookback', 5))
+            MIN_STOP   = 0.0015   # 15 pips mínimo
 
             if direcao == 'compra':
-                stop  = p(float(c['low']) - stop_offset)
-                entry = p(float(c['high']))
-                risco = entry - stop
-                if risco <= 0:
-                    return
+                swing_low = float(df['low'].iloc[-(sw_lb + 1):-1].min())
+                entry     = p(float(c['close']))
+                stop      = p(swing_low - 0.00010)       # 1 pip abaixo do swing low
+                risco     = entry - stop
+                if risco < MIN_STOP:                     # garante mínimo de 15 pips
+                    stop  = p(entry - MIN_STOP)
+                    risco = MIN_STOP
                 sinal_dict = {
                     'direcao': 'compra', 'entry': entry,
                     'stop_loss': stop, 'take_profit': p(entry + risco * rr),
                     'rafi': 0.0, 'rafi_dir': 'bull', 'bb_width': 0.0,
                 }
             else:
-                stop  = p(float(c['high']) + stop_offset)
-                entry = p(float(c['low']))
-                risco = stop - entry
-                if risco <= 0:
-                    return
+                swing_high = float(df['high'].iloc[-(sw_lb + 1):-1].max())
+                entry      = p(float(c['close']))
+                stop       = p(swing_high + 0.00010)     # 1 pip acima do swing high
+                risco      = stop - entry
+                if risco < MIN_STOP:                     # garante mínimo de 15 pips
+                    stop  = p(entry + MIN_STOP)
+                    risco = MIN_STOP
                 sinal_dict = {
                     'direcao': 'venda', 'entry': entry,
                     'stop_loss': stop, 'take_profit': p(entry - risco * rr),
