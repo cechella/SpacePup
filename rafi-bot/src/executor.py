@@ -1657,9 +1657,11 @@ class RafiBot:
             lote = lote_por_faixa(self.capital)
             p = lambda v: round(v, 5)
             rr = self.cfg['ratio_risco_retorno']
+            # Stop usa o mesmo offset do autoscan (ex.: 5 pips) — nunca hardcoded
+            stop_offset = float(self.cfg.get('autoscan_stop_offset', 0.0005))
 
             if direcao == 'compra':
-                stop  = p(float(c['low']) - 0.00015)
+                stop  = p(float(c['low']) - stop_offset)
                 entry = p(float(c['high']))
                 risco = entry - stop
                 if risco <= 0:
@@ -1670,7 +1672,7 @@ class RafiBot:
                     'rafi': 0.0, 'rafi_dir': 'bull', 'bb_width': 0.0,
                 }
             else:
-                stop  = p(float(c['high']) + 0.00015)
+                stop  = p(float(c['high']) + stop_offset)
                 entry = p(float(c['low']))
                 risco = stop - entry
                 if risco <= 0:
